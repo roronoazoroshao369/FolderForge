@@ -1,0 +1,35 @@
+# FolderForge - basic example config
+#
+# Minimal setup: one project, safe mode, stdio transport.
+# Copy to your project root as `folderforge.yaml` (or pass via --config).
+
+server:
+  name: folderforge
+  transport: stdio
+  http:
+    host: 127.0.0.1
+    port: 7331
+  dashboard:
+    host: 127.0.0.1
+    port: 7332
+
+workspace:
+  defaultProject: /home/devops/FolderForge
+  allowedDirectories:
+    - /home/devops/FolderForge
+  deniedGlobs:
+    - "**/.env"
+    - "**/.env.*"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/node_modules/**"
+
+policy:
+  defaultMode: safe
+  requireApproval:
+    - git_commit
+    - git_push
+    - file_delete
+  blockedCommands:
+    - "rm -rf /"
+    - "git push --force"

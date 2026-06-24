@@ -1,0 +1,18 @@
+# Codex CLI MCP server configuration for FolderForge.
+#
+# Place this in ~/.codex/config.toml (or merge the [mcp_servers] block).
+# Codex launches the server over stdio.
+
+[mcp_servers.folderforge]
+command = "node"
+args = [
+  "/home/devops/FolderForge/dist/main.js",
+  "--stdio",
+  "--project",
+  "/home/devops/FolderForge",
+  "--config",
+  "/home/devops/FolderForge/examples/config.basic.yaml",
+]
+
+[mcp_servers.folderforge.env]
+FOLDERFORGE_LOG_LEVEL = "info"

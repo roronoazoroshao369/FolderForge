@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "folderforge": {
+      "command": "node",
+      "args": [
+        "/home/devops/FolderForge/dist/main.js",
+        "--stdio",
+        "--project",
+        "/home/devops/FolderForge",
+        "--config",
+        "/home/devops/FolderForge/examples/config.basic.yaml"
+      ],
+      "env": {
+        "FOLDERFORGE_LOG_LEVEL": "info"
+      }
+    }
+  }
+}

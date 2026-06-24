@@ -1,0 +1,84 @@
+# FolderForge - full example config
+#
+# Exercises every configurable surface: HTTP transport, dev mode, git policy,
+# terminal sandboxing, and child-MCP adapters (Serena / Playwright).
+
+server:
+  name: folderforge
+  transport: http
+  http:
+    host: 127.0.0.1
+    port: 7331
+  dashboard:
+    host: 127.0.0.1
+    port: 7332
+
+workspace:
+  defaultProject: /home/devops/FolderForge
+  allowedDirectories:
+    - /home/devops/FolderForge
+    - /home/devops/FolderForge/tests/fixtures
+  deniedGlobs:
+    - "**/.env"
+    - "**/.env.*"
+    - "**/id_rsa"
+    - "**/id_ed25519"
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/node_modules/**"
+    - "**/.git/objects/**"
+
+policy:
+  # readonly | safe | dev | danger
+  defaultMode: dev
+  requireApproval:
+    - git_push
+    - git_commit
+    - file_delete
+    - db_write
+    - shell_high_risk
+    - docker_prune
+  blockedCommands:
+    - "rm -rf /"
+    - "sudo rm"
+    - "mkfs"
+    - "dd if="
+    - "chmod -R 777 /"
+    - "curl * | bash"
+    - "wget * | sh"
+    - "git reset --hard"
+    - "git push --force"
+    - "docker system prune"
+    - "kubectl delete"
+    - "terraform apply"
+
+terminal:
+  shell: /bin/bash
+  defaultTimeoutMs: 120000
+  maxOutputBytes: 200000
+  # redact | passthrough
+  envPolicy: redact
+
+git:
+  # approval | allow | deny
+  allowCommit: approval
+  allowPush: approval
+  allowResetHard: false
+
+adapters:
+  serena:
+    enabled: false
+    command: serena
+    args: []
+  playwright:
+    enabled: true
+    command: npx
+    args:
+      - "-y"
+      - "@playwright/mcp@latest"
+  desktopCommander:
+    enabled: false
+    command: npx
+    args:
+      - "-y"
+      - "@wonderwhy-er/desktop-commander@latest"

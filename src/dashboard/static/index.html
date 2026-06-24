@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FolderForge Control Plane</title>
+    <style>
+      :root {
+        --bg: #0e1116;
+        --panel: #161b22;
+        --border: #232b36;
+        --fg: #e6edf3;
+        --muted: #8b949e;
+        --accent: #4cc38a;
+        --warn: #d29922;
+        --danger: #f85149;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 22px;
+        border-bottom: 1px solid var(--border);
+      }
+      header h1 { font-size: 16px; margin: 0; letter-spacing: 0.5px; }
+      header .brand { color: var(--accent); }
+      header .meta { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+      main { padding: 22px; display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+      section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+      section h2 {
+        margin: 0; padding: 12px 16px; font-size: 13px; text-transform: uppercase;
+        letter-spacing: 1px; color: var(--muted); border-bottom: 1px solid var(--border);
+        display: flex; justify-content: space-between; align-items: center;
+      }
+      section .body { padding: 14px 16px; max-height: 360px; overflow: auto; }
+      .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; font-size: 13px; }
+      .kv dt { color: var(--muted); }
+      .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
+      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; }
+      .pill { padding: 1px 7px; border-radius: 999px; font-size: 11px; font-family: var(--mono); }
+      .risk-LOW { background: #16331f; color: var(--accent); }
+      .risk-MEDIUM { background: #3a2f10; color: var(--warn); }
+      .risk-HIGH, .risk-CRITICAL { background: #3a1212; color: var(--danger); }
+      button {
+        font: inherit; font-size: 12px; cursor: pointer; border-radius: 6px;
+        border: 1px solid var(--border); background: #1f2630; color: var(--fg); padding: 4px 10px;
+      }
+      button.approve { border-color: var(--accent); color: var(--accent); }
+      button.deny { border-color: var(--danger); color: var(--danger); }
+      button:hover { filter: brightness(1.2); }
+      .empty { color: var(--muted); font-size: 12px; font-style: italic; }
+      .refresh { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><span class="brand">FolderForge</span> &middot; control plane</h1>
+      <span class="meta" id="server-meta">connecting&hellip;</span>
+    </header>
+    <main>
+      <section>
+        <h2>Status</h2>
+        <div class="body" id="status">&hellip;</div>
+      </section>
+      <section>
+        <h2>Approvals <span class="refresh" id="approvals-count"></span></h2>
+        <div class="body" id="approvals">&hellip;</div>
+      </section>
+      <section>
+        <h2>Processes</h2>
+        <div class="body" id="processes">&hellip;</div>
+      </section>
+      <section>
+        <h2>Audit <span class="refresh">last 50</span></h2>
+        <div class="body" id="audit">&hellip;</div>
+      </section>
+    </main>
+
+    <script>
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      const risk = (r) => `<span class="pill risk-${esc(r)}">${esc(r || "-")}</span>`;
+
+      async function getJson(path, opts) {
+        const res = await fetch(path, opts);
+        if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+        return res.json();
+      }
+
+      function renderStatus(s) {
+        document.getElementById("server-meta").textContent =
+          `${s.server.name} \u00b7 ${s.server.transport} \u00b7 ${s.tools.active}/${s.tools.total} tools`;
+        const ws = s.workspace;
+        document.getElementById("status").innerHTML = `
+          <dl class="kv">
+            <dt>Workspace</dt><dd>${ws.active ? esc(ws.name) : "<span class='empty'>inactive</span>"}</dd>
+            <dt>Root</dt><dd>${esc(ws.projectRoot)}</dd>
+            <dt>Languages</dt><dd>${esc((ws.languageHints || []).join(", ") || "-")}</dd>
+            <dt>Policy mode</dt><dd>${esc(s.policy.mode)}</dd>
+            <dt>Allowed dirs</dt><dd>${(ws.allowedDirectories || []).map(esc).join("<br>")}</dd>
+            <dt>Approval list</dt><dd>${esc((s.policy.requireApproval || []).join(", "))}</dd>
+          </dl>`;
+      }
+
+      function renderApprovals(data) {
+        const pending = data.pending || [];
+        document.getElementById("approvals-count").textContent = `${pending.length} pending`;
+        const el = document.getElementById("approvals");
+        if (!data.all.length) { el.innerHTML = `<div class="empty">No approval requests.</div>`; return; }
+        el.innerHTML = `<table><thead><tr><th>Tool</th><th>Risk</th><th>State</th><th>Reason</th><th></th></tr></thead><tbody>${
+          data.all.map((a) => `
+            <tr>
+              <td>${esc(a.tool)}</td>
+              <td>${risk(a.risk)}</td>
+              <td>${esc(a.state)}</td>
+              <td>${esc(a.reason)}</td>
+              <td>${a.state === "pending"
+                ? `<button class="approve" data-id="${esc(a.id)}" data-act="approve">Approve</button>
+                   <button class="deny" data-id="${esc(a.id)}" data-act="deny">Deny</button>`
+                : ""}</td>
+            </tr>`).join("")
+        }</tbody></table>`;
+        el.querySelectorAll("button[data-id]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const { id, act } = btn.dataset;
+            const opts = { method: "POST", headers: { "content-type": "application/json" } };
+            if (act === "approve") opts.body = JSON.stringify({ scope: "once" });
+            await fetch(`/approvals/${id}/${act}`, opts);
+            refresh();
+          });
+        });
+      }
+
+      function renderProcesses(data) {
+        const el = document.getElementById("processes");
+        const list = data.processes || [];
+        if (!list.length) { el.innerHTML = `<div class="empty">No managed processes.</div>`; return; }
+        el.innerHTML = `<table><thead><tr><th>Session</th><th>Status</th><th>PID</th><th>Command</th></tr></thead><tbody>${
+          list.map((p) => `
+            <tr>
+              <td>${esc(p.sessionId)}</td>
+              <td>${esc(p.status)}${p.exitCode != null ? ` (${esc(p.exitCode)})` : ""}</td>
+              <td>${esc(p.pid ?? "-")}</td>
+              <td>${esc(p.command)}</td>
+            </tr>`).join("")
+        }</tbody></table>`;
+      }
+
+      function renderAudit(data) {
+        const el = document.getElementById("audit");
+        const list = data.entries || [];
+        if (!list.length) { el.innerHTML = `<div class="empty">No audit events yet.</div>`; return; }
+        el.innerHTML = `<table><thead><tr><th>Time</th><th>Type</th><th>Tool</th><th>Risk</th><th>Summary</th></tr></thead><tbody>${
+          list.map((e) => `
+            <tr>
+              <td>${esc((e.ts || "").slice(11, 19))}</td>
+              <td>${esc(e.type)}</td>
+              <td>${esc(e.tool ?? "-")}</td>
+              <td>${e.risk ? risk(e.risk) : "-"}</td>
+              <td>${esc(e.summary ?? "")}</td>
+            </tr>`).join("")
+        }</tbody></table>`;
+      }
+
+      async function refresh() {
+        try {
+          const [status, approvals, processes, audit] = await Promise.all([
+            getJson("/status"),
+            getJson("/approvals"),
+            getJson("/processes"),
+            getJson("/audit?limit=50"),
+          ]);
+          renderStatus(status);
+          renderApprovals(approvals);
+          renderProcesses(processes);
+          renderAudit(audit);
+        } catch (err) {
+          document.getElementById("server-meta").textContent = "disconnected";
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 4000);
+    </script>
+  </body>
+</html>
