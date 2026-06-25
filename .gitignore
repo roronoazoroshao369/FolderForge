@@ -6,7 +6,7 @@ dist/
 
 # Logs
 *.log
-
+nohup.out
 # Runtime / legacy artifacts (never commit these)
 .trash/
 **/.vibemcp/
