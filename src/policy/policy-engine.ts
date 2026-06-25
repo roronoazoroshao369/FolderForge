@@ -5,6 +5,7 @@ import { SecretPolicy } from './secret-policy.js';
 import { ApprovalEngine } from './approvals.js';
 import { RISK_ORDER } from './risk.js';
 import { PolicyDeniedError, ApprovalRequiredError } from '../core/errors.js';
+import { resolve } from 'node:path';
 
 export type Decision =
   | { kind: 'allow'; risk: RiskLevel }
@@ -26,8 +27,13 @@ export class PolicyEngine {
   constructor(private config: FolderForgeConfig) {
     this.path = new PathPolicy(config.workspace.allowedDirectories, config.workspace.deniedGlobs);
     this.command = new CommandPolicy(config.policy.blockedCommands);
-    this.secret = new SecretPolicy();
-    this.approvals = new ApprovalEngine();
+    this.secret = new SecretPolicy(config.secretScan);
+    // Persist approvals under the project's .folderforge dir so pending and
+    // resolved requests survive restarts. Falls back to in-memory if unset.
+    const persistPath = config.workspace.defaultProject
+      ? resolve(config.workspace.defaultProject, '.folderforge', 'approvals.jsonl')
+      : undefined;
+    this.approvals = new ApprovalEngine(persistPath ? { persistPath } : {});
     this.mode = config.policy.defaultMode;
     this.requireApproval = new Set(config.policy.requireApproval);
   }
@@ -68,6 +74,11 @@ export class PolicyEngine {
       if (this.mode !== 'danger') {
         return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
       }
+      // A session-scoped approval (pre-granted via the dashboard/approval tools)
+      // lets the tool through without re-prompting on every call.
+      if (this.approvals.isSessionAllowed(toolName)) {
+        return { kind: 'allow', risk };
+      }
       return this.toApproval(toolName, risk, args, 'CRITICAL action requires explicit approval.');
     }
 
@@ -81,6 +92,11 @@ export class PolicyEngine {
       this.requireApproval.has(toolName) || RISK_ORDER[risk] >= RISK_ORDER.HIGH;
 
     if (needsApproval) {
+      // danger mode intentionally bypasses approval gating for non-CRITICAL
+      // actions: the operator has opted into an "anything goes" mode.
+      if (this.mode === 'danger') {
+        return { kind: 'allow', risk };
+      }
       if (this.approvals.isSessionAllowed(toolName)) {
         return { kind: 'allow', risk };
       }
@@ -99,6 +115,70 @@ export class PolicyEngine {
   ): Decision {
     const req = this.approvals.create(toolName, args, risk, reason);
     return { kind: 'approval', risk, approvalId: req.id, reason };
+  }
+
+  /**
+   * Dry-run a tool call and explain the decision WITHOUT side effects.
+   *
+   * Unlike {@link evaluate}, this never creates an approval request, never
+   * records audit events, and never mutates session state. It mirrors the same
+   * decision logic and returns a structured, human-readable explanation so an
+   * agent can reason about whether a call would be allowed, denied, or gated.
+   */
+  explain(
+    toolName: string,
+    risk: RiskLevel,
+    mutates: boolean,
+    args: Record<string, unknown> = {}
+  ): {
+    decision: 'allow' | 'deny' | 'approval';
+    risk: RiskLevel;
+    reason: string;
+    mode: PolicyMode;
+    mutates: boolean;
+    factors: string[];
+  } {
+    const factors: string[] = [];
+    let decision: 'allow' | 'deny' | 'approval';
+    let reason: string;
+
+    if (risk === 'CRITICAL') {
+      factors.push('risk is CRITICAL');
+      if (this.mode !== 'danger') {
+        decision = 'deny';
+        reason = `CRITICAL action blocked in ${this.mode} mode.`;
+      } else {
+        decision = 'approval';
+        reason = 'CRITICAL action requires explicit approval.';
+        factors.push('mode is danger (CRITICAL allowed only via approval)');
+      }
+    } else if (this.mode === 'readonly' && mutates) {
+      factors.push('mode is readonly and the tool mutates state');
+      decision = 'deny';
+      reason = 'Workspace is in readonly mode; mutations are blocked.';
+    } else {
+      const onApprovalList = this.requireApproval.has(toolName);
+      const highRisk = RISK_ORDER[risk] >= RISK_ORDER.HIGH;
+      if (onApprovalList) factors.push(`tool is in requireApproval list`);
+      if (highRisk) factors.push(`risk is ${risk} (>= HIGH)`);
+
+      if (onApprovalList || highRisk) {
+        if (this.approvals.isSessionAllowed(toolName)) {
+          factors.push('a session-scoped approval is already active for this tool');
+          decision = 'allow';
+          reason = `${toolName} is allowed for this session.`;
+        } else {
+          decision = 'approval';
+          reason = `${toolName} (${risk}) requires approval.`;
+        }
+      } else {
+        factors.push(`risk is ${risk} and allowed in ${this.mode} mode`);
+        decision = 'allow';
+        reason = `${toolName} (${risk}) is allowed.`;
+      }
+    }
+
+    return { decision, risk, reason, mode: this.mode, mutates, factors };
   }
 
   /** Convenience: throws unless the decision is allow. */

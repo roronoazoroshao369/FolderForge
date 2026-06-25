@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+
+# Runtime / legacy artifacts (never commit these)
+.trash/
+**/.vibemcp/
+# Per-project runtime state created at activation. The directory itself is
+# tracked for fixtures, but live audit/approval logs must not be committed.
+**/.folderforge/approvals.jsonl
+**/.folderforge/audit/
+
+# OS / editor noise
+.DS_Store
+*.swp
+.idea/
+.vscode/

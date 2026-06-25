@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import { loadConfig } from './core/config.js';
 import { Container } from './core/container.js';
-import { buildRegistry } from './tools/index.js';
+import { buildRegistry, registerAdapterTools } from './tools/index.js';
 import { createMcpServer } from './server/mcp-server.js';
 import { startStdioTransport } from './server/transports/stdio.js';
 import { startHttpTransport } from './server/transports/http.js';
-import { startDashboard } from './dashboard/server.js';
+import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
+import { randomBytes } from 'node:crypto';
 
-const VERSION = '0.1.0';
+const VERSION = '1.0.0';
 
 interface CliArgs {
   project?: string;
@@ -81,7 +82,7 @@ function parseArgs(argv: string[]): CliArgs {
 function printHelp(): void {
   process.stdout.write(
     [
-      'FolderForge (VibeMCP) - local development control plane for AI coding agents',
+      'FolderForge - local development control plane for AI coding agents',
       '',
       'Usage: folderforge [options]',
       '',
@@ -118,7 +119,21 @@ async function main(): Promise<void> {
 
   const container = new Container(config);
   const registry = buildRegistry(container);
-  const server = createMcpServer(registry, { name: config.server.name, version: VERSION });
+
+  // Wire enabled child MCP adapters (Serena, Playwright, ...). Each child tool is
+  // exposed namespaced (e.g. serena__find_symbol). Discovery never blocks startup.
+  try {
+    const added = await registerAdapterTools(container, registry);
+    if (added > 0) logger.info({ added }, 'Registered child MCP adapter tools');
+  } catch (err) {
+    logger.warn({ err: String(err) }, 'Adapter tool registration failed; continuing without adapters');
+  }
+
+  const server = createMcpServer(registry, {
+    name: config.server.name,
+    version: VERSION,
+    roots: config.workspace.allowedDirectories,
+  });
 
   container.audit.record({
     type: 'server_start',
@@ -128,16 +143,44 @@ async function main(): Promise<void> {
 
   // Dashboard is independent of the MCP transport (and is safe to run alongside stdio).
   if (args.dashboard) {
+    const dashHost = config.server.dashboard.host;
+    // A non-loopback bind exposes the control plane to the network, so it must be
+    // token-protected. Use the configured token or mint one and log it once.
+    let token = config.server.dashboard.token;
+    if (!isLoopbackHost(dashHost) && !token) {
+      token = randomBytes(24).toString('base64url');
+      logger.warn(
+        { host: dashHost, token },
+        'Dashboard bound to a non-loopback host; generated an auth token (set server.dashboard.token to pin it)'
+      );
+    }
     startDashboard(container, registry, {
-      host: config.server.dashboard.host,
+      host: dashHost,
       port: config.server.dashboard.port,
+      ...(token ? { token } : {}),
     });
   }
 
   if (config.server.transport === 'http') {
+    const httpHost = config.server.http.host;
+    // Mirror the dashboard: a non-loopback bind must be token-protected. Use the
+    // configured token or mint one and log it once.
+    let httpToken = config.server.http.token;
+    if (!isLoopbackHost(httpHost) && !httpToken) {
+      httpToken = randomBytes(24).toString('base64url');
+      logger.warn(
+        { host: httpHost, token: httpToken },
+        'HTTP transport bound to a non-loopback host; generated an auth token (set server.http.token to pin it)'
+      );
+    }
     await startHttpTransport(server, {
-      host: config.server.http.host,
+      host: httpHost,
       port: config.server.http.port,
+      ...(httpToken ? { token: httpToken } : {}),
+      ...(config.server.http.corsOrigins ? { corsOrigins: config.server.http.corsOrigins } : {}),
+      ...(config.server.http.sessionTtlMs !== undefined
+        ? { sessionTtlMs: config.server.http.sessionTtlMs }
+        : {}),
     });
   } else {
     await startStdioTransport(server);
@@ -145,6 +188,11 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Shutting down FolderForge');
+    try {
+      container.adapters.stopAll();
+    } catch {
+      // ignore
+    }
     try {
       await server.close();
     } catch {

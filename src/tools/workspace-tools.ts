@@ -25,6 +25,59 @@ export function workspaceTools(): ToolDefinition[] {
     }),
 
     defineTool({
+      name: 'workspace_list',
+      description: 'List all activated workspaces and which one is current.',
+      group: 'workspace',
+      mutates: false,
+      inputSchema: { type: 'object', properties: {} },
+      handler: async (_args, ctx) => ({
+        ok: true,
+        data: { workspaces: ctx.container.workspace.list() },
+      }),
+    }),
+
+    defineTool({
+      name: 'workspace_switch',
+      description:
+        'Switch the current workspace to another already-activated project. ' +
+        'Path-less tool calls then operate on this workspace.',
+      group: 'workspace',
+      mutates: true,
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string', description: 'Absolute path of an activated project.' } },
+        required: ['path'],
+      },
+      handler: async (args, ctx) => {
+        try {
+          const info = ctx.container.workspace.setCurrent(String(args.path));
+          ctx.container.audit.record({ type: 'workspace_activate', summary: `switch ${info.projectRoot}` });
+          return { ok: true, data: info };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+    }),
+
+    defineTool({
+      name: 'workspace_deactivate',
+      description: 'Deactivate a workspace. If it was current, the most recent remaining one becomes current.',
+      group: 'workspace',
+      mutates: true,
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string', description: 'Absolute path of the project to deactivate.' } },
+        required: ['path'],
+      },
+      handler: async (args, ctx) => {
+        const removed = ctx.container.workspace.deactivate(String(args.path));
+        return removed
+          ? { ok: true, data: { deactivated: String(args.path), workspaces: ctx.container.workspace.list() } }
+          : { ok: false, error: `Workspace was not active: ${String(args.path)}` };
+      },
+    }),
+
+    defineTool({
       name: 'workspace_status',
       description: 'Return the active workspace, policy mode, allowed directories, and enabled adapters.',
       group: 'workspace',

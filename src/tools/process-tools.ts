@@ -41,6 +41,54 @@ export function processTools(): ToolDefinition[] {
     }),
 
     defineTool({
+      name: 'process_tail',
+      description:
+        'Stream output from a process session: blocks until new output arrives, the ' +
+        'process exits, or timeoutMs elapses (default 2000ms). Call repeatedly to ' +
+        'follow a long-running command. `done` is true once the process has exited ' +
+        'and all output has been drained.',
+      group: 'process',
+      mutates: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string' },
+          timeoutMs: { type: 'number', description: 'Max ms to wait for new output (default 2000).' },
+        },
+        required: ['sessionId'],
+      },
+      handler: async (args, ctx) => {
+        const timeoutMs = Math.min(Math.max(Number(args.timeoutMs ?? 2000), 0), 30000);
+        const signal = ctx.control?.signal;
+        const out = await ctx.container.processes.readUntil(
+          String(args.sessionId),
+          timeoutMs,
+          signal
+        );
+        // P4 - progress: report a tick each tail cycle so a client following a
+        // long-running command sees liveness without parsing the buffer. The
+        // total is unknown for an open-ended stream, so we omit it and send a
+        // status message instead.
+        await ctx.control?.reportProgress?.(
+          out.cursor,
+          undefined,
+          out.done ? 'process exited' : `streaming (${out.status})`
+        );
+        if (signal?.aborted && !out.done) {
+          return {
+            ok: true,
+            data: {
+              ...out,
+              output: ctx.container.policy.secret.redact(out.output),
+              cancelled: true,
+            },
+          };
+        }
+        return { ok: true, data: { ...out, output: ctx.container.policy.secret.redact(out.output) } };
+      },
+    }),
+
+    defineTool({
       name: 'process_write',
       description: 'Send a line of input to a running process session.',
       group: 'process',

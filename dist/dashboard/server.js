@@ -1,9 +1,14 @@
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
+import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { logger } from '../core/logger.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
+/** True when the bind host is loopback-only and therefore safe without a token. */
+export function isLoopbackHost(host) {
+    return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+}
 /**
  * Local control-plane dashboard. Read-only views plus approval actions.
  *
@@ -17,16 +22,56 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  *   POST /approvals/:id/deny     -> deny
  */
 export function startDashboard(container, registry, opts) {
+    // Auth is enforced only when bound to a non-loopback address. A loopback bind
+    // is treated as trusted (same machine), matching the default 127.0.0.1.
+    const requireAuth = !isLoopbackHost(opts.host);
+    if (requireAuth && !opts.token) {
+        throw new Error('Dashboard bound to a non-loopback host requires a token');
+    }
     const server = createServer((req, res) => {
+        if (requireAuth && !isAuthorized(req, opts.token)) {
+            res.writeHead(401, {
+                'content-type': 'application/json; charset=utf-8',
+                'www-authenticate': 'Bearer realm="folderforge-dashboard"',
+            });
+            res.end(JSON.stringify({ error: 'unauthorized', message: 'Valid bearer token required.' }));
+            return;
+        }
         handle(req, res, container, registry).catch((err) => {
             logger.error({ err: String(err) }, 'Dashboard request failed');
             sendJson(res, 500, { error: 'internal_error', message: String(err) });
         });
     });
     server.listen(opts.port, opts.host, () => {
-        logger.info({ host: opts.host, port: opts.port }, 'Dashboard listening');
+        logger.info({ host: opts.host, port: opts.port, authRequired: requireAuth }, 'Dashboard listening');
     });
     return server;
+}
+/**
+ * Accept the token via either `Authorization: Bearer <token>` or a `?token=`
+ * query parameter (handy for opening the dashboard in a browser). Comparison is
+ * constant-time to avoid leaking the token length/prefix via timing.
+ */
+function isAuthorized(req, expected) {
+    const header = req.headers['authorization'];
+    let provided;
+    if (typeof header === 'string' && header.startsWith('Bearer ')) {
+        provided = header.slice('Bearer '.length).trim();
+    }
+    if (!provided) {
+        const url = new URL(req.url ?? '/', 'http://localhost');
+        provided = url.searchParams.get('token') ?? undefined;
+    }
+    if (!provided)
+        return false;
+    return timingSafeEqualStr(provided, expected);
+}
+function timingSafeEqualStr(a, b) {
+    const ab = Buffer.from(a);
+    const bb = Buffer.from(b);
+    if (ab.length !== bb.length)
+        return false;
+    return timingSafeEqual(ab, bb);
 }
 async function handle(req, res, container, registry) {
     const method = req.method ?? 'GET';

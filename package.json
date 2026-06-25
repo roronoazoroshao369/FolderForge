@@ -1,7 +1,7 @@
 {
   "name": "folderforge",
-  "version": "0.1.0",
-  "description": "FolderForge (VibeMCP) - the all-in-one MCP-native local development control plane for AI coding agents.",
+  "version": "1.2.0",
+  "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "type": "module",
   "bin": {
     "folderforge": "./dist/main.js"

@@ -3,6 +3,7 @@ import { defineTool } from './registry.js';
 import type { ToolDefinition, ToolContext } from '../core/types.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
+import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
 
 async function runScript(ctx: ToolContext, key: 'test' | 'lint' | 'typecheck' | 'build') {
   const cmds = detectCommands(ctx.projectRoot);
@@ -40,6 +41,7 @@ export function buildTools(): ToolDefinition[] {
       group: 'build',
       mutates: false,
       inputSchema: { type: 'object', properties: {} },
+      outputSchema: RUN_SCRIPT_OUTPUT_SCHEMA,
       handler: async (_a, ctx) => runScript(ctx, 'test'),
     }),
     defineTool({

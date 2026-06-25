@@ -1,0 +1,77 @@
+import { describe, it, expect } from 'vitest';
+import { ProcessManager } from '../../src/managers/process-manager.js';
+
+const SHELL = '/bin/bash';
+
+describe('ProcessManager streaming (readUntil)', () => {
+  it('drains buffered output immediately', async () => {
+    const pm = new ProcessManager();
+    const s = pm.start('echo hello-stream', '/tmp', SHELL);
+    // Wait until exit so output is buffered.
+    await new Promise((r) => setTimeout(r, 200));
+    const out = await pm.readUntil(s.sessionId, 1000);
+    expect(out.output).toContain('hello-stream');
+    expect(out.done).toBe(true);
+    pm.stop(s.sessionId);
+  });
+
+  it('blocks then resolves when new output arrives', async () => {
+    const pm = new ProcessManager();
+    // Emit a line after ~150ms.
+    const s = pm.start('sleep 0.15; echo later-line', '/tmp', SHELL);
+    const started = Date.now();
+    const out = await pm.readUntil(s.sessionId, 2000);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+    expect(out.output).toContain('later-line');
+    pm.stop(s.sessionId);
+  });
+
+  it('returns (possibly empty) after timeout without busy-waiting', async () => {
+    const pm = new ProcessManager();
+    const s = pm.start('sleep 5', '/tmp', SHELL);
+    const started = Date.now();
+    const out = await pm.readUntil(s.sessionId, 200);
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(180);
+    expect(elapsed).toBeLessThan(1000);
+    expect(out.done).toBe(false);
+    pm.kill(s.sessionId);
+  });
+
+  it('reports done once exited and drained', async () => {
+    const pm = new ProcessManager();
+    const s = pm.start('echo a', '/tmp', SHELL);
+    await new Promise((r) => setTimeout(r, 200));
+    const first = await pm.readUntil(s.sessionId, 500);
+    expect(first.output).toContain('a');
+    const second = await pm.readUntil(s.sessionId, 200);
+    expect(second.done).toBe(true);
+    expect(second.output).toBe('');
+  });
+
+  it('wakes immediately when the abort signal fires mid-wait (P6)', async () => {
+    const pm = new ProcessManager();
+    const s = pm.start('sleep 5', '/tmp', SHELL);
+    const ac = new AbortController();
+    const started = Date.now();
+    // Cancel after ~100ms; the long-poll should resolve well before timeoutMs.
+    setTimeout(() => ac.abort(), 100);
+    const out = await pm.readUntil(s.sessionId, 5000, ac.signal);
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeLessThan(1000);
+    expect(out.done).toBe(false);
+    pm.kill(s.sessionId);
+  });
+
+  it('returns immediately when the signal is already aborted (P6)', async () => {
+    const pm = new ProcessManager();
+    const s = pm.start('sleep 5', '/tmp', SHELL);
+    const ac = new AbortController();
+    ac.abort();
+    const started = Date.now();
+    const out = await pm.readUntil(s.sessionId, 5000, ac.signal);
+    expect(Date.now() - started).toBeLessThan(100);
+    expect(out.done).toBe(false);
+    pm.kill(s.sessionId);
+  });
+});

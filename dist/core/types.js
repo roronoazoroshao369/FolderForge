@@ -1,4 +1,4 @@
 /**
- * Core type definitions shared across FolderForge (VibeMCP).
+ * Core type definitions shared across FolderForge.
  */
 export {};

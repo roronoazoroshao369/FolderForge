@@ -32,24 +32,44 @@ Each adapter (`AdapterDef`) has:
 ## Lifecycle
 
 1. On startup, `ChildMcpRegistry` reads enabled adapters from config.
-2. For each, it spawns the child process and connects an MCP client over stdio.
-3. The child's tools are namespaced and re-exported through the main registry.
+2. Adapters start **lazily** - the child process is spawned on first use (or first
+   tool discovery), not eagerly, to avoid paying their cost when unused.
+3. The child's tools are discovered via `tools/list`, **namespaced** with the
+   adapter name and a `__` separator (e.g. `serena__find_symbol`), and
+   re-exported through the main registry.
 4. Calls are still wrapped by the FolderForge policy + audit pipeline before
    being forwarded to the child.
+5. On shutdown, `stopAll()` terminates every spawned child.
+
+## Tool namespacing
+
+Every proxied tool is exposed as `<adapter>__<childToolName>`:
+
+| Adapter | Example namespaced tools |
+| --- | --- |
+| `serena` | `serena__find_symbol`, `serena__find_referencing_symbols` |
+| `playwright` | `playwright__browser_navigate`, `playwright__browser_snapshot` |
+| `desktopCommander` | `desktopCommander__<tool>` |
+
+The separator is the `NS_SEP` constant in `src/tools/adapter-tools.ts`. Proxied
+tools default to `MEDIUM` risk and `mutates: true`, so policy mode and the
+approval list still gate them.
 
 ## Provided integrations
 
 | Adapter | Purpose | Tool prefix |
 | --- | --- | --- |
-| Serena | Semantic code intelligence (symbols, references) | `code_*` |
-| Playwright | Browser automation and inspection | `browser_*` |
-| Desktop Commander | Extended local desktop control (optional) | adapter-defined |
+| Serena | Semantic code intelligence (symbols, references) | `serena__*` |
+| Playwright | Browser automation and inspection | `playwright__*` |
+| Desktop Commander | Extended local desktop control (optional) | `desktopCommander__*` |
 
 ## Writing a new adapter
 
 1. Add an `AdapterDef` entry to `AdaptersConfig` in `src/core/types.ts`.
 2. Provide a default in `src/core/config.ts`.
-3. Register it in `ChildMcpRegistry` so its tools are discovered and proxied.
+3. Add its name to `ADAPTER_NAMES` in `src/tools/adapter-tools.ts` and to
+   `AdapterName` in `src/adapters/child-mcp/registry.ts` so its tools are
+   discovered, namespaced, and proxied.
 
 Because every proxied call passes through `PolicyEngine.evaluate`, child tools
 inherit the same risk classification, approval, and audit guarantees as native

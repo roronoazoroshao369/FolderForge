@@ -1,6 +1,6 @@
 # Architecture
 
-FolderForge (VibeMCP) is an MCP-native control plane that sits between an AI
+FolderForge is an MCP-native control plane that sits between an AI
 coding agent and a local development workspace. It exposes a single, curated set
 of tools over the Model Context Protocol and wraps every call in a policy +
 audit pipeline.

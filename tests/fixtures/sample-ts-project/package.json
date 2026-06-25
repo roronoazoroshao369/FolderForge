@@ -1,0 +1,14 @@
+{
+  "name": "sample-ts-project",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fixture TypeScript project used by FolderForge integration tests.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

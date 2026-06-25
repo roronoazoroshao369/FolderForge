@@ -1,7 +1,7 @@
 # FolderForge - full example config
 #
 # Exercises every configurable surface: HTTP transport, dev mode, git policy,
-# terminal sandboxing, and child-MCP adapters (Serena / Playwright).
+# terminal sandboxing, persisted approvals, and child-MCP adapters (Serena / Playwright / Desktop Commander).
 
 server:
   name: folderforge
@@ -9,9 +9,20 @@ server:
   http:
     host: 127.0.0.1
     port: 7331
+    # Bearer token for the MCP HTTP endpoint. Required for non-loopback binds
+    # (auto-generated and logged once if omitted). Send as `Authorization: Bearer <token>`.
+    # token: "put-a-long-random-string-here"
+    # CORS allowlist. Use ["*"] to allow any origin; omit/empty to disable CORS.
+    # corsOrigins:
+    #   - https://your-tool.example.com
+    # Idle session lifetime (ms) before the HTTP MCP session is rotated/expired.
+    sessionTtlMs: 1800000
   dashboard:
     host: 127.0.0.1
     port: 7332
+    # Optional: required when binding dashboard to a non-loopback host.
+    # Requests must send `Authorization: Bearer <token>` or add `?token=<token>`.
+    # token: "put-a-long-random-string-here"
 
 workspace:
   defaultProject: /home/devops/FolderForge
@@ -64,6 +75,31 @@ git:
   allowCommit: approval
   allowPush: approval
   allowResetHard: false
+
+# Per-tool rate limiting and quotas. Sliding window (maxCalls / windowMs) plus an
+# optional rolling 24h dailyQuota. Denied or approval-gated calls don't consume quota.
+rateLimit:
+  enabled: true
+  default:
+    maxCalls: 60
+    windowMs: 10000
+  overrides:
+    shell_exec:
+      maxCalls: 20
+      windowMs: 10000
+      dailyQuota: 1000
+    git_push:
+      maxCalls: 5
+      windowMs: 60000
+      dailyQuota: 50
+
+# Secret scanning. Beyond the built-in regex rules, entropy detection flags
+# bespoke high-entropy tokens (minEntropy is bits/char; minLength is the
+# shortest token considered).
+secretScan:
+  entropyEnabled: true
+  minEntropy: 4.0
+  minLength: 20
 
 adapters:
   serena:

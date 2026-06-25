@@ -12,6 +12,8 @@ server:
   dashboard:
     host: 127.0.0.1
     port: 7332
+    # Optional: required when binding dashboard to a non-loopback host.
+    # token: "put-a-long-random-string-here"
 
 workspace:
   defaultProject: /home/devops/FolderForge

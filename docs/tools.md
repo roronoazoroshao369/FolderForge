@@ -16,6 +16,34 @@ records audit events. Each tool declares a default risk level in
 
 `shell_exec` is re-classified per command at call time by `CommandPolicy`.
 
+## Schema lock
+
+The public native tool surface is frozen in `src/tools/schema-lock.ts`
+(`FROZEN_TOOLS`), which is the **source of truth** for tool names and their
+`mutates` / `risk` contract at 1.0. Renaming a tool, removing one, or changing
+its mutation/risk classification is a **breaking change**: it requires a
+major-version bump and a deliberate edit to that file. Adding a brand-new tool is
+backwards-compatible - register it, then add an entry to the lock.
+
+The guard test `tests/unit/schema-lock.test.ts` fails in CI if the live registry
+and the lock ever diverge, so accidental renames or removals are caught before
+release. A couple of entries are frozen at their *actual* runtime risk rather
+than a tidier value (e.g. `audit_export` and `approval_request` fall back to the
+`defineTool` default of `MEDIUM` because they are absent from `TOOL_RISK`);
+reclassifying them is a separate, intentional change. Adapter (child-MCP) tools
+are namespaced and discovered dynamically, so they are **not** part of the frozen
+surface.
+
+### `parse_errors` (internal but registered)
+
+`parse_errors` is an **internal helper** used by the build/quality tooling, not a
+tool intended for direct day-to-day use. It nonetheless lives in the native
+registry, so it shows up in `tools/list` and is frozen in the schema lock
+(`mutates: false`, `risk: MEDIUM`). This is intentional: the schema-lock guard is
+deliberately strict and freezes the *entire* live catalog so CI catches any
+accidental drift. Don't be surprised to see `parse_errors` in the tool list -
+it's expected, and removing or hiding it would be a lock change like any other.
+
 ## Groups
 
 ### Workspace
@@ -64,17 +92,21 @@ persistent notes stored under `.folderforge/`.
 
 ### Policy & audit
 `policy_get`, `policy_set_mode` - read or change the active policy mode
-(`readonly`/`safe`/`dev`/`danger`). `audit_recent`, `audit_export` - inspect or
-export the append-only audit trail.
+(`readonly`/`safe`/`dev`/`danger`). `policy_explain` - dry-run a tool call and
+return the decision (`allow`/`deny`/`approval`) plus the contributing factors,
+without executing the tool or creating an approval request. `audit_recent`,
+`audit_export` - inspect or export the append-only audit trail.
 
 ### Approvals
 `approval_status`, `approval_request` - inspect pending approval requests created
 by the engine, or raise one explicitly.
 
 ### Browser & DB
-`browser_*` (via the Playwright child-MCP adapter) and `db_*` (`db_connect`,
-`db_list_connections`, `db_list_tables`, `db_describe_table`, `db_query_readonly`,
-`db_explain`). Read-only queries are LOW; writes/migrations are HIGH.
+Child-MCP adapter tools are exposed namespaced as `<adapter>__<tool>` (e.g.
+`playwright__browser_navigate`, `serena__find_symbol`) - see `docs/adapters.md`.
+`db_*` tools (`db_connect`, `db_list_connections`, `db_list_tables`,
+`db_describe_table`, `db_query_readonly`, `db_explain`) are native. Read-only
+queries are LOW; writes/migrations are HIGH.
 
 ## Task presets
 

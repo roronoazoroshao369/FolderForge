@@ -10,6 +10,7 @@ const PW_MAP: Record<string, string> = {
   browser_network: 'browser_network_requests',
   browser_screenshot: 'browser_take_screenshot',
   browser_close: 'browser_close',
+  browser_eval: 'browser_evaluate',
 };
 
 function isLocalOrAllowed(url: string, ctx: ToolContext): boolean {
@@ -70,5 +71,8 @@ export function browserTools(): ToolDefinition[] {
     bTool('browser_network', 'List network requests made by the page.', false, {}),
     bTool('browser_screenshot', 'Capture a screenshot of the page.', true, {}),
     bTool('browser_close', 'Close the browser session.', true, {}),
+    bTool('browser_eval', 'Evaluate a JavaScript expression in the page context. HIGH risk.', true, {
+      function: { type: 'string', description: 'A JavaScript function body to evaluate in the page.' },
+    }),
   ];
 }

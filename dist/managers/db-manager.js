@@ -101,6 +101,55 @@ export class DbManager {
         const cleaned = sql.trim().replace(/;+\s*$/, '');
         return this.queryReadonly(id, `EXPLAIN ${cleaned}`);
     }
+    /**
+     * Execute a single write statement (INSERT/UPDATE/DELETE) against a dev
+     * connection. Refuses read-only-looking statements and DDL; migrations go
+     * through {@link runMigration}. HIGH-risk: gated by policy/approval upstream.
+     */
+    async write(id, sql) {
+        if (isReadOnlyQuery(sql)) {
+            throw new Error('db_write expects a write statement (INSERT/UPDATE/DELETE), not a read-only query.');
+        }
+        const { conn, handle } = this.require(id);
+        if (conn.readonly) {
+            throw new Error(`Connection ${id} is read-only; db_write is not permitted.`);
+        }
+        if (conn.kind === 'sqlite') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const info = handle.prepare(sql).run();
+            return { changes: Number(info.changes ?? 0) };
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const res = await handle.query(sql);
+        return { changes: Number(res.rowCount ?? 0) };
+    }
+    /**
+     * Run a multi-statement migration script in a single transaction. HIGH-risk:
+     * gated by policy/approval upstream.
+     */
+    async runMigration(id, sql) {
+        const { conn, handle } = this.require(id);
+        if (conn.readonly) {
+            throw new Error(`Connection ${id} is read-only; db_run_migration is not permitted.`);
+        }
+        if (conn.kind === 'sqlite') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            handle.exec(sql);
+            return { applied: true };
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const client = handle;
+        try {
+            await client.query('BEGIN');
+            await client.query(sql);
+            await client.query('COMMIT');
+            return { applied: true };
+        }
+        catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined);
+            throw err;
+        }
+    }
     async tryImport(mod, label) {
         try {
             return await import(mod);

@@ -15,6 +15,8 @@ interface InternalSession extends ProcessSession {
   child: ChildProcessWithoutNullStreams;
   output: string;
   cursor: number;
+  /** Resolvers waiting for new output or exit (long-poll / streaming tail). */
+  waiters: Array<() => void>;
 }
 
 /**
@@ -42,6 +44,13 @@ export class ProcessManager {
       child,
       output: '',
       cursor: 0,
+      waiters: [],
+    };
+
+    const wake = () => {
+      const ws = session.waiters;
+      session.waiters = [];
+      for (const w of ws) w();
     };
 
     const append = (chunk: Buffer) => {
@@ -49,12 +58,14 @@ export class ProcessManager {
       if (session.output.length > this.maxBuffer) {
         session.output = session.output.slice(-this.maxBuffer);
       }
+      wake();
     };
     child.stdout.on('data', append);
     child.stderr.on('data', append);
     child.on('exit', (code) => {
       session.status = session.status === 'killed' ? 'killed' : 'exited';
       session.exitCode = code;
+      wake();
     });
 
     this.sessions.set(sessionId, session);
@@ -66,6 +77,48 @@ export class ProcessManager {
     const out = s.output.slice(s.cursor);
     s.cursor = s.output.length;
     return { output: out, status: s.status, cursor: s.cursor };
+  }
+
+  /**
+   * Long-poll read: resolve as soon as new output is available or the process
+   * exits, or after `timeoutMs` with whatever (possibly empty) output arrived.
+   * This backs streaming tails without busy-waiting. `done` is true once the
+   * process has exited and all buffered output has been drained.
+   */
+  readUntil(
+    sessionId: string,
+    timeoutMs = 2000,
+    signal?: AbortSignal
+  ): Promise<{ output: string; status: string; cursor: number; done: boolean }> {
+    const s = this.require(sessionId);
+    const drain = () => {
+      const output = s.output.slice(s.cursor);
+      s.cursor = s.output.length;
+      const done = s.status !== 'running' && s.cursor >= s.output.length;
+      return { output, status: s.status, cursor: s.cursor, done };
+    };
+
+    // Immediate return if there is already new output, the process is finished,
+    // or the caller has already cancelled (P6).
+    if (s.output.length > s.cursor || s.status !== 'running' || signal?.aborted) {
+      return Promise.resolve(drain());
+    }
+
+    return new Promise((resolveOut) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', finish);
+        resolveOut(drain());
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      // Wake immediately on cancellation so a long tail does not block the
+      // client after it has cancelled the request.
+      if (signal) signal.addEventListener('abort', finish, { once: true });
+      s.waiters.push(finish);
+    });
   }
 
   write(sessionId: string, input: string): void {

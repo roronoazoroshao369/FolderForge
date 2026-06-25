@@ -1,4 +1,5 @@
 import { defineTool } from './registry.js';
+import { DB_QUERY_OUTPUT_SCHEMA } from './output-schemas.js';
 export function dbTools() {
     return [
         defineTool({
@@ -66,6 +67,7 @@ export function dbTools() {
                 properties: { id: { type: 'string' }, sql: { type: 'string' }, limit: { type: 'number' } },
                 required: ['id', 'sql'],
             },
+            outputSchema: DB_QUERY_OUTPUT_SCHEMA,
             handler: async (args, ctx) => ({
                 ok: true,
                 data: { rows: await ctx.container.db.queryReadonly(String(args.id), String(args.sql), Number(args.limit ?? 200)) },
@@ -85,6 +87,44 @@ export function dbTools() {
                 ok: true,
                 data: { plan: await ctx.container.db.explain(String(args.id), String(args.sql)) },
             }),
+        }),
+        defineTool({
+            name: 'db_write',
+            description: 'Execute a single write statement (INSERT/UPDATE/DELETE) on a dev connection. HIGH risk; requires approval.',
+            group: 'db',
+            mutates: true,
+            inputSchema: {
+                type: 'object',
+                properties: { id: { type: 'string' }, sql: { type: 'string' } },
+                required: ['id', 'sql'],
+            },
+            handler: async (args, ctx) => {
+                try {
+                    return { ok: true, data: await ctx.container.db.write(String(args.id), String(args.sql)) };
+                }
+                catch (err) {
+                    return { ok: false, error: String(err) };
+                }
+            },
+        }),
+        defineTool({
+            name: 'db_run_migration',
+            description: 'Run a migration script in a single transaction on a dev connection. HIGH risk; requires approval.',
+            group: 'db',
+            mutates: true,
+            inputSchema: {
+                type: 'object',
+                properties: { id: { type: 'string' }, sql: { type: 'string' } },
+                required: ['id', 'sql'],
+            },
+            handler: async (args, ctx) => {
+                try {
+                    return { ok: true, data: await ctx.container.db.runMigration(String(args.id), String(args.sql)) };
+                }
+                catch (err) {
+                    return { ok: false, error: String(err) };
+                }
+            },
         }),
     ];
 }

@@ -16,6 +16,9 @@ Set via `policy.defaultMode` or the `policy_set_mode` tool.
 | `danger` | allowed | approval | approval |
 
 The decision logic lives in `PolicyEngine.evaluate` (`src/policy/policy-engine.ts`).
+Use the `policy_explain` tool to dry-run any call and see the decision
+(`allow`/`deny`/`approval`) and contributing factors **without** executing it or
+creating an approval request (backed by `PolicyEngine.explain`).
 
 ## Path policy
 
@@ -62,6 +65,27 @@ HIGH/CRITICAL (and any tool in `policy.requireApproval`) create a pending
 `ApprovalRequest` (`src/policy/approvals.ts`). Resolve them in the dashboard
 (`POST /approvals/:id/approve|deny`) or via approval tools. `session`-scoped
 approvals remember the tool for the rest of the session.
+
+Approvals are **persisted across restarts**: every create/approve/deny is
+appended to `<project>/.vibemcp/approvals.jsonl` (append-only, compacted on
+load). Pending and resolved requests survive a restart so the dashboard history
+stays intact. Session-scoped allowances are **not** re-armed automatically - a
+fresh process starts a fresh session, so a session approval from a previous run
+must be granted again.
+
+## Dashboard auth
+
+The dashboard (`src/dashboard/server.ts`) is unauthenticated when bound to a
+loopback host (`127.0.0.1`, `::1`, `localhost`), since that is same-machine
+only. When bound to any **non-loopback** address it **requires a bearer token**:
+
+- Set it explicitly via `server.dashboard.token`, or
+- leave it unset and FolderForge generates one at startup and logs it once.
+
+Clients authenticate with `Authorization: Bearer <token>` or a `?token=<token>`
+query parameter; the comparison is constant-time. Missing/invalid tokens get a
+`401` with a `WWW-Authenticate: Bearer` header. Binding to a non-loopback host
+with no token available is a startup error.
 
 ## Audit
 

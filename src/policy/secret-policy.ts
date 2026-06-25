@@ -2,6 +2,8 @@
  * Secret detection and redaction.
  */
 
+import type { SecretScanConfig } from '../core/types.js';
+
 interface SecretRule {
   name: string;
   re: RegExp;
@@ -33,9 +35,45 @@ export interface SecretFinding {
   rule: string;
   preview: string;
   line?: number;
+  /** Shannon entropy (bits/char) for entropy-based findings. */
+  entropy?: number;
 }
 
+const DEFAULT_SCAN_CONFIG: SecretScanConfig = {
+  entropyEnabled: true,
+  minEntropy: 4.0,
+  minLength: 20,
+};
+
+/**
+ * Shannon entropy in bits per character for a string. High values (> ~4.0)
+ * indicate random-looking content typical of keys and tokens.
+ */
+export function shannonEntropy(s: string): number {
+  if (!s.length) return 0;
+  const counts = new Map<string, number>();
+  for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let h = 0;
+  for (const c of counts.values()) {
+    const p = c / s.length;
+    h -= p * Math.log2(p);
+  }
+  return h;
+}
+
+// Candidate tokens for entropy scanning: long runs of base64/hex/key-ish chars.
+const TOKEN_RE = /[A-Za-z0-9+/_-]{16,}/g;
+// Tokens that are clearly not secrets (all one case word, pure numbers, hashes
+// of known kinds are still flagged - better safe). We skip obvious noise.
+const LOW_SIGNAL_RE = /^[0-9]+$/;
+
 export class SecretPolicy {
+  private scanConfig: SecretScanConfig;
+
+  constructor(scanConfig: SecretScanConfig = DEFAULT_SCAN_CONFIG) {
+    this.scanConfig = scanConfig;
+  }
+
   redact(text: string): string {
     let out = text;
     for (const rule of RULES) {
@@ -80,6 +118,30 @@ export class SecretPolicy {
             preview: m[0].slice(0, 12) + '...',
             line: i + 1,
           });
+        }
+      }
+      // Entropy pass: flag high-entropy tokens that no rule matched. This catches
+      // bespoke/unknown key formats. Tokens already covered by a regex finding on
+      // this line are skipped to avoid double-reporting.
+      if (this.scanConfig.entropyEnabled) {
+        const matchedOnLine = findings.filter((f) => f.line === i + 1 && f.rule !== 'high entropy');
+        TOKEN_RE.lastIndex = 0;
+        let tok: RegExpExecArray | null;
+        while ((tok = TOKEN_RE.exec(line)) !== null) {
+          const value = tok[0];
+          if (value.length < this.scanConfig.minLength) continue;
+          if (LOW_SIGNAL_RE.test(value)) continue;
+          const alreadyFlagged = matchedOnLine.some((f) => value.startsWith(f.preview.replace(/\.\.\.$/, '')));
+          if (alreadyFlagged) continue;
+          const entropy = shannonEntropy(value);
+          if (entropy >= this.scanConfig.minEntropy) {
+            findings.push({
+              rule: 'high entropy',
+              preview: value.slice(0, 12) + '...',
+              line: i + 1,
+              entropy: Math.round(entropy * 100) / 100,
+            });
+          }
         }
       }
     });

@@ -1,8 +1,50 @@
-import type { ToolDefinition, ToolResult, RiskLevel } from '../core/types.js';
+import type {
+  ToolDefinition,
+  ToolResult,
+  ToolCallControl,
+  RiskLevel,
+  ToolAnnotations,
+} from '../core/types.js';
 import type { Container } from '../core/container.js';
-import { TOOL_RISK } from '../policy/risk.js';
+import { TOOL_RISK, RISK_ORDER } from '../policy/risk.js';
 import { ApprovalRequiredError, PolicyDeniedError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
+
+/**
+ * Derive MCP tool annotations from the existing `mutates` / `risk` contract.
+ *
+ * This is intentionally a pure mapping so annotations stay in lock-step with
+ * the frozen schema and never need to be hand-maintained:
+ *   - `mutates === false`        => readOnlyHint: true
+ *   - risk HIGH or CRITICAL      => destructiveHint: true (mutating only)
+ *   - read-only tools            => idempotentHint: true
+ * `openWorldHint` is opt-in per tool (e.g. web/http/browser) since most tools
+ * act only on the local workspace; callers may pass an override.
+ */
+export function deriveAnnotations(
+  name: string,
+  mutates: boolean,
+  risk: RiskLevel,
+  override?: Partial<ToolAnnotations>
+): ToolAnnotations {
+  const destructive = mutates && RISK_ORDER[risk] >= RISK_ORDER.HIGH;
+  const annotations: ToolAnnotations = {
+    title: titleCase(name),
+    readOnlyHint: !mutates,
+    destructiveHint: destructive,
+    idempotentHint: !mutates,
+    openWorldHint: false,
+    ...override,
+  };
+  return annotations;
+}
+
+function titleCase(name: string): string {
+  return name
+    .split('_')
+    .map((p) => (p ? (p[0] ?? '').toUpperCase() + p.slice(1) : p))
+    .join(' ');
+}
 
 /**
  * Helper to declare a tool with sensible defaults.
@@ -14,15 +56,21 @@ export function defineTool(def: {
   group: string;
   mutates: boolean;
   risk?: RiskLevel;
+  outputSchema?: Record<string, unknown>;
+  /** Per-tool annotation overrides (e.g. openWorldHint for web tools). */
+  annotations?: Partial<ToolAnnotations>;
   handler: ToolDefinition['handler'];
 }): ToolDefinition {
+  const risk = def.risk ?? TOOL_RISK[def.name] ?? 'MEDIUM';
   return {
     name: def.name,
     description: def.description,
     inputSchema: def.inputSchema,
+    ...(def.outputSchema !== undefined ? { outputSchema: def.outputSchema } : {}),
     group: def.group,
     mutates: def.mutates,
-    risk: def.risk ?? TOOL_RISK[def.name] ?? 'MEDIUM',
+    risk,
+    annotations: deriveAnnotations(def.name, def.mutates, risk, def.annotations),
     handler: def.handler,
   };
 }
@@ -65,13 +113,24 @@ export class ToolRegistry {
   }
 
   /** Execute a tool through the policy + audit pipeline. */
-  async call(name: string, rawArgs: Record<string, unknown>): Promise<ToolResult> {
+  async call(
+    name: string,
+    rawArgs: Record<string, unknown>,
+    control?: ToolCallControl
+  ): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
       return { ok: false, error: `Unknown tool: ${name}` };
     }
     const args = rawArgs ?? {};
     const started = Date.now();
+
+    // P6 - cancellation: if the client already cancelled before we start (or
+    // cancels during the synchronous policy/rate-limit checks below), refuse
+    // early instead of doing work the caller no longer wants.
+    if (control?.signal?.aborted) {
+      return { ok: false, error: 'Tool call cancelled before execution.' };
+    }
 
     // Determine per-call risk (shell can be re-classified by the handler later,
     // but we evaluate the base risk here too).
@@ -108,10 +167,28 @@ export class ToolRegistry {
       };
     }
 
+    // Rate limit / quota: applied only to calls that policy would actually
+    // run. Denied or approval-gated calls never consume quota.
+    const rl = this.container.rateLimiter.hit(name);
+    if (!rl.allowed) {
+      this.container.audit.record({
+        type: 'rate_limited',
+        tool: name,
+        risk,
+        summary: rl.reason ?? 'rate limited',
+        detail: { retryAfterMs: rl.retryAfterMs, windowCount: rl.windowCount, dailyCount: rl.dailyCount },
+      });
+      return {
+        ok: false,
+        error: `${rl.reason} Retry in ~${Math.ceil((rl.retryAfterMs ?? 0) / 1000)}s.`,
+      };
+    }
+
     try {
       const result = await tool.handler(args, {
         config: this.container.config,
         projectRoot: this.container.projectRoot(),
+        ...(control !== undefined ? { control } : {}),
         container: this.container,
       });
       this.container.audit.record({

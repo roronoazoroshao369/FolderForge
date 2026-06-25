@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import { defineTool } from './registry.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
+import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
 async function runScript(ctx, key) {
     const cmds = detectCommands(ctx.projectRoot);
     const command = cmds.scripts[key];
@@ -38,6 +39,7 @@ export function buildTools() {
             group: 'build',
             mutates: false,
             inputSchema: { type: 'object', properties: {} },
+            outputSchema: RUN_SCRIPT_OUTPUT_SCHEMA,
             handler: async (_a, ctx) => runScript(ctx, 'test'),
         }),
         defineTool({

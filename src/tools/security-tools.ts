@@ -13,6 +13,41 @@ export function securityTools(): ToolDefinition[] {
       handler: async (_a, ctx) => ({ ok: true, data: ctx.container.policy.describe() }),
     }),
     defineTool({
+      name: 'policy_explain',
+      description:
+        'Dry-run a tool call and explain the policy decision (allow | deny | approval) ' +
+        'and why, without executing the tool or creating an approval request.',
+      group: 'security',
+      mutates: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tool: { type: 'string', description: 'Name of the tool to evaluate.' },
+          args: { type: 'object', description: 'Args the call would use (used for risk classification).' },
+        },
+        required: ['tool'],
+      },
+      handler: async (args, ctx) => {
+        const toolName = String(args.tool);
+        const callArgs = (args.args as Record<string, unknown> | undefined) ?? {};
+        const registry = ctx.container.registry;
+        const def = registry?.get(toolName);
+        if (!def) {
+          return { ok: false, error: `Unknown tool: ${toolName}` };
+        }
+
+        // Mirror the per-call risk reclassification done in ToolRegistry.call:
+        // shell_exec risk depends on the actual command.
+        let risk = def.risk;
+        if (toolName === 'shell_exec' && typeof callArgs.command === 'string') {
+          risk = ctx.container.policy.command.classify(callArgs.command).risk;
+        }
+
+        const explanation = ctx.container.policy.explain(toolName, risk, def.mutates, callArgs);
+        return { ok: true, data: { tool: toolName, ...explanation } };
+      },
+    }),
+    defineTool({
       name: 'policy_set_mode',
       description: 'Set the policy mode: readonly | safe | dev | danger.',
       group: 'security',
@@ -78,6 +113,23 @@ export function securityTools(): ToolDefinition[] {
         const req = ctx.container.policy.approvals.create(String(args.tool), {}, 'HIGH', String(args.reason ?? 'manual'));
         return { ok: true, data: req };
       },
+    }),
+    defineTool({
+      name: 'policy_ratelimits',
+      description:
+        'Show per-tool rate-limit usage: configured window/quota and how many ' +
+        'calls have been used in the current window and rolling 24h.',
+      group: 'security',
+      mutates: false,
+      inputSchema: { type: 'object', properties: {} },
+      handler: async (_a, ctx) => ({
+        ok: true,
+        data: {
+          enabled: ctx.config.rateLimit.enabled,
+          default: ctx.config.rateLimit.default,
+          usage: ctx.container.rateLimiter.snapshot(),
+        },
+      }),
     }),
     defineTool({
       name: 'secret_scan',

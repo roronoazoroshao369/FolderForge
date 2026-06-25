@@ -1,5 +1,6 @@
 import { simpleGit } from 'simple-git';
 import { defineTool } from './registry.js';
+import { GIT_STATUS_OUTPUT_SCHEMA } from './output-schemas.js';
 function git(ctx) {
     return simpleGit({ baseDir: ctx.projectRoot });
 }
@@ -11,6 +12,7 @@ export function gitTools() {
             group: 'git',
             mutates: false,
             inputSchema: { type: 'object', properties: {} },
+            outputSchema: GIT_STATUS_OUTPUT_SCHEMA,
             handler: async (_a, ctx) => {
                 const s = await git(ctx).status();
                 return {
@@ -119,8 +121,40 @@ export function gitTools() {
             mutates: true,
             inputSchema: { type: 'object', properties: { remote: { type: 'string' }, branch: { type: 'string' } } },
             handler: async (args, ctx) => {
-                await git(ctx).push(String(args.remote ?? 'origin'), args.branch ? String(args.branch) : undefined);
-                return { ok: true, data: { pushed: true } };
+                const remote = String(args.remote ?? 'origin');
+                const branch = args.branch ? String(args.branch) : undefined;
+                // P8 - elicitation: pushing is irreversible from the local side
+                // (publishes commits to a shared remote). When the client supports
+                // interactive input, confirm the exact remote/branch before pushing.
+                // Clients without the capability see `elicitInput === undefined` and
+                // the push proceeds (policy/approval already gate it upstream).
+                if (ctx.control?.elicitInput) {
+                    const status = await git(ctx).status();
+                    const target = branch ?? status.current ?? 'current branch';
+                    const ahead = status.ahead ?? 0;
+                    const res = await ctx.control.elicitInput({
+                        message: `Push ${ahead} commit(s) to ${remote}/${target}? This publishes them to the shared remote.`,
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                confirm: {
+                                    type: 'boolean',
+                                    description: 'Confirm the push.',
+                                },
+                            },
+                            required: ['confirm'],
+                        },
+                    });
+                    if (res.action !== 'accept' || res.content?.confirm !== true) {
+                        return { ok: false, error: `git_push cancelled by user (${res.action}).` };
+                    }
+                }
+                // P4 - progress: report a tick before and after the network call so a
+                // client that sent a progressToken sees the long push advance.
+                await ctx.control?.reportProgress?.(0, 1, `Pushing to ${remote}...`);
+                await git(ctx).push(remote, branch);
+                await ctx.control?.reportProgress?.(1, 1, 'Push complete.');
+                return { ok: true, data: { pushed: true, remote, branch: branch ?? null } };
             },
         }),
         defineTool({
@@ -133,6 +167,29 @@ export function gitTools() {
                 const mode = String(args.mode ?? 'mixed');
                 if (mode === 'hard' && !ctx.config.git.allowResetHard) {
                     return { ok: false, error: 'Hard reset is disabled by configuration.' };
+                }
+                // P8 - elicitation: when the connected client supports it, confirm this
+                // destructive reset interactively before touching the index. Clients
+                // without the capability see `elicitInput === undefined` and the reset
+                // proceeds non-interactively (policy/approval already gate it upstream).
+                if (ctx.control?.elicitInput) {
+                    const status = await git(ctx).status();
+                    const res = await ctx.control.elicitInput({
+                        message: `Reset (--${mode}) will unstage ${status.staged.length} file(s) on branch ${status.current}. Continue?`,
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                confirm: {
+                                    type: 'boolean',
+                                    description: 'Confirm the reset.',
+                                },
+                            },
+                            required: ['confirm'],
+                        },
+                    });
+                    if (res.action !== 'accept' || res.content?.confirm !== true) {
+                        return { ok: false, error: `git_reset cancelled by user (${res.action}).` };
+                    }
                 }
                 await git(ctx).reset([`--${mode}`]);
                 return { ok: true, data: { reset: mode } };
