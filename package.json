@@ -1,22 +1,56 @@
 {
-  "name": "folderforge",
+  "name": "@musashishao/folderforge",
   "version": "1.2.0",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "coding-agent",
+    "claude",
+    "cursor",
+    "codex",
+    "developer-tools",
+    "workspace",
+    "filesystem",
+    "stdio",
+    "cli"
+  ],
+  "homepage": "https://github.com/roronoazoroshao369/FolderForge#readme",
+  "bugs": {
+    "url": "https://github.com/roronoazoroshao369/FolderForge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roronoazoroshao369/FolderForge.git"
+  },
+  "license": "Apache-2.0",
+  "author": "",
   "type": "module",
   "bin": {
     "folderforge": "./dist/main.js"
   },
+  "main": "./dist/main.js",
+  "files": [
+    "dist",
+    "examples",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "tsx src/main.ts",
     "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
-  },
-  "engines": {
-    "node": ">=22.0.0"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -34,5 +68,7 @@
     "typescript": "^5.6.0",
     "vitest": "^2.0.0"
   },
-  "license": "Apache-2.0"
+  "publishConfig": {
+    "access": "public"
+  }
 }

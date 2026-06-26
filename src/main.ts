@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig } from './core/config.js';
 import { Container } from './core/container.js';
-import { buildRegistry, registerAdapterTools } from './tools/index.js';
+import { buildRegistry, registerAdapterTools, resolveActiveTools } from './tools/index.js';
 import { createMcpServer } from './server/mcp-server.js';
 import { startStdioTransport } from './server/transports/stdio.js';
 import { startHttpTransport } from './server/transports/http.js';
@@ -20,6 +20,10 @@ interface CliArgs {
   host?: string;
   dashboard: boolean;
   dashboardPort?: number;
+  toolsPreset?: string;
+  toolsGroups?: string[];
+  toolsEnable?: string[];
+  toolsDisable?: string[];
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -60,6 +64,26 @@ function parseArgs(argv: string[]): CliArgs {
       case '--no-dashboard':
         args.dashboard = false;
         break;
+      case '--tools-preset': {
+        const v = next();
+        if (v !== undefined) args.toolsPreset = v;
+        break;
+      }
+      case '--tools-groups': {
+        const v = next();
+        if (v !== undefined) args.toolsGroups = v.split(',').map((s) => s.trim()).filter(Boolean);
+        break;
+      }
+      case '--tools-enable': {
+        const v = next();
+        if (v !== undefined) args.toolsEnable = v.split(',').map((s) => s.trim()).filter(Boolean);
+        break;
+      }
+      case '--tools-disable': {
+        const v = next();
+        if (v !== undefined) args.toolsDisable = v.split(',').map((s) => s.trim()).filter(Boolean);
+        break;
+      }
       case '--version':
       case '-v':
         process.stdout.write(`folderforge ${VERSION}\n`);
@@ -95,6 +119,10 @@ function printHelp(): void {
       '      --host <addr>        Bind address (default 127.0.0.1)',
       '      --dashboard-port <n> Dashboard port (default 7332)',
       '      --no-dashboard       Disable the local dashboard',
+      '      --tools-preset <id>  Limit advertised tools to a preset (vibe|readonly|full)',
+      '      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)',
+      '      --tools-enable <csv> Always-keep tool names (added back on top of the filter)',
+      '      --tools-disable <csv> Drop these tool names from the advertised list',
       '  -v, --version            Print version and exit',
       '  -h, --help               Show this help',
       '',
@@ -119,6 +147,29 @@ async function main(): Promise<void> {
 
   const container = new Container(config);
   const registry = buildRegistry(container);
+
+  // Trim the advertised tool surface (config + CLI). Clients that cap the tool
+  // list (e.g. ~50 tools) can run a focused preset like "vibe". CLI flags win
+  // over the config file. Applied before the first tools/list.
+  const cfgTools = (config as { tools?: {
+    preset?: string;
+    enabledGroups?: string[];
+    enabled?: string[];
+    disabled?: string[];
+  } }).tools;
+  const active = resolveActiveTools(registry, {
+    preset: args.toolsPreset ?? cfgTools?.preset,
+    enabledGroups: args.toolsGroups ?? cfgTools?.enabledGroups,
+    enabled: args.toolsEnable ?? cfgTools?.enabled,
+    disabled: args.toolsDisable ?? cfgTools?.disabled,
+  });
+  if (active) {
+    registry.setActive(active);
+    logger.info(
+      { advertised: active.length, total: registry.listAll().length },
+      'Tool surface filtered'
+    );
+  }
 
   // Wire enabled child MCP adapters (Serena, Playwright, ...). Each child tool is
   // exposed namespaced (e.g. serena__find_symbol). Discovery never blocks startup.

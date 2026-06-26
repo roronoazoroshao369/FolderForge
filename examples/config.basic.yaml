@@ -35,3 +35,16 @@ policy:
   blockedCommands:
     - "rm -rf /"
     - "git push --force"
+
+# Trim the advertised tool list. Useful for clients that cap tools (~50).
+# CLI flags (--tools-preset / --tools-groups / --tools-enable / --tools-disable)
+# override anything set here. `workspace` tools are always kept.
+tools:
+  # Named group preset: vibe | readonly | full
+  preset: vibe
+  # Or pick groups explicitly (overrides preset):
+  # enabledGroups: [file, search, terminal, git, code, build, process]
+  # Add specific tools back on top of the filter:
+  # enabled: [run_test]
+  # Drop specific tools you don't want:
+  # disabled: [search_ast]

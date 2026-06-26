@@ -196,6 +196,156 @@ export function gitTools() {
             },
         }),
         defineTool({
+            name: 'git_fetch',
+            description: 'Fetch updates from a remote without touching the working tree. Updates ' +
+                'remote-tracking refs only; safe and non-destructive.',
+            group: 'git',
+            mutates: true,
+            annotations: { openWorldHint: true },
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    remote: { type: 'string', description: 'Remote name (default origin).' },
+                    branch: { type: 'string', description: 'Specific branch to fetch (default all).' },
+                    prune: { type: 'boolean', description: 'Prune deleted remote-tracking branches.' },
+                },
+            },
+            handler: async (args, ctx) => {
+                const remote = String(args.remote ?? 'origin');
+                const branch = args.branch ? String(args.branch) : undefined;
+                const opts = args.prune ? ['--prune'] : [];
+                await ctx.control?.reportProgress?.(0, 1, `Fetching from ${remote}...`);
+                const res = await git(ctx).fetch(remote, branch, opts);
+                await ctx.control?.reportProgress?.(1, 1, 'Fetch complete.');
+                return {
+                    ok: true,
+                    data: {
+                        remote,
+                        branch: branch ?? null,
+                        updated: res.updated ?? [],
+                        deleted: res.deleted ?? [],
+                    },
+                };
+            },
+        }),
+        defineTool({
+            name: 'git_pull',
+            description: 'Pull and integrate changes from a remote into the current branch. HIGH ' +
+                'risk: may rewrite working-tree files and produce merge conflicts. ' +
+                'Confirms interactively when the client supports elicitation.',
+            group: 'git',
+            mutates: true,
+            annotations: { openWorldHint: true },
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    remote: { type: 'string', description: 'Remote name (default origin).' },
+                    branch: { type: 'string', description: 'Branch to pull (default current upstream).' },
+                    rebase: { type: 'boolean', description: 'Use --rebase instead of merge.' },
+                },
+            },
+            handler: async (args, ctx) => {
+                const remote = String(args.remote ?? 'origin');
+                const branch = args.branch ? String(args.branch) : undefined;
+                const rebase = args.rebase === true;
+                // P8 - elicitation: a pull can overwrite local files and create
+                // conflicts, so confirm before integrating when the client supports it.
+                // Clients without the capability proceed (policy/approval gate upstream).
+                if (ctx.control?.elicitInput) {
+                    const status = await git(ctx).status();
+                    const target = branch ?? status.tracking ?? status.current ?? 'upstream';
+                    const dirty = !status.isClean();
+                    const res = await ctx.control.elicitInput({
+                        message: `Pull from ${remote}/${target} into ${status.current}` +
+                            `${rebase ? ' (rebase)' : ''}? ` +
+                            `${dirty ? 'Your working tree has uncommitted changes. ' : ''}` +
+                            'This may modify local files.',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: {
+                                confirm: { type: 'boolean', description: 'Confirm the pull.' },
+                            },
+                            required: ['confirm'],
+                        },
+                    });
+                    if (res.action !== 'accept' || res.content?.confirm !== true) {
+                        return { ok: false, error: `git_pull cancelled by user (${res.action}).` };
+                    }
+                }
+                const opts = {};
+                if (rebase)
+                    opts['--rebase'] = null;
+                await ctx.control?.reportProgress?.(0, 1, `Pulling from ${remote}...`);
+                const summary = await git(ctx).pull(remote, branch, opts);
+                await ctx.control?.reportProgress?.(1, 1, 'Pull complete.');
+                return {
+                    ok: true,
+                    data: {
+                        remote,
+                        branch: branch ?? null,
+                        rebase,
+                        changes: summary.summary?.changes ?? 0,
+                        insertions: summary.summary?.insertions ?? 0,
+                        deletions: summary.summary?.deletions ?? 0,
+                        files: summary.files ?? [],
+                    },
+                };
+            },
+        }),
+        defineTool({
+            name: 'git_stash',
+            description: 'Save, restore, list, or drop stashed changes. op: push (default) | pop | ' +
+                'apply | list | drop. Hard data loss is avoided (no stash clear).',
+            group: 'git',
+            mutates: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    op: {
+                        type: 'string',
+                        enum: ['push', 'pop', 'apply', 'list', 'drop'],
+                        description: 'Stash operation (default push).',
+                    },
+                    message: { type: 'string', description: 'Optional label when op=push.' },
+                    index: { type: 'number', description: 'Stash index for pop/apply/drop (default 0).' },
+                    includeUntracked: { type: 'boolean', description: 'Include untracked files when op=push.' },
+                },
+            },
+            handler: async (args, ctx) => {
+                const op = String(args.op ?? 'push');
+                const g = git(ctx);
+                if (op === 'list') {
+                    const list = await g.stashList();
+                    return {
+                        ok: true,
+                        data: {
+                            op,
+                            count: list.total,
+                            entries: list.all.map((e) => ({ hash: e.hash.slice(0, 8), message: e.message })),
+                        },
+                    };
+                }
+                if (op === 'push') {
+                    const opts = ['push'];
+                    if (args.includeUntracked)
+                        opts.push('--include-untracked');
+                    if (args.message)
+                        opts.push('-m', String(args.message));
+                    const out = await g.stash(opts);
+                    return { ok: true, data: { op, result: out.trim() } };
+                }
+                if (op === 'pop' || op === 'apply' || op === 'drop') {
+                    const index = Number(args.index ?? 0);
+                    if (!Number.isInteger(index) || index < 0) {
+                        return { ok: false, error: `Invalid stash index: ${args.index}` };
+                    }
+                    const out = await g.stash([op, `stash@{${index}}`]);
+                    return { ok: true, data: { op, index, result: out.trim() } };
+                }
+                return { ok: false, error: `Unknown stash op: ${op}` };
+            },
+        }),
+        defineTool({
             name: 'git_show',
             description: 'Show a commit by ref (read-only).',
             group: 'git',

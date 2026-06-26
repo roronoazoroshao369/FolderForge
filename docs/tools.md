@@ -54,8 +54,14 @@ project. `workspace_route` switches the visible tool set to a task preset
 
 ### Files
 `file_read`, `file_read_many`, `file_write`, `file_patch`, `file_edit_block`,
-`file_delete` - all paths pass through `PathPolicy.resolveSafe` (workspace
-boundary, denied globs, symlink-escape checks). Mutations return a diff preview.
+`file_move`, `file_copy`, `list_directory`, `file_delete` - all paths pass
+through `PathPolicy.resolveSafe` (workspace boundary, denied globs, symlink-escape
+checks). Mutations return a diff preview where applicable. `file_move` renames or
+relocates a file/directory and `file_copy` copies one (recursively for
+directories); both are boundary-checked on *both* endpoints and refuse to clobber
+an existing destination unless `overwrite=true`. `list_directory` enumerates a
+directory (optionally recursive, with an entry cap) and skips anything the path
+policy denies, so secrets, `node_modules`, and `.git` internals never leak.
 
 ### Search
 `search_files`, `search_text`, `search_ast` - glob, content, and structural
@@ -70,8 +76,14 @@ regex-backed structural matching (no language server required).
 
 ### Git
 `git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch`,
-`git_add`, `git_checkout`, `git_commit`, `git_push`, `git_reset`. Commit/push
-default to approval; `git_reset --hard` is CRITICAL.
+`git_add`, `git_checkout`, `git_commit`, `git_push`, `git_reset`, `git_fetch`,
+`git_pull`, `git_stash`. Commit/push default to approval; `git_reset --hard` is
+CRITICAL. `git_fetch` (MEDIUM) updates remote-tracking refs only and never
+touches the working tree. `git_pull` (HIGH) integrates remote changes into the
+current branch (merge or `--rebase`) and confirms interactively via elicitation
+before running, warning when the working tree is dirty. `git_stash` (MEDIUM)
+shelves and restores work via `op`: `push` (default) | `pop` | `apply` | `list` |
+`drop`; it deliberately omits `clear` to avoid irreversible data loss.
 
 ### Build & quality
 `run_build`, `run_test`, `run_lint`, `run_typecheck`, `code_diagnostics` -

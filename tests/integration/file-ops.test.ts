@@ -138,4 +138,63 @@ describe('file tools integration (Q8)', () => {
     const res = await registry.call('file_read', { path: '../../etc/passwd' });
     expect(res.ok).toBe(false);
   });
+
+  it('lists a directory non-recursively', async () => {
+    const { registry } = setup(ws);
+    await registry.call('workspace_activate', { path: ws });
+    const res = data<{ entries: Array<{ path: string; type: string }>; count: number }>(
+      await registry.call('list_directory', { path: 'src' })
+    );
+    const names = res.entries.map((e) => e.path);
+    expect(names).toContain('src/hello.txt');
+    expect(res.entries.find((e) => e.path === 'src/hello.txt')?.type).toBe('file');
+  });
+
+  it('lists a directory recursively and reports directories', async () => {
+    const { registry } = setup(ws);
+    await registry.call('workspace_activate', { path: ws });
+    mkdirSync(join(ws, 'src', 'nested'), { recursive: true });
+    writeFileSync(join(ws, 'src', 'nested', 'deep.txt'), 'deep\n');
+    const res = data<{ entries: Array<{ path: string; type: string }> }>(
+      await registry.call('list_directory', { path: 'src', recursive: true })
+    );
+    const names = res.entries.map((e) => e.path);
+    expect(names).toContain('src/nested');
+    expect(names).toContain('src/nested/deep.txt');
+    expect(res.entries.find((e) => e.path === 'src/nested')?.type).toBe('dir');
+  });
+
+  it('moves a file and refuses to overwrite without the flag', async () => {
+    const { registry } = setup(ws);
+    await registry.call('workspace_activate', { path: ws });
+    data(await registry.call('file_move', { from: 'src/hello.txt', to: 'src/moved.txt' }));
+    expect(existsSync(join(ws, 'src', 'hello.txt'))).toBe(false);
+    expect(existsSync(join(ws, 'src', 'moved.txt'))).toBe(true);
+
+    writeFileSync(join(ws, 'src', 'other.txt'), 'other\n');
+    const blocked = await registry.call('file_move', { from: 'src/other.txt', to: 'src/moved.txt' });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toMatch(/exists/i);
+  });
+
+  it('copies a file and a directory recursively', async () => {
+    const { registry } = setup(ws);
+    await registry.call('workspace_activate', { path: ws });
+    data(await registry.call('file_copy', { from: 'src/hello.txt', to: 'src/copy.txt' }));
+    expect(existsSync(join(ws, 'src', 'hello.txt'))).toBe(true);
+    expect(readFileSync(join(ws, 'src', 'copy.txt'), 'utf8')).toContain('hello world');
+
+    const dirRes = data<{ directory: boolean }>(
+      await registry.call('file_copy', { from: 'src', to: 'src-copy' })
+    );
+    expect(dirRes.directory).toBe(true);
+    expect(existsSync(join(ws, 'src-copy', 'hello.txt'))).toBe(true);
+  });
+
+  it('refuses to move outside the workspace root', async () => {
+    const { registry } = setup(ws);
+    await registry.call('workspace_activate', { path: ws });
+    const res = await registry.call('file_move', { from: 'src/hello.txt', to: '../escape.txt' });
+    expect(res.ok).toBe(false);
+  });
 });

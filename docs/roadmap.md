@@ -102,8 +102,9 @@ untouched.
   client advertised the `elicitation` capability (checked via
   `server.getClientCapabilities()`); otherwise it is `undefined` and handlers
   fall back to non-interactive defaults. Two destructive native tools now elicit
-  an interactive confirmation before acting: `git_reset` (unstaging) and
-  `git_push` (publishing commits to a shared remote). Clients without the
+  an interactive confirmation before acting: `git_reset` (unstaging),
+  `git_push` (publishing commits to a shared remote), and `git_pull` (integrating
+  remote changes into the working tree). Clients without the
   capability proceed non-interactively, still gated by policy/approval upstream.
 
 Verification status: typechecked logic reviewed manually; unit tests cover
@@ -137,3 +138,35 @@ before tagging 1.2.
   destructive db/git operations). **Done in 1.2** for `git_reset` and
   `git_push`; db tools remain read-only so there is no destructive db consumer
   to wire.
+
+## Done (1.2 - agent ergonomics)
+
+Rounded out the tool surface so an agent can comfortably explore, edit, run, and
+manage source control without falling back to raw `shell_exec`. All additions are
+backwards-compatible (new tools only) and synchronized across the risk map
+(`src/policy/risk.ts`), the frozen schema lock (`src/tools/schema-lock.ts`), and
+the integration suites.
+
+- **Git convenience tools.**
+  - `git_fetch` (MEDIUM, `openWorldHint`) - update remote-tracking refs only,
+    never touches the working tree; emits progress.
+  - `git_pull` (HIGH, `openWorldHint`) - merge or `--rebase` remote changes into
+    the current branch, with an elicitation confirmation (warns on a dirty tree)
+    and progress reporting.
+  - `git_stash` (MEDIUM) - `op`: `push` (default) | `pop` | `apply` | `list` |
+    `drop`. Deliberately omits `clear` to avoid irreversible data loss.
+- **File convenience tools.**
+  - `file_move` (MEDIUM) - rename/relocate a file or directory; both endpoints
+    boundary-checked, refuses to clobber unless `overwrite=true`.
+  - `file_copy` (MEDIUM) - copy a file or directory (recursive); same overwrite
+    guard.
+  - `list_directory` (LOW) - enumerate a directory (optional recursion + entry
+    cap), skipping anything the path policy denies (secrets, `node_modules`,
+    `.git` internals).
+
+Verification: `npm run typecheck && npm test && npm run build` all green
+(26 test files, 215 tests). New behavior is covered in
+`tests/integration/file-ops.test.ts` (list flat/recursive, move + overwrite +
+escape guard, file/dir copy) and `tests/integration/git-ops.test.ts` (stash
+push/list/pop, fetch+pull against a bare remote, pull cancellation on declined
+elicitation).

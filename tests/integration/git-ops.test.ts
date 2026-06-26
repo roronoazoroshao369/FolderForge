@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { simpleGit } from 'simple-git';
@@ -250,5 +250,80 @@ describe('git tools integration (Q8)', () => {
     } finally {
       rmSync(remote, { recursive: true, force: true });
     }
+  });
+
+  it('stashes and restores working-tree changes (push/list/pop)', async () => {
+    const { registry } = setup(repo);
+    await registry.call('workspace_activate', { path: repo });
+
+    // Dirty a tracked file, then stash it away.
+    writeFileSync(join(repo, 'src', 'a.txt'), 'first\nstashed change\n');
+    const pushed = data<{ op: string }>(
+      await registry.call('git_stash', { op: 'push', message: 'wip' })
+    );
+    expect(pushed.op).toBe('push');
+    expect(data<{ clean: boolean }>(await registry.call('git_status', {})).clean).toBe(true);
+
+    const list = data<{ count: number }>(await registry.call('git_stash', { op: 'list' }));
+    expect(list.count).toBe(1);
+
+    data(await registry.call('git_stash', { op: 'pop' }));
+    expect(data<{ clean: boolean }>(await registry.call('git_status', {})).clean).toBe(false);
+  });
+
+  it('fetches and pulls from a remote (P8 fetch/pull)', async () => {
+    const { registry } = setup(repo);
+    await registry.call('workspace_activate', { path: repo });
+
+    // Stand up a bare remote, push the current branch, then advance the remote
+    // from a second clone so the working repo has something to fetch/pull.
+    const remote = mkdtempSync(join(tmpdir(), 'ff-remote-'));
+    const bare = simpleGit({ baseDir: remote });
+    await bare.init(['--bare']);
+    const local = simpleGit({ baseDir: repo });
+    await local.addRemote('origin', remote);
+    const current = (await local.branchLocal()).current;
+    await local.push('origin', current);
+
+    const clone = mkdtempSync(join(tmpdir(), 'ff-clone-'));
+    const cg = simpleGit();
+    await cg.clone(remote, clone);
+    const cloneGit = simpleGit({ baseDir: clone });
+    await cloneGit.addConfig('user.email', 't@e.st');
+    await cloneGit.addConfig('user.name', 'Tester');
+    writeFileSync(join(clone, 'remote-change.txt'), 'from remote\n');
+    await cloneGit.add('.');
+    await cloneGit.commit('remote commit');
+    await cloneGit.push('origin', current);
+
+    try {
+      const fetched = data<{ remote: string }>(
+        await registry.call('git_fetch', { remote: 'origin' })
+      );
+      expect(fetched.remote).toBe('origin');
+
+      const pulled = await registry.call(
+        'git_pull',
+        { remote: 'origin', branch: current },
+        { elicitInput: async () => ({ action: 'accept' as const, content: { confirm: true } }) }
+      );
+      expect(pulled.ok).toBe(true);
+      expect(existsSync(join(repo, 'remote-change.txt'))).toBe(true);
+    } finally {
+      rmSync(remote, { recursive: true, force: true });
+      rmSync(clone, { recursive: true, force: true });
+    }
+  });
+
+  it('cancels git_pull when the elicitation client declines (P8)', async () => {
+    const { registry } = setup(repo);
+    await registry.call('workspace_activate', { path: repo });
+    const res = await registry.call(
+      'git_pull',
+      {},
+      { elicitInput: async () => ({ action: 'decline' as const }) }
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/cancelled/i);
   });
 });

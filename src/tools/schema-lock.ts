@@ -54,6 +54,9 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'file_write', mutates: true, risk: 'MEDIUM' },
   { name: 'file_patch', mutates: true, risk: 'MEDIUM' },
   { name: 'file_edit_block', mutates: true, risk: 'MEDIUM' },
+  { name: 'file_move', mutates: true, risk: 'MEDIUM' },
+  { name: 'file_copy', mutates: true, risk: 'MEDIUM' },
+  { name: 'list_directory', mutates: false, risk: 'LOW' },
   { name: 'file_delete', mutates: true, risk: 'HIGH' },
 
   // --- search ---
@@ -80,6 +83,9 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'git_show', mutates: false, risk: 'LOW' },
   { name: 'git_blame', mutates: false, risk: 'LOW' },
   { name: 'git_branch', mutates: false, risk: 'LOW' },
+  { name: 'git_fetch', mutates: true, risk: 'MEDIUM' },
+  { name: 'git_pull', mutates: true, risk: 'HIGH' },
+  { name: 'git_stash', mutates: true, risk: 'MEDIUM' },
   { name: 'git_add', mutates: true, risk: 'MEDIUM' },
   { name: 'git_checkout', mutates: true, risk: 'MEDIUM' },
   { name: 'git_commit', mutates: true, risk: 'HIGH' },
