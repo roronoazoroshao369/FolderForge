@@ -113,6 +113,39 @@ without executing the tool or creating an approval request. `audit_recent`,
 `approval_status`, `approval_request` - inspect pending approval requests created
 by the engine, or raise one explicitly.
 
+#### Interactive approval via elicitation (1.3.3+)
+
+When a tool call triggers the approval queue and the MCP client advertises the
+`elicitation` capability, FolderForge sends an `elicitInput` request so the
+user can **Approve / Deny right inside the chat** — no dashboard required.
+
+```
+approve: true | false
+scope:   "once" | "session"   (session = remember for the rest of this run)
+```
+
+Decision path:
+
+| Situation | Behaviour |
+| --- | --- |
+| Client supports elicitation, user approves | Approval resolved inline; tool runs immediately. |
+| Client supports elicitation, user denies / cancels | Tool denied; clear error returned to caller. |
+| Client does **not** support elicitation | Falls back to dashboard flow; `approvalId` returned so the user can approve at `http://localhost:7332`. |
+| Elicitation call fails (transport closed, timeout) | Safe fallback to dashboard; never leaves the queue in an unknown state. |
+
+The fallback behaviour is identical to how approvals worked before 1.3.3, so
+existing setups without elicitation support are unaffected.
+
+#### Embedded resource blocks (1.3.3+)
+
+Tool results now carry typed MCP content blocks in addition to plain text:
+
+| Block type | Use |
+| --- | --- |
+| `text` | Plain text (always first — backwards-compatible) |
+| `resource` | Embedded content (e.g. `git_diff` attaches the diff as `text/x-diff` for in-client diff viewers) |
+| `resource_link` | URI reference to a local file or dashboard URL for out-of-band viewing |
+
 ### Browser & DB
 Child-MCP adapter tools are exposed namespaced as `<adapter>__<tool>` (e.g.
 `playwright__browser_navigate`, `serena__find_symbol`) - see `docs/adapters.md`.

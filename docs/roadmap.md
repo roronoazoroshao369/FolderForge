@@ -126,6 +126,37 @@ before tagging 1.2.
   filesystem tooling): run
   `rm -rf .trash tests/fixtures/sample-ts-project/.vibemcp`.
 
+## Done (1.3.3 - Interactive approval UI via elicitation + embedded resources)
+
+Closes the UX gap where AI clients got stuck on high-risk tool calls (e.g.
+`git_commit`, `file_delete`) when the dashboard was disabled (`--no-dashboard`).
+
+- **Elicitation-based approval flow.** `registry.call()` now checks
+  `control.elicitInput` before falling back to the dashboard. When the MCP
+  client advertises the `elicitation` capability, the approval prompt appears
+  **directly in the chat** with two fields: `approve` (bool) and `scope`
+  (`once` | `session`). An approved+session result is written into
+  `ApprovalEngine.sessionAllowed` so the tool runs without further prompts for
+  the rest of the session. Decline / cancel / `approve:false` → immediate deny
+  with a clear error.
+- **Fallback parity.** When `elicitInput` is absent or throws (transport
+  closed, unsupported client), the existing dashboard flow is invoked unchanged,
+  preserving the `approvalId` + redirect message. No regressions for headless
+  setups.
+- **`ToolContentBlock` type system.** `ToolResult` grows an optional `content`
+  array of typed blocks (`text | resource | resource_link`). `toCallToolResult`
+  in `mcp-server.ts` maps them to MCP content items; the text block is always
+  emitted first to stay backwards-compatible with clients that only read the
+  first content item.
+- **`git_diff` embedded resource.** `git_diff` attaches the raw diff as an
+  embedded `text/x-diff` resource block so clients with a diff-viewer capability
+  can render it natively instead of as a plain text wall.
+- 8 new unit tests (`tests/unit/elicit-approval.test.ts`) cover:
+  elicitation-approve, elicitation-deny, elicitation-cancel → fallback,
+  elicitation-error → fallback, no-elicitation → dashboard fallback, session
+  scope, content-block mapping (text+resource), and resource_link blocks.
+  All 225 tests pass.
+
 ## Next (post-1.0 ideas)
 
 - Distributed/shared rate limiting for multi-instance deployments.

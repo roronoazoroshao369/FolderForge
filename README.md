@@ -181,9 +181,34 @@ See `docs/roadmap.md` for the detailed milestone history and post-1.0 ideas.
 Beyond `tools/list` / `tools/call`, FolderForge supports progress
 notifications (P4), cancellation (P6), and elicitation (P8), wired through a
 per-call control object that leaves the frozen tool schema untouched.
-`git_reset`, `git_push`, and `git_pull` confirm interactively before acting when
-the client supports elicitation, and `git_push` / `git_fetch` / `git_pull` /
-`process_tail` emit progress.
+
+#### Interactive approval via elicitation (new in 1.3.3)
+
+When a tool is gated by the approval queue (e.g. `git_commit`, `git_push`,
+`file_delete`) and the MCP client advertises the `elicitation` capability,
+FolderForge **asks Approve / Deny directly in the chat** instead of redirecting
+to the dashboard:
+
+```
+scope options: "once" (this call only) | "session" (remember for the session)
+```
+
+If the client does not support elicitation, or if the elicitation call fails,
+FolderForge falls back gracefully to the existing dashboard flow
+(`http://localhost:7332 → Approvals`) and returns the `approvalId` so the user
+can resolve it there.
+
+#### Embedded resources
+
+Tool results can now carry MCP content blocks beyond plain text.  `git_diff`
+attaches the diff as an embedded `text/x-diff` resource so supporting clients
+can render it in a dedicated viewer / diff tab rather than a raw text block.
+Other tools may attach `resource_link` blocks pointing to local file URIs or
+dashboard URLs.
+
+`git_reset`, `git_push`, and `git_pull` confirm interactively before acting
+when the client supports elicitation, and `git_push` / `git_fetch` / `git_pull`
+/ `process_tail` emit progress notifications.
 
 ## Run
 

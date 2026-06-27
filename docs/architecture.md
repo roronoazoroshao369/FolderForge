@@ -24,10 +24,25 @@ agent (Claude Desktop / Codex / ...)
         v
   PolicyEngine  --------------------------- src/policy/policy-engine.ts
    (path / command / secret / approvals)
-        |  allow | deny | approval
+        |  allow | deny | approval-required
+        v
+  [approval-required path] ─────────────────────────────────────────
+        |                                                            |
+        | client.capabilities.elicitation == true                   | false / error
+        v                                                            v
+  elicitInput (Approve/Deny in chat)           dashboard fallback (appr_xxx)
+   scope: once | session                       http://localhost:7332/
+        |
+        | approved → resolve inline
+        | denied  → error returned
         v
   Tool handler (file/git/shell/...)        src/tools/*-tools.ts
-        |
+        |  may return ToolContentBlock[]
+        |  (text | resource | resource_link)
+        v
+  toCallToolResult → MCP content blocks    src/server/mcp-server.ts
+   text block always first (back-compat)
+   embedded resource (e.g. text/x-diff for git_diff)
         v
   Container services                        src/core/container.ts
    (workspace, processes, db, adapters, audit)
@@ -35,7 +50,8 @@ agent (Claude Desktop / Codex / ...)
 
 A second, independent HTTP server serves the local dashboard
 (`src/dashboard/server.ts`), which reads the same `Container` to render status,
-audit, processes, and approvals.
+audit, processes, and approvals. The dashboard is the **fallback** approval UI
+when the MCP client does not advertise the `elicitation` capability.
 
 ## Modules
 
