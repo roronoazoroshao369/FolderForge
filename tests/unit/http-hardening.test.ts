@@ -3,6 +3,8 @@ import {
   isLoopbackHost,
   timingSafeEqualStr,
   extractBearer,
+  extractApiKey,
+  matchesAnyCredential,
   resolveCorsOrigin,
 } from '../../src/server/transports/http.js';
 
@@ -26,6 +28,23 @@ describe('http transport hardening helpers', () => {
     expect(extractBearer({ headers: { authorization: 'Bearer abc123' } })).toBe('abc123');
     expect(extractBearer({ headers: { authorization: 'Basic abc123' } })).toBeUndefined();
     expect(extractBearer({ headers: {} })).toBeUndefined();
+  });
+
+  it('extracts a credential from the X-API-Key header', () => {
+    expect(extractApiKey({ headers: { 'x-api-key': 'key-1' } })).toBe('key-1');
+    expect(extractApiKey({ headers: { 'x-api-key': '  key-2  ' } })).toBe('key-2');
+    expect(extractApiKey({ headers: { 'x-api-key': ['key-3', 'key-4'] } })).toBe('key-3');
+    expect(extractApiKey({ headers: { 'x-api-key': '' } })).toBeUndefined();
+    expect(extractApiKey({ headers: {} })).toBeUndefined();
+  });
+
+  it('matches a provided credential against the accepted list in constant time', () => {
+    const accepted = ['primary-token', 'client-a-key', 'client-b-key'];
+    expect(matchesAnyCredential('primary-token', accepted)).toBe(true);
+    expect(matchesAnyCredential('client-b-key', accepted)).toBe(true);
+    expect(matchesAnyCredential('wrong-key', accepted)).toBe(false);
+    expect(matchesAnyCredential(undefined, accepted)).toBe(false);
+    expect(matchesAnyCredential('primary-token', [])).toBe(false);
   });
 
   it('resolves CORS origins against the allowlist', () => {

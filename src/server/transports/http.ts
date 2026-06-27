@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -15,6 +15,17 @@ export interface HttpTransportOptions {
    * Required (by the caller) for non-loopback binds.
    */
   token?: string;
+  /**
+   * Additional accepted credentials. A client may present any of these as
+   * `Authorization: Bearer <key>` or as the `X-API-Key: <key>` header. The
+   * primary `token` is always accepted too.
+   */
+  apiKeys?: string[];
+  /**
+   * Force auth even on loopback binds. When true, a credential MUST be set and
+   * every request must present a valid one - including localhost.
+   */
+  requireAuth?: boolean;
   /** Allowed CORS origins. ['*'] allows any; empty/undefined disables CORS. */
   corsOrigins?: string[];
   /** Idle session lifetime in ms before the transport session is expired. */
@@ -47,6 +58,34 @@ export function extractBearer(req: Pick<IncomingMessage, 'headers'>): string | u
   return undefined;
 }
 
+/** Extract a credential from the `X-API-Key` header. */
+export function extractApiKey(req: Pick<IncomingMessage, 'headers'>): string | undefined {
+  const header = req.headers['x-api-key'];
+  const raw = Array.isArray(header) ? header[0] : header;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return undefined;
+}
+
+/**
+ * True when `provided` matches any accepted credential, compared in
+ * constant time. Always walks the whole list so timing does not leak which
+ * credential (if any) matched.
+ */
+export function matchesAnyCredential(
+  provided: string | undefined,
+  accepted: string[]
+): boolean {
+  if (!provided || accepted.length === 0) return false;
+  let ok = false;
+  for (const candidate of accepted) {
+    if (timingSafeEqualStr(provided, candidate)) ok = true;
+  }
+  return ok;
+}
+
 /**
  * Resolve the CORS origin header value for a request, or null to omit it.
  * `['*']` echoes any origin (so credentials can still work); a concrete list
@@ -72,35 +111,54 @@ export function resolveCorsOrigin(
  *    `sessionTtlMs` of inactivity so stale sessions don't linger.
  */
 export async function startHttpTransport(
-  server: Server,
+  makeMcpServer: () => Server,
   opts: HttpTransportOptions
 ): Promise<HttpServer> {
   const mcpPath = opts.path ?? '/mcp';
-  const ttl = opts.sessionTtlMs ?? 30 * 60 * 1000; // 30 min default
-  const requireAuth = Boolean(opts.token);
+  // Every credential accepted on the MCP endpoint: the primary token plus any
+  // additional api keys. A client may present any of them.
+  const credentials = [opts.token, ...(opts.apiKeys ?? [])].filter(
+    (c): c is string => typeof c === 'string' && c.length > 0
+  );
+  // Auth is enforced when any credential is configured, or when requireAuth is
+  // set, or when bound to a non-loopback host.
+  const requireAuth =
+    credentials.length > 0 || Boolean(opts.requireAuth) || !isLoopbackHost(opts.host);
 
-  if (!isLoopbackHost(opts.host) && !opts.token) {
-    throw new Error('HTTP transport bound to a non-loopback host requires server.http.token');
+  if (requireAuth && credentials.length === 0) {
+    throw new Error(
+      'HTTP transport requires authentication but no credential is set. ' +
+        'Configure server.http.token (or server.http.apiKeys), pass --token, ' +
+        'or bind to a loopback host with requireAuth disabled.'
+    );
   }
 
-  let transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-  await server.connect(transport as Transport);
-  let lastActivity = Date.now();
-
-  // Recreate the transport (and reconnect the server) when it has been idle past
-  // the TTL, expiring any stale session id.
-  const refreshIfIdle = async () => {
-    if (Date.now() - lastActivity > ttl) {
-      try {
-        await transport.close?.();
-      } catch {
-        // ignore close errors
-      }
-      transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-      await server.connect(transport as Transport);
-      logger.info({ ttlMs: ttl }, 'HTTP MCP session expired after idle TTL; rotated transport');
-    }
-    lastActivity = Date.now();
+  // Stateless Streamable HTTP: a transport with `sessionIdGenerator: undefined`
+  // treats every POST as a self-contained JSON-RPC exchange, so there is no
+  // "session" that can be initialized twice. We connect a fresh transport per
+  // request and close it once the response is flushed. This avoids the
+  // "Server already initialized" error that a single shared, session-bearing
+  // transport produces when a client re-POSTs after `initialize`.
+  const handleMcp = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    // Pass an empty options object: under exactOptionalPropertyTypes we must omit
+    // `sessionIdGenerator` entirely (not set it to `undefined`) to select the
+    // transport's stateless mode.
+    //
+    // IMPORTANT: a fresh transport REQUIRES a fresh Server. An MCP Server
+    // (Protocol) can only be connected to one transport at a time, so reusing a
+    // single shared server across requests throws "Already connected to a
+    // transport" on the second POST. We mint a per-request Server here and tear
+    // both down when the response closes.
+    const server = makeMcpServer();
+    const transport = new StreamableHTTPServerTransport(
+      {} as ConstructorParameters<typeof StreamableHTTPServerTransport>[0]
+    );
+    res.on('close', () => {
+      void transport.close?.();
+      void server.close?.();
+    });
+    await server.connect(transport as Transport);
+    await transport.handleRequest(req, res);
   };
 
   const applyCors = (req: IncomingMessage, res: ServerResponse): void => {
@@ -132,25 +190,29 @@ export async function startHttpTransport(
 
     if (url === mcpPath || url.startsWith(`${mcpPath}?`)) {
       if (requireAuth) {
-        const provided = extractBearer(req);
-        if (!provided || !timingSafeEqualStr(provided, opts.token!)) {
+        const provided = extractBearer(req) ?? extractApiKey(req);
+        if (!matchesAnyCredential(provided, credentials)) {
           res.writeHead(401, {
             'content-type': 'application/json',
             'www-authenticate': 'Bearer realm="folderforge-mcp"',
           });
-          res.end(JSON.stringify({ error: 'unauthorized', message: 'Valid bearer token required.' }));
+          res.end(
+            JSON.stringify({
+              error: 'unauthorized',
+              message:
+                'Valid credential required. Send `Authorization: Bearer <token>` or `X-API-Key: <key>`.',
+            })
+          );
           return;
         }
       }
-      void refreshIfIdle()
-        .then(() => transport.handleRequest(req, res))
-        .catch((err) => {
-          logger.error({ err: String(err) }, 'HTTP MCP request failed');
-          if (!res.headersSent) {
-            res.writeHead(500, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: 'internal_error' }));
-          }
-        });
+      void handleMcp(req, res).catch((err) => {
+        logger.error({ err: String(err) }, 'HTTP MCP request failed');
+        if (!res.headersSent) {
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'internal_error' }));
+        }
+      });
       return;
     }
 
@@ -161,7 +223,7 @@ export async function startHttpTransport(
   await new Promise<void>((resolveListen) => {
     http.listen(opts.port, opts.host, () => {
       logger.info(
-        { host: opts.host, port: opts.port, path: mcpPath, authRequired: requireAuth, sessionTtlMs: ttl },
+        { host: opts.host, port: opts.port, path: mcpPath, authRequired: requireAuth },
         'MCP HTTP transport listening'
       );
       resolveListen();

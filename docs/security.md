@@ -73,6 +73,48 @@ stays intact. Session-scoped allowances are **not** re-armed automatically - a
 fresh process starts a fresh session, so a session approval from a previous run
 must be granted again.
 
+## MCP HTTP auth
+
+The MCP HTTP transport (`src/server/transports/http.ts`) is credential-gated
+the same way the dashboard is. **When a credential is configured, every request
+to the MCP endpoint must present a matching one, or it gets a `401`.**
+
+Auth is enforced when **any** of these holds:
+
+- `server.http.token` or `server.http.apiKeys` is set;
+- the bind host is non-loopback (a credential becomes mandatory; if none is set
+  one is generated and logged once);
+- `server.http.requireAuth: true` (or the `--require-auth` flag) - forces auth
+  even on loopback.
+
+If auth is required but no credential resolves, **startup throws** rather than
+running open.
+
+Accepted credentials and how clients send them:
+
+- The primary `server.http.token` plus every entry in `server.http.apiKeys`.
+- A client may present any of them via **`Authorization: Bearer <cred>`** or
+  **`X-API-Key: <cred>`**.
+- Comparison is constant-time (`matchesAnyCredential` walks the whole list so
+  timing never reveals which credential matched).
+- Missing/invalid -> `401` with `WWW-Authenticate: Bearer realm="folderforge-mcp"`.
+
+Config and CLI:
+
+```yaml
+server:
+  http:
+    token: "primary-admin-token"
+    apiKeys: ["client-a-key", "client-b-key"]
+    requireAuth: true
+```
+
+```bash
+folderforge --http --host 0.0.0.0 --token <secret> --api-key k1,k2 --require-auth
+```
+
+See the README "Authentication" section for end-to-end run + `curl` examples.
+
 ## Dashboard auth
 
 The dashboard (`src/dashboard/server.ts`) is unauthenticated when bound to a

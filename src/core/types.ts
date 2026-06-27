@@ -19,6 +19,19 @@ export interface ServerConfig {
      */
     token?: string;
     /**
+     * Additional API keys accepted alongside `token`. Each may be presented by
+     * a client as `Authorization: Bearer <key>` OR as the `X-API-Key: <key>`
+     * header. Lets several clients authenticate with distinct credentials.
+     */
+    apiKeys?: string[];
+    /**
+     * Force authentication even on loopback binds. When true, a token/api key
+     * MUST be configured and every request must present a valid credential -
+     * including localhost. Default false (loopback is open unless a token is
+     * set).
+     */
+    requireAuth?: boolean;
+    /**
      * Allowed CORS origins for the HTTP transport. Use ['*'] to allow any
      * origin (not recommended for non-loopback binds). Empty disables CORS
      * headers entirely.

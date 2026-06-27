@@ -120,6 +120,18 @@ Child-MCP adapter tools are exposed namespaced as `<adapter>__<tool>` (e.g.
 `db_describe_table`, `db_query_readonly`, `db_explain`) are native. Read-only
 queries are LOW; writes/migrations are HIGH.
 
+## Group presets
+
+`src/tools/index.ts` exports `GROUP_PRESETS`, applied once at startup via
+`--tools-preset` so the very first `tools/list` is already trimmed:
+
+| Preset | Groups | Notes |
+| --- | --- | --- |
+| `vibe` | workspace, file, search, terminal, process, git, code, build | Full vibe-coding surface (~59 tools). |
+| `vibe-lite` | same as `vibe` | Hard-capped to **50 tools** via `PRESET_TOOL_CAP`. Lands at exactly 50 by dropping 9 low-value tools (`git_blame`, `git_stash`, `git_fetch`, `git_pull`, `git_show`, `process_kill`, `process_write`, `code_insert_before_symbol`, `code_insert_after_symbol`) via `PRESET_DEFAULT_DISABLED`, so the full browser group survives. `workspace` and any `--tools-enable` names are always retained. |
+| `readonly` | workspace, file, search, code | Read-only exploration. |
+| `full` | all groups | Explicit opt-in to the full surface. |
+
 ## Task presets
 
 `src/tools/index.ts` exports `TASK_PRESETS` (`explore`, `run_ui`, `fix_tests`).

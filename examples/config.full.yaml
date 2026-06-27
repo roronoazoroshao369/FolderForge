@@ -12,6 +12,14 @@ server:
     # Bearer token for the MCP HTTP endpoint. Required for non-loopback binds
     # (auto-generated and logged once if omitted). Send as `Authorization: Bearer <token>`.
     # token: "put-a-long-random-string-here"
+    # Additional per-client API keys. Accepted via `Authorization: Bearer <key>`
+    # OR `X-API-Key: <key>`, alongside the primary token above.
+    # apiKeys:
+    #   - "client-a-key"
+    #   - "client-b-key"
+    # Force auth even on a loopback bind. When true a credential MUST be set and
+    # every request (including localhost) must present a valid one.
+    # requireAuth: true
     # CORS allowlist. Use ["*"] to allow any origin; omit/empty to disable CORS.
     # corsOrigins:
     #   - https://your-tool.example.com
@@ -75,6 +83,13 @@ git:
   allowCommit: approval
   allowPush: approval
   allowResetHard: false
+
+# Tool surface control. `vibe-lite` selects a folder-scoped coding tool set and
+# hard-caps it to 50 tools. With the code change in src/tools/index.ts, this
+# preset drops the whole workspace_* group (no activate/switch/route/onboard),
+# since the agent is pinned to the folders in workspace.allowedDirectories.
+tools:
+  preset: vibe-lite
 
 # Per-tool rate limiting and quotas. Sliding window (maxCalls / windowMs) plus an
 # optional rolling 24h dailyQuota. Denied or approval-gated calls don't consume quota.

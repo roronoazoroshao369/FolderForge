@@ -79,6 +79,23 @@ export const GROUP_PRESETS: Record<string, string[]> = {
   // Focused set for AI "vibe coding": read/edit, search, run, git, code intel.
   // Leaves out db, browser, coverage, security, memory to stay well under 50.
   vibe: ['workspace', 'file', 'search', 'terminal', 'process', 'git', 'code', 'build'],
+  // Same groups as `vibe`, but hard-capped to fit clients that reject more than
+  // 50 tools. The cap is applied by PRESET_TOOL_CAP below; group order here also
+  // sets keep-priority so the most useful groups survive the trim.
+  // Pure folder-scoped coding set + UI testing via the browser group. No
+  // workspace_* tools (the agent is pinned to a single folder via config, so
+  // activate/switch/route are noise). Docker is covered by shell_exec, so no
+  // dedicated docker group is needed. Listed in PRESET_NO_FORCE_WORKSPACE so the
+  // always-keep-workspace rule is skipped for this preset only.
+  //
+  // Group order = keep-priority when the cap trims. The 9 tools dropped by
+  // default to land at exactly 50 are declared in PRESET_DEFAULT_DISABLED:
+  //   git_blame, git_stash, git_fetch, git_pull, git_show,
+  //   process_kill, process_write,
+  //   code_insert_before_symbol, code_insert_after_symbol
+  // The whole browser group is intentionally kept (UI testing). To trim/keep
+  // others, edit PRESET_DEFAULT_DISABLED or use `disabled`/`enabled` in config.
+  'vibe-lite': ['file', 'search', 'code', 'terminal', 'build', 'git', 'process', 'browser'],
   // Read-only exploration.
   readonly: ['workspace', 'file', 'search', 'code'],
   // Everything (explicit opt-in to the full surface).
@@ -87,6 +104,46 @@ export const GROUP_PRESETS: Record<string, string[]> = {
     'memory', 'security', 'code', 'browser', 'db', 'pkg', 'format', 'coverage',
   ],
 };
+
+/**
+ * Hard tool-count ceilings for presets that must satisfy a client-side cap.
+ * When a preset is listed here, resolveActiveTools trims its tool list down to
+ * the limit after group selection, keeping tools in group-priority order.
+ */
+export const PRESET_TOOL_CAP: Record<string, number> = {
+  'vibe-lite': 50,
+};
+
+/**
+ * Per-preset default tool removals, applied on top of group selection (and
+ * before any user-supplied `disabled` list). For `vibe-lite` we deliberately
+ * drop the 9 least-useful-for-vibe-coding tools so the surface lands at exactly
+ * 50 *and* the whole browser group survives (the automatic group-priority cap
+ * would otherwise delete browser_* entirely). The cuts: rarely-used git
+ * porcelain, two process controls, and two symbol-insert edits already covered
+ * by file_patch / file_edit_block.
+ */
+export const PRESET_DEFAULT_DISABLED: Record<string, string[]> = {
+  'vibe-lite': [
+    'git_blame',
+    'git_stash',
+    'git_fetch',
+    'git_pull',
+    'git_show',
+    'process_kill',
+    'process_write',
+    'code_insert_before_symbol',
+    'code_insert_after_symbol',
+  ],
+};
+
+/**
+ * Presets that opt OUT of the "always keep the workspace group" rule. For these,
+ * resolveActiveTools will not force-add the workspace group, and the cap logic
+ * will not pin workspace tools. Use for fully folder-scoped setups where the
+ * agent never needs workspace_activate/switch/route.
+ */
+export const PRESET_NO_FORCE_WORKSPACE = new Set<string>(['vibe-lite']);
 
 export interface ToolFilterOptions {
   /** Named group preset (e.g. "vibe"). Ignored when enabledGroups is set. */
@@ -122,11 +179,49 @@ export function resolveActiveTools(
     return null; // nothing to filter -> expose all
   }
 
-  const keepGroups = new Set([...(groups ?? all.map((t) => t.group)), 'workspace']);
+  const forceWorkspace = !(opts.preset && PRESET_NO_FORCE_WORKSPACE.has(opts.preset));
+  const keepGroups = new Set([
+    ...(groups ?? all.map((t) => t.group)),
+    ...(forceWorkspace ? ['workspace'] : []),
+  ]);
   const keep = new Set(
     all.filter((t) => keepGroups.has(t.group)).map((t) => t.name)
   );
   for (const name of opts.enabled ?? []) keep.add(name);
+  // Preset-level default removals first, then any explicit user `disabled` list.
+  // Explicitly `enabled` tools are never auto-dropped by the preset defaults.
+  const presetDisabled = opts.preset ? PRESET_DEFAULT_DISABLED[opts.preset] ?? [] : [];
+  const enabledSet = new Set(opts.enabled ?? []);
+  for (const name of presetDisabled) if (!enabledSet.has(name)) keep.delete(name);
   for (const name of opts.disabled ?? []) keep.delete(name);
+
+  // Apply a preset's hard tool-count cap, if any. Tools are kept in
+  // group-priority order (the preset's group list defines the priority), so the
+  // most useful groups survive when the surface is trimmed. Explicitly enabled
+  // tools are always retained and never counted out.
+  const cap = opts.preset ? PRESET_TOOL_CAP[opts.preset] : undefined;
+  if (cap !== undefined && keep.size > cap) {
+    const pinned = new Set([
+      ...(forceWorkspace ? ['workspace'] : []),
+      ...(opts.enabled ?? []),
+    ]);
+    const priority = groups ?? [];
+    const groupRank = (g: string): number => {
+      const i = priority.indexOf(g);
+      return i === -1 ? priority.length : i;
+    };
+    const ranked = all
+      .filter((t) => keep.has(t.name))
+      .sort((a, b) => groupRank(a.group) - groupRank(b.group));
+    const capped = new Set<string>();
+    // Always keep pinned tools first, then fill up to the cap by priority.
+    for (const t of ranked) if (pinned.has(t.name)) capped.add(t.name);
+    for (const t of ranked) {
+      if (capped.size >= cap) break;
+      capped.add(t.name);
+    }
+    return [...capped];
+  }
+
   return [...keep];
 }
