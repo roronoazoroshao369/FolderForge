@@ -243,12 +243,46 @@ export interface ToolCallControl {
   elicitInput?: (params: ElicitRequestParams) => Promise<ElicitResult>;
 }
 
+/**
+ * A rich content block a tool can return for the client to render directly in
+ * its UI (MCP `tools/call` content items). Beyond plain text, FolderForge tools
+ * can attach embedded resources (an inline diff, a file preview) or resource
+ * links (a pointer the client can open in a viewer/tab). The server layer maps
+ * these onto MCP content blocks in `toCallToolResult`.
+ */
+export type ToolContentBlock =
+  | { kind: 'text'; text: string }
+  | {
+      /** Inline resource the client renders in place (diff, file preview, log). */
+      kind: 'resource';
+      uri: string;
+      title?: string;
+      mimeType?: string;
+      text: string;
+    }
+  | {
+      /** A link the client can open (e.g. a file, a localhost URL, a tab). */
+      kind: 'resource_link';
+      uri: string;
+      name?: string;
+      title?: string;
+      description?: string;
+      mimeType?: string;
+    };
+
 export interface ToolResult {
   ok: boolean;
   data?: unknown;
   error?: string;
   diff?: string;
   approvalId?: string;
+  /**
+   * Optional rich content blocks (embedded resources / links) the client should
+   * render alongside the structured result. Plain handlers omit this; handlers
+   * that produce viewable artifacts (diffs, file previews, dashboards) attach
+   * them here. Mapped onto MCP content blocks by the server layer.
+   */
+  content?: ToolContentBlock[];
 }
 
 export interface ToolContext {

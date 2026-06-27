@@ -177,7 +177,37 @@ export function toCallToolResult(result: ToolResult, hasOutputSchema = false): C
       ? result.diff
       : JSON.stringify(Object.keys(payload).length ? payload : { ok: true }, null, 2);
 
-  const out: CallToolResult = { content: [{ type: 'text', text }] };
+  // Build the content array. The text block always leads (back-compat for
+  // text-only clients); rich content blocks (embedded resources / links) are
+  // appended so spec-aware clients can render a diff inline or open a file in a
+  // viewer/tab. See ToolContentBlock in core/types.
+  const content: CallToolResult['content'] = [{ type: 'text', text }];
+  for (const block of result.content ?? []) {
+    if (block.kind === 'text') {
+      content.push({ type: 'text', text: block.text });
+    } else if (block.kind === 'resource') {
+      content.push({
+        type: 'resource',
+        resource: {
+          uri: block.uri,
+          text: block.text,
+          ...(block.mimeType ? { mimeType: block.mimeType } : {}),
+          ...(block.title ? { title: block.title } : {}),
+        },
+      } as CallToolResult['content'][number]);
+    } else if (block.kind === 'resource_link') {
+      content.push({
+        type: 'resource_link',
+        uri: block.uri,
+        ...(block.name ? { name: block.name } : {}),
+        ...(block.title ? { title: block.title } : {}),
+        ...(block.description ? { description: block.description } : {}),
+        ...(block.mimeType ? { mimeType: block.mimeType } : {}),
+      } as CallToolResult['content'][number]);
+    }
+  }
+
+  const out: CallToolResult = { content };
 
   // When a tool declares an outputSchema, also return machine-readable
   // structuredContent so spec-aware clients can consume typed output without

@@ -49,7 +49,28 @@ export function gitTools(): ToolDefinition[] {
         if (args.staged) opts.push('--cached');
         if (args.file) opts.push('--', String(args.file));
         const diff = await git(ctx).diff(opts);
-        return { ok: true, data: { diff: ctx.container.policy.secret.redact(diff) } };
+        const redacted = ctx.container.policy.secret.redact(diff);
+        const label = args.file ? String(args.file) : args.staged ? 'staged' : 'working tree';
+        // Attach the diff as an embedded resource so spec-aware clients can render
+        // it in a dedicated diff viewer/tab instead of a wall of text. Text-only
+        // clients still get the diff in `data.diff`.
+        return {
+          ok: true,
+          data: { diff: redacted },
+          ...(redacted.trim()
+            ? {
+                content: [
+                  {
+                    kind: 'resource' as const,
+                    uri: `folderforge://diff/${encodeURIComponent(label)}`,
+                    title: `git diff (${label})`,
+                    mimeType: 'text/x-diff',
+                    text: redacted,
+                  },
+                ],
+              }
+            : {}),
+        };
       },
     }),
 

@@ -160,11 +160,86 @@ export class ToolRegistry {
         summary: decision.reason,
         detail: { approvalId: decision.approvalId },
       });
-      return {
-        ok: false,
-        approvalId: decision.approvalId,
-        error: `Approval required (${risk}). Resolve in the dashboard or via approval tools. id=${decision.approvalId}`,
-      };
+
+      // Interactive approval (MCP elicitation): when the connected client
+      // advertised the `elicitation` capability, ask the user to Approve/Deny
+      // right in the chat instead of forcing them to the dashboard. On accept we
+      // resolve the pending request and fall through to run the tool; on
+      // decline/cancel we deny it and return. Clients without elicitation see
+      // `control.elicitInput === undefined` and fall back to the dashboard flow
+      // (unchanged behaviour), so this is purely additive.
+      if (control?.elicitInput) {
+        let elicited: { action: string; content?: Record<string, unknown> };
+        try {
+          elicited = await control.elicitInput({
+            message:
+              `Approve "${name}" (${risk})?\n${decision.reason}\n` +
+              `Args: ${summarizeArgs(name, args)}\n` +
+              `Choose "session" to allow this tool for the rest of the session.`,
+            requestedSchema: {
+              type: 'object',
+              properties: {
+                approve: {
+                  type: 'boolean',
+                  description: 'Allow this action to run.',
+                },
+                scope: {
+                  type: 'string',
+                  enum: ['once', 'session'],
+                  description:
+                    'once = this call only; session = remember for this session.',
+                },
+              },
+              required: ['approve'],
+            },
+          });
+        } catch (err) {
+          logger.warn(
+            { tool: name, err: String(err) },
+            'Elicitation failed; falling back to dashboard approval'
+          );
+          return {
+            ok: false,
+            approvalId: decision.approvalId,
+            error: `Approval required (${risk}). Resolve in the dashboard or via approval tools. id=${decision.approvalId}`,
+          };
+        }
+
+        const approved =
+          elicited.action === 'accept' && elicited.content?.approve === true;
+        if (!approved) {
+          this.container.policy.approvals.deny(decision.approvalId);
+          this.container.audit.record({
+            type: 'approval_resolved',
+            tool: name,
+            risk,
+            summary: `denied via elicitation (${elicited.action})`,
+            detail: { approvalId: decision.approvalId },
+          });
+          return {
+            ok: false,
+            error: `"${name}" was not approved (${elicited.action}).`,
+          };
+        }
+
+        const scope = elicited.content?.scope === 'session' ? 'session' : 'once';
+        this.container.policy.approvals.approve(decision.approvalId, scope);
+        this.container.audit.record({
+          type: 'approval_resolved',
+          tool: name,
+          risk,
+          summary: `approved via elicitation (${scope})`,
+          detail: { approvalId: decision.approvalId },
+        });
+        // Fall through to rate-limit + execute below.
+      } else {
+        // No interactive capability: keep the dashboard/approval-tool flow.
+        return {
+          ok: false,
+          approvalId: decision.approvalId,
+          error: `Approval required (${risk}). Resolve in the dashboard or via approval tools. id=${decision.approvalId}`,
+        };
+      }
     }
 
     // Rate limit / quota: applied only to calls that policy would actually
