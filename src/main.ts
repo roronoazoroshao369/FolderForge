@@ -9,7 +9,7 @@ import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
 import { randomBytes } from 'node:crypto';
 
-const VERSION = '1.0.0';
+const VERSION = '1.3.1';
 
 interface CliArgs {
   project?: string;
@@ -24,6 +24,9 @@ interface CliArgs {
   toolsGroups?: string[];
   toolsEnable?: string[];
   toolsDisable?: string[];
+  token?: string;
+  apiKeys?: string[];
+  requireAuth?: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -84,6 +87,21 @@ function parseArgs(argv: string[]): CliArgs {
         if (v !== undefined) args.toolsDisable = v.split(',').map((s) => s.trim()).filter(Boolean);
         break;
       }
+      case '--token': {
+        const v = next();
+        if (v !== undefined) args.token = v;
+        break;
+      }
+      case '--api-key': {
+        const v = next();
+        if (v !== undefined) {
+          (args.apiKeys ??= []).push(...v.split(',').map((s) => s.trim()).filter(Boolean));
+        }
+        break;
+      }
+      case '--require-auth':
+        args.requireAuth = true;
+        break;
       case '--version':
       case '-v':
         process.stdout.write(`folderforge ${VERSION}\n`);
@@ -119,7 +137,10 @@ function printHelp(): void {
       '      --host <addr>        Bind address (default 127.0.0.1)',
       '      --dashboard-port <n> Dashboard port (default 7332)',
       '      --no-dashboard       Disable the local dashboard',
-      '      --tools-preset <id>  Limit advertised tools to a preset (vibe|readonly|full)',
+      '      --token <secret>     Bearer/API token required on the HTTP MCP endpoint',
+      '      --api-key <csv>      Additional accepted API keys (repeatable / comma-separated)',
+      '      --require-auth       Enforce auth even on a loopback (localhost) bind',
+      '      --tools-preset <id>  Limit advertised tools to a preset (vibe|vibe-lite|readonly|full)',
       '      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)',
       '      --tools-enable <csv> Always-keep tool names (added back on top of the filter)',
       '      --tools-disable <csv> Drop these tool names from the advertised list',
@@ -144,6 +165,12 @@ async function main(): Promise<void> {
   if (args.host !== undefined) config.server.http.host = args.host;
   if (args.port !== undefined) config.server.http.port = args.port;
   if (args.dashboardPort !== undefined) config.server.dashboard.port = args.dashboardPort;
+  // CLI auth overrides for the HTTP transport.
+  if (args.token !== undefined) config.server.http.token = args.token;
+  if (args.apiKeys && args.apiKeys.length > 0) {
+    config.server.http.apiKeys = [...(config.server.http.apiKeys ?? []), ...args.apiKeys];
+  }
+  if (args.requireAuth) config.server.http.requireAuth = true;
 
   const container = new Container(config);
   const registry = buildRegistry(container);
@@ -180,11 +207,16 @@ async function main(): Promise<void> {
     logger.warn({ err: String(err) }, 'Adapter tool registration failed; continuing without adapters');
   }
 
-  const server = createMcpServer(registry, {
-    name: config.server.name,
-    version: VERSION,
-    roots: config.workspace.allowedDirectories,
-  });
+  const makeServer = () =>
+    createMcpServer(registry, {
+      name: config.server.name,
+      version: VERSION,
+      roots: config.workspace.allowedDirectories,
+    });
+  // A primary server instance for stdio + lifecycle (shutdown). The HTTP
+  // transport mints its own per-request server via `makeServer` (a shared
+  // server can only connect to one transport at a time).
+  const server = makeServer();
 
   container.audit.record({
     type: 'server_start',
@@ -214,20 +246,25 @@ async function main(): Promise<void> {
 
   if (config.server.transport === 'http') {
     const httpHost = config.server.http.host;
-    // Mirror the dashboard: a non-loopback bind must be token-protected. Use the
-    // configured token or mint one and log it once.
+    const forceAuth = Boolean(config.server.http.requireAuth);
+    // A non-loopback bind (or requireAuth) must be credential-protected. Use a
+    // configured credential or mint a token and log it once.
     let httpToken = config.server.http.token;
-    if (!isLoopbackHost(httpHost) && !httpToken) {
+    const hasCredential =
+      Boolean(httpToken) || (config.server.http.apiKeys?.length ?? 0) > 0;
+    if ((!isLoopbackHost(httpHost) || forceAuth) && !hasCredential) {
       httpToken = randomBytes(24).toString('base64url');
       logger.warn(
-        { host: httpHost, token: httpToken },
-        'HTTP transport bound to a non-loopback host; generated an auth token (set server.http.token to pin it)'
+        { host: httpHost, token: httpToken, requireAuth: forceAuth },
+        'HTTP transport requires auth but no credential was set; generated one (set server.http.token to pin it)'
       );
     }
-    await startHttpTransport(server, {
+    await startHttpTransport(makeServer, {
       host: httpHost,
       port: config.server.http.port,
       ...(httpToken ? { token: httpToken } : {}),
+      ...(config.server.http.apiKeys ? { apiKeys: config.server.http.apiKeys } : {}),
+      ...(forceAuth ? { requireAuth: true } : {}),
       ...(config.server.http.corsOrigins ? { corsOrigins: config.server.http.corsOrigins } : {}),
       ...(config.server.http.sessionTtlMs !== undefined
         ? { sessionTtlMs: config.server.http.sessionTtlMs }

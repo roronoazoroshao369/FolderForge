@@ -19,7 +19,7 @@ globally. Point any MCP client at it:
   "mcpServers": {
     "folderforge": {
       "command": "npx",
-      "args": ["-y", "folderforge", "--stdio", "--project", "/absolute/path/to/your-project"]
+      "args": ["-y", "@musashishao/folderforge", "--stdio", "--project", "/absolute/path/to/your-project"]
     }
   }
 }
@@ -28,7 +28,7 @@ globally. Point any MCP client at it:
 Try it in a terminal first:
 
 ```bash
-npx -y folderforge --project . --stdio
+npx -y @musashishao/folderforge --project . --stdio
 ```
 
 ### Option 2 - global install from npm
@@ -36,7 +36,7 @@ npx -y folderforge --project . --stdio
 Install once, then call `folderforge` from anywhere:
 
 ```bash
-npm install -g folderforge
+npm install -g @musashishao/folderforge
 folderforge --version
 
 # run against any folder
@@ -63,8 +63,8 @@ Clone and build when you want to hack on FolderForge or run an unreleased
 version:
 
 ```bash
-git clone https://github.com/your-org/folderforge.git
-cd folderforge
+git clone https://github.com/roronoazoroshao369/FolderForge.git
+cd FolderForge
 npm install
 npm run build        # emits dist/
 
@@ -85,7 +85,7 @@ npm run dev -- --stdio --project /path/to/your-project
 You can also install straight from a Git remote without a published npm release:
 
 ```bash
-npm install -g github:your-org/folderforge
+npm install -g github:roronoazoroshao369/FolderForge
 ```
 
 ### Pointing at a different folder
@@ -110,7 +110,7 @@ build):
   "mcpServers": {
     "folderforge": {
       "command": "npx",
-      "args": ["-y", "folderforge", "--stdio", "--project", "/path/to/project", "--tools-preset", "vibe"]
+      "args": ["-y", "@musashishao/folderforge", "--stdio", "--project", "/path/to/project", "--tools-preset", "vibe"]
     }
   }
 }
@@ -187,16 +187,189 @@ the client supports elicitation, and `git_push` / `git_fetch` / `git_pull` /
 
 ## Run
 
+The default transport is **stdio** (for agents). You can also serve over
+**HTTP** on a port.
+
+### From source (dev)
+
 ```bash
 npm install
 npm run dev -- --stdio
 ```
 
-or
+or over HTTP:
 
 ```bash
-npm run dev -- --port 7331 --host 127.0.0.1
+npm run dev -- --http --port 7331 --host 127.0.0.1
 ```
+
+### Via npx (no install)
+
+stdio:
+
+```bash
+npx -y @musashishao/folderforge --project . --stdio
+```
+
+HTTP with an API key and a trimmed tool surface - this is a complete,
+copy-pasteable example:
+
+```bash
+npx -y @musashishao/folderforge --project . --http --port 17331 \
+  --api-key "key" --tools-preset vibe-lite
+```
+
+What that command does:
+
+- serves MCP over HTTP on `http://127.0.0.1:17331/mcp` (default host is loopback);
+- sets one API key (`key`), which **turns auth on** - every request must send it,
+  even on localhost;
+- limits the advertised tools to the `vibe-lite` preset (capped at 50).
+
+Call it from a client:
+
+```bash
+curl -sS -X POST http://127.0.0.1:17331/mcp \
+  -H "X-API-Key: key" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+### All CLI options
+
+| Flag | Description |
+| --- | --- |
+| `-p, --project <dir>` | Project root to activate (default: cwd) |
+| `-c, --config <file>` | Path to a YAML config file |
+| `--stdio` | Serve MCP over stdio (default for agents) |
+| `--http` | Serve MCP over Streamable HTTP |
+| `--port <n>` | HTTP MCP port (default 7331) |
+| `--host <addr>` | Bind address (default 127.0.0.1) |
+| `--token <secret>` | Primary credential for the HTTP endpoint |
+| `--api-key <csv>` | Extra API keys (repeatable / comma-separated) |
+| `--require-auth` | Enforce auth even on a loopback bind |
+| `--dashboard-port <n>` | Dashboard port (default 7332) |
+| `--no-dashboard` | Disable the local dashboard |
+| `--tools-preset <id>` | `vibe` \| `vibe-lite` \| `readonly` \| `full` |
+| `--tools-groups <csv>` | Limit advertised tools to these groups |
+| `--tools-enable <csv>` | Always-keep tool names |
+| `--tools-disable <csv>` | Drop these tool names |
+| `-v, --version` | Print version and exit |
+| `-h, --help` | Show help |
+
+## Authentication
+
+FolderForge speaks MCP over two transports, and they authenticate differently:
+
+- **stdio** (the default for agents): the agent spawns FolderForge as a child
+  process and talks over stdin/stdout. There is no network surface, so there is
+  **no auth** - the OS process boundary is the trust boundary.
+- **HTTP** (Streamable HTTP on a port): this is a network surface, so it
+  supports credential-based auth. **When a credential is configured, every
+  request to the MCP endpoint must present a matching credential or it is
+  rejected with `401`.**
+
+### When is auth enforced?
+
+Auth on the HTTP transport turns on automatically in any of these cases:
+
+| Situation | Auth required? |
+| --- | --- |
+| `server.http.token` or `server.http.apiKeys` is set | **Yes** - clients must match |
+| Bound to a non-loopback host (e.g. `0.0.0.0`, a LAN IP) | **Yes** - a credential is mandatory; one is auto-generated and logged once if you didn't set it |
+| `server.http.requireAuth: true` (or `--require-auth`) | **Yes** - even on `localhost` |
+| Bound to loopback (`127.0.0.1`/`localhost`) with no credential | No - same-machine only |
+
+If auth is required but no credential can be resolved, startup fails with a
+clear error instead of silently running open.
+
+### Accepted credential formats
+
+A client may authenticate with **either** header:
+
+```http
+Authorization: Bearer <token-or-api-key>
+```
+
+or
+
+```http
+X-API-Key: <token-or-api-key>
+```
+
+Both the primary `token` and every entry in `apiKeys` are accepted on either
+header. All comparisons are **constant-time**. A missing or wrong credential
+returns `401` with a `WWW-Authenticate: Bearer` header.
+
+### Configure auth
+
+Via CLI flags (no config file needed):
+
+```bash
+# Single shared token, localhost only but auth forced on
+folderforge --http --host 127.0.0.1 --port 7331 \
+  --token "$(openssl rand -base64 32)" --require-auth
+
+# Expose on the network with several per-client API keys
+folderforge --http --host 0.0.0.0 --port 7331 \
+  --token "primary-admin-token" \
+  --api-key "client-a-key,client-b-key"
+```
+
+Or in `folderforge.yaml`:
+
+```yaml
+server:
+  transport: http
+  http:
+    host: 0.0.0.0
+    port: 7331
+    token: "primary-admin-token"     # accepted via Bearer or X-API-Key
+    apiKeys:                          # additional per-client credentials
+      - "client-a-key"
+      - "client-b-key"
+    requireAuth: true                # enforce even on loopback
+    corsOrigins:
+      - https://your-tool.example.com
+```
+
+CLI flags override the config file.
+
+### Call the authenticated endpoint
+
+```bash
+# Bearer header
+curl -sS -X POST http://127.0.0.1:7331/mcp \
+  -H "Authorization: Bearer primary-admin-token" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# X-API-Key header
+curl -sS -X POST http://127.0.0.1:7331/mcp \
+  -H "X-API-Key: client-a-key" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# No / wrong credential -> 401 unauthorized
+curl -i -X POST http://127.0.0.1:7331/mcp -d '{}'
+```
+
+MCP client config pointing at the HTTP endpoint with a credential:
+
+```jsonc
+{
+  "mcpServers": {
+    "folderforge": {
+      "url": "http://127.0.0.1:7331/mcp",
+      "headers": { "Authorization": "Bearer primary-admin-token" }
+    }
+  }
+}
+```
+
+The **dashboard** authenticates the same way (Bearer token), and additionally
+accepts a `?token=<token>` query parameter. See `docs/security.md` for the full
+security model.
 
 ## Develop
 
