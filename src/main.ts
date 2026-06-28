@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig } from './core/config.js';
+import { loadConfig, ensureConfigFile } from './core/config.js';
 import { Container } from './core/container.js';
 import { buildRegistry, registerAdapterTools, resolveActiveTools } from './tools/index.js';
 import { createMcpServer } from './server/mcp-server.js';
@@ -9,7 +9,7 @@ import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
 import { randomBytes } from 'node:crypto';
 
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 
 interface CliArgs {
   project?: string;
@@ -153,6 +153,14 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+
+  // First-run convenience: if the user did not point at an explicit --config and
+  // the project has no config file yet, write a full batteries-included config
+  // (vibe-lite + Playwright enabled) so browser/UI tools work out of the box.
+  // Never overwrites an existing file; failures are non-fatal.
+  if (args.config === undefined) {
+    ensureConfigFile(args.project ?? process.cwd());
+  }
 
   const config = loadConfig({
     ...(args.config !== undefined ? { configPath: args.config } : {}),

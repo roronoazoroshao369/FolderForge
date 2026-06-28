@@ -1,6 +1,6 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { logger } from './logger.js';
 const DEFAULT_BLOCKED = [
     'rm -rf /',
@@ -113,6 +113,80 @@ function deepMerge(base, override) {
         return out;
     }
     return (override ?? base);
+}
+/**
+ * Build a fully-populated, "batteries-included" config intended to be written
+ * to disk on first run. Unlike defaultConfig (conservative, safe mode, adapters
+ * off), this turns on the things most users want for AI vibe-coding + UI tests:
+ *   - policy mode `dev`
+ *   - tools preset `vibe-lite` (folder-scoped coding set + browser group)
+ *   - Playwright adapter enabled (so browser_* tools actually run)
+ * The projectRoot is written as "." so the file stays portable/relocatable.
+ */
+export function fullConfig() {
+    const base = defaultConfig('.');
+    return {
+        ...base,
+        server: {
+            name: 'folderforge',
+            transport: 'http',
+            http: { host: '127.0.0.1', port: 7331, sessionTtlMs: 1_800_000 },
+            dashboard: { host: '127.0.0.1', port: 7332 },
+        },
+        workspace: {
+            defaultProject: '.',
+            allowedDirectories: ['.'],
+            deniedGlobs: [...DEFAULT_DENIED_GLOBS],
+        },
+        policy: {
+            ...base.policy,
+            defaultMode: 'dev',
+        },
+        tools: { preset: 'vibe-lite' },
+        adapters: {
+            serena: { enabled: false, command: 'serena', args: [] },
+            playwright: { enabled: true, command: 'npx', args: ['-y', '@playwright/mcp@latest'] },
+            desktopCommander: {
+                enabled: false,
+                command: 'npx',
+                args: ['-y', '@wonderwhy-er/desktop-commander@latest'],
+            },
+        },
+    };
+}
+/**
+ * Write a full, batteries-included config to `folderforge.yaml` in projectRoot
+ * if (and only if) no config file already exists in any of the discovery
+ * locations. Returns the absolute path written, or null when a config was
+ * already present (nothing is overwritten). Failures are logged, never thrown -
+ * a missing-config write must never block startup.
+ */
+export function ensureConfigFile(projectRoot) {
+    const root = resolve(projectRoot);
+    const discovery = [
+        process.env.FOLDERFORGE_CONFIG,
+        resolve(root, 'folderforge.yaml'),
+        resolve(root, '.folderforge.yaml'),
+        resolve(root, '.folderforge/config.yaml'),
+    ].filter((p) => Boolean(p));
+    for (const p of discovery) {
+        const abs = isAbsolute(p) ? p : resolve(root, p);
+        if (existsSync(abs))
+            return null; // already configured; never overwrite
+    }
+    const target = resolve(root, 'folderforge.yaml');
+    try {
+        const header = '# FolderForge - auto-generated full config (first run).\n' +
+            '# Edit freely; this file is only created when no config exists.\n' +
+            '# Playwright is enabled so browser_* tools work for FE/UI testing.\n\n';
+        writeFileSync(target, header + stringifyYaml(fullConfig()), 'utf8');
+        logger.info({ configPath: target }, 'No config found; wrote a full default config');
+        return target;
+    }
+    catch (err) {
+        logger.warn({ configPath: target, err: String(err) }, 'Could not write default config; using built-in defaults');
+        return null;
+    }
 }
 export function loadConfig(opts = {}) {
     const projectRoot = resolve(opts.projectRoot ?? process.cwd());

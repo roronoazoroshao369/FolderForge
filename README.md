@@ -266,7 +266,6 @@ curl -sS -X POST http://127.0.0.1:17331/mcp \
 | --- | --- |
 | `-p, --project <dir>` | Project root to activate (default: cwd) |
 | `-c, --config <file>` | Path to a YAML config file |
-| `--stdio` | Serve MCP over stdio (default for agents) |
 | `--http` | Serve MCP over Streamable HTTP |
 | `--port <n>` | HTTP MCP port (default 7331) |
 | `--host <addr>` | Bind address (default 127.0.0.1) |
@@ -281,6 +280,42 @@ curl -sS -X POST http://127.0.0.1:17331/mcp \
 | `--tools-disable <csv>` | Drop these tool names |
 | `-v, --version` | Print version and exit |
 | `-h, --help` | Show help |
+
+## Zero-config first run (new in 1.4.0)
+
+You no longer have to hand-write a config to get the full feature set. On the
+first run in a project, if no config file exists yet, FolderForge writes a
+complete `folderforge.yaml` next to your project and loads it immediately. So
+this is enough:
+
+```bash
+npm install -g @musashishao/folderforge
+folderforge --project . --http --port 3112 --tools-preset vibe-lite --no-dashboard
+```
+
+The generated `folderforge.yaml` is **batteries-included**:
+
+- `policy.defaultMode: dev`
+- `tools.preset: vibe-lite` (folder-scoped coding set + the full `browser` group)
+- **`adapters.playwright.enabled: true`** - so the `browser_*` tools (navigate,
+  click, type, snapshot, console, network, screenshot, eval) actually run for
+  FE / UI-UX testing instead of returning *"Playwright adapter is disabled"*.
+
+Rules:
+
+- It is only written when **no** config is found in any discovery location
+  (`folderforge.yaml`, `.folderforge.yaml`, `.folderforge/config.yaml`, or
+  `$FOLDERFORGE_CONFIG`). An existing file is **never** overwritten.
+- Passing `--config <file>` skips auto-generation entirely.
+- A failed write is non-fatal: FolderForge logs a warning and falls back to the
+  built-in defaults.
+- CLI flags still override the file (e.g. `--port 3112` wins over the file's port).
+
+Playwright itself is installed as a dependency, and a `postinstall` hook fetches
+the Chromium binary during `npm install -g`, so browser testing works out of the
+box. If that download is blocked (offline / CI), run `npx playwright install`
+once on the machine.
+
 
 ## Authentication
 
