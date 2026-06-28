@@ -14,6 +14,8 @@ nohup.out
 # tracked for fixtures, but live audit/approval logs must not be committed.
 **/.folderforge/approvals.jsonl
 **/.folderforge/audit/
+# Auto-generated default config (written on first run when none exists).
+.folderforge/config.yaml
 
 # OS / editor noise
 .DS_Store

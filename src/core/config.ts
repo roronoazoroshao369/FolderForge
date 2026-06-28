@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve, isAbsolute } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { resolve, isAbsolute, dirname } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { FolderForgeConfig } from './types.js';
 import { logger } from './logger.js';
@@ -180,8 +180,9 @@ export function ensureConfigFile(projectRoot: string): string | null {
     if (existsSync(abs)) return null; // already configured; never overwrite
   }
 
-  const target = resolve(root, 'folderforge.yaml');
+  const target = resolve(root, '.folderforge/config.yaml');
   try {
+    mkdirSync(dirname(target), { recursive: true });
     const header =
       '# FolderForge - auto-generated full config (first run).\n' +
       '# Edit freely; this file is only created when no config exists.\n' +
