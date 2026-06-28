@@ -84,7 +84,7 @@ export function defaultConfig(projectRoot) {
         },
         adapters: {
             serena: { enabled: false, command: 'serena', args: [] },
-            playwright: { enabled: false, command: 'npx', args: ['-y', '@playwright/mcp@latest'] },
+            playwright: { enabled: false, command: 'npx', args: ['-y', '@playwright/mcp@0.0.41'] },
             desktopCommander: { enabled: false, command: 'npx', args: ['-y', '@wonderwhy-er/desktop-commander@latest'] },
         },
         lsp: {
@@ -145,7 +145,7 @@ export function fullConfig() {
         tools: { preset: 'vibe-lite' },
         adapters: {
             serena: { enabled: false, command: 'serena', args: [] },
-            playwright: { enabled: true, command: 'npx', args: ['-y', '@playwright/mcp@latest'] },
+            playwright: { enabled: true, command: 'npx', args: ['-y', '@playwright/mcp@0.0.41'] },
             desktopCommander: {
                 enabled: false,
                 command: 'npx',

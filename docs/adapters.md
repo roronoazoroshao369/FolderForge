@@ -16,7 +16,7 @@ adapters:
   playwright:
     enabled: true
     command: npx
-    args: ["-y", "@playwright/mcp@latest"]
+    args: ["-y", "@playwright/mcp@0.0.41"]
   desktopCommander:
     enabled: false
     command: npx

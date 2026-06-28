@@ -126,7 +126,7 @@ adapters:
     command: npx
     args:
       - "-y"
-      - "@playwright/mcp@latest"
+      - "@playwright/mcp@0.0.41"
   desktopCommander:
     enabled: false
     command: npx
