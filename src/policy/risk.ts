@@ -173,6 +173,34 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   game_ui_menu: 'MEDIUM',
   game_ui_range: 'MEDIUM',
 
+  // game (Godot) - advanced runtime tier (Step 5a). RUN channel, Family 16.
+  // Pure queries are LOW; transient visual/debug overlays are MEDIUM; persistent
+  // live-state mutations (spawn, shaders, physics, environment, tilemaps, joints,
+  // bones, particles, animation authoring, viewport) are HIGH.
+  game_get_camera: 'LOW',
+  game_raycast: 'LOW',
+  game_get_audio: 'LOW',
+  game_navigate_path: 'LOW',
+  game_serialize_state: 'LOW',
+  game_audio_play: 'MEDIUM',
+  game_audio_bus: 'MEDIUM',
+  game_create_timer: 'MEDIUM',
+  game_debug_draw: 'MEDIUM',
+  game_set_camera: 'HIGH',
+  game_spawn_node: 'HIGH',
+  game_set_shader_param: 'HIGH',
+  game_tilemap: 'HIGH',
+  game_add_collision: 'HIGH',
+  game_environment: 'HIGH',
+  game_manage_group: 'HIGH',
+  game_set_particles: 'HIGH',
+  game_create_animation: 'HIGH',
+  game_physics_body: 'HIGH',
+  game_create_joint: 'HIGH',
+  game_bone_pose: 'HIGH',
+  game_ui_theme: 'HIGH',
+  game_viewport: 'HIGH',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',

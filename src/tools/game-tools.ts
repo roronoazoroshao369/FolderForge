@@ -1195,5 +1195,283 @@ export function gameTools(): ToolDefinition[] {
       'ui_range',
       ['path', 'value']
     ),
+
+    // -----------------------------------------------------------------------
+    // Step 5a - advanced runtime tier (RUN channel). Family 16 (advanced
+    // runtime: camera, physics queries, spawning, shaders, audio, navigation,
+    // tilemaps, collision, environment, groups, timers, particles, animation
+    // authoring, state serialization, joints, bones, themes, viewport, debug
+    // draw). Risk bands live in src/policy/risk.ts and are frozen in
+    // src/tools/schema-lock.ts. The live game's runtime-bridge autoload owns
+    // each op's semantics (docs/godot-mcp.md). Reads are LOW; transient visual
+    // effects are MEDIUM; persistent live mutations are HIGH.
+    // -----------------------------------------------------------------------
+    runtimeTool(
+      'game_get_camera',
+      'Read the active live camera (2D/3D) state - position, zoom/fov, current flag. Read-only.',
+      false,
+      { path: { type: 'string', description: 'Optional NodePath of a specific camera; defaults to the active one.' } },
+      'get_camera'
+    ),
+    runtimeTool(
+      'game_set_camera',
+      'Set live camera state (position, zoom/fov, make_current) on a Camera2D/Camera3D node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the camera node.' },
+        property: { type: 'string', description: 'Camera property, e.g. position, zoom, fov, current.' },
+        value: { description: 'Value to assign.' },
+      },
+      'set_camera',
+      ['path', 'property', 'value']
+    ),
+    runtimeTool(
+      'game_raycast',
+      'Cast a ray in the live physics world and return the first collision (collider, point, normal). Read-only query.',
+      false,
+      {
+        from: { type: 'array', description: 'Ray origin [x, y] (2D) or [x, y, z] (3D).' },
+        to: { type: 'array', description: 'Ray end point [x, y] or [x, y, z].' },
+        space: { type: 'string', description: 'Physics space: 2d | 3d (default 3d).' },
+      },
+      'raycast',
+      ['from', 'to']
+    ),
+    runtimeTool(
+      'game_get_audio',
+      'Read live audio state - bus volumes, playing streams, listener position. Read-only.',
+      false,
+      { bus: { type: 'string', description: 'Optional bus name to scope the query.' } },
+      'get_audio'
+    ),
+    runtimeTool(
+      'game_spawn_node',
+      'Spawn a new node of a given class under a parent in the running game, with optional initial properties.',
+      true,
+      {
+        type: { type: 'string', description: 'Godot class to instantiate, e.g. Sprite2D, RigidBody3D.' },
+        parent: { type: 'string', description: 'Parent NodePath (default the current scene root).' },
+        name: { type: 'string', description: 'Optional name for the new node.' },
+        properties: { type: 'object', description: 'Initial property map applied after spawn.' },
+      },
+      'spawn_node',
+      ['type']
+    ),
+    runtimeTool(
+      'game_set_shader_param',
+      'Set a shader parameter (uniform) on a live node\'s material in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node holding the ShaderMaterial.' },
+        parameter: { type: 'string', description: 'Shader uniform name.' },
+        value: { description: 'Value to assign to the uniform.' },
+      },
+      'set_shader_param',
+      ['path', 'parameter', 'value']
+    ),
+    runtimeTool(
+      'game_audio_play',
+      'Play an audio stream (res:// path) on a live AudioStreamPlayer node or spawn a one-shot.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the AudioStreamPlayer (optional for one-shot).' },
+        stream: { type: 'string', description: 'Audio stream res:// path to play.' },
+        bus: { type: 'string', description: 'Optional target audio bus.' },
+      },
+      'audio_play',
+      ['stream']
+    ),
+    runtimeTool(
+      'game_audio_bus',
+      'Set live audio bus volume/mute in the running game.',
+      true,
+      {
+        bus: { type: 'string', description: 'Audio bus name.' },
+        volumeDb: { type: 'number', description: 'Volume in dB.' },
+        mute: { type: 'boolean', description: 'Mute the bus.' },
+      },
+      'audio_bus',
+      ['bus']
+    ),
+    runtimeTool(
+      'game_navigate_path',
+      'Query a navigation path between two points on the live NavigationServer (read-only).',
+      false,
+      {
+        from: { type: 'array', description: 'Start point [x, y] or [x, y, z].' },
+        to: { type: 'array', description: 'Goal point [x, y] or [x, y, z].' },
+        space: { type: 'string', description: 'Navigation space: 2d | 3d (default 3d).' },
+      },
+      'navigate_path',
+      ['from', 'to']
+    ),
+    runtimeTool(
+      'game_tilemap',
+      'Edit a live TileMap/TileMapLayer (set/erase cells, set a region).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the TileMap node.' },
+        action: { type: 'string', description: 'Action: set_cell | erase_cell | clear.' },
+        coords: { type: 'array', description: 'Cell coordinates [x, y].' },
+        source: { type: 'number', description: 'Tile source id (for set_cell).' },
+        atlas: { type: 'array', description: 'Atlas coords [x, y] (for set_cell).' },
+      },
+      'tilemap',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_add_collision',
+      'Add a collision shape to a live physics body node in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the physics body.' },
+        shape: { type: 'string', description: 'Shape type, e.g. rectangle, circle, capsule, box, sphere.' },
+        size: { description: 'Shape size/extents (number or array per shape).' },
+      },
+      'add_collision',
+      ['path', 'shape']
+    ),
+    runtimeTool(
+      'game_environment',
+      'Configure the live WorldEnvironment (ambient light, fog, tonemap, background).',
+      true,
+      {
+        property: { type: 'string', description: 'Environment property, e.g. ambient_light_energy, fog_enabled.' },
+        value: { description: 'Value to assign.' },
+      },
+      'environment',
+      ['property', 'value']
+    ),
+    runtimeTool(
+      'game_manage_group',
+      'Add or remove a live node from a SceneTree group in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node.' },
+        group: { type: 'string', description: 'Group name.' },
+        action: { type: 'string', description: 'Action: add | remove (default add).' },
+      },
+      'manage_group',
+      ['path', 'group']
+    ),
+    runtimeTool(
+      'game_create_timer',
+      'Create a live SceneTree timer (one-shot or repeating) and return its handle.',
+      true,
+      {
+        seconds: { type: 'number', description: 'Timer duration in seconds.' },
+        repeat: { type: 'boolean', description: 'Repeat instead of one-shot (default false).' },
+      },
+      'create_timer',
+      ['seconds']
+    ),
+    runtimeTool(
+      'game_set_particles',
+      'Configure a live particle system node (GPUParticles2D/3D): emitting, amount, lifetime.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the particles node.' },
+        property: { type: 'string', description: 'Particle property, e.g. emitting, amount, lifetime.' },
+        value: { description: 'Value to assign.' },
+      },
+      'set_particles',
+      ['path', 'property', 'value']
+    ),
+    runtimeTool(
+      'game_create_animation',
+      'Author a new animation on a live AnimationPlayer at runtime (tracks + keyframes).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the AnimationPlayer.' },
+        name: { type: 'string', description: 'Animation name to create.' },
+        tracks: { type: 'array', description: 'Track definitions (property path + keyframes).' },
+        length: { type: 'number', description: 'Animation length in seconds.' },
+      },
+      'create_animation',
+      ['path', 'name']
+    ),
+    runtimeTool(
+      'game_serialize_state',
+      'Serialize live game/node state to a portable structure (snapshot) for save/restore. Read-only snapshot.',
+      false,
+      {
+        path: { type: 'string', description: 'Optional root NodePath to serialize (default the scene root).' },
+      },
+      'serialize_state'
+    ),
+    runtimeTool(
+      'game_physics_body',
+      'Apply a live physics action to a body (impulse, force, set velocity).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the physics body.' },
+        action: { type: 'string', description: 'Action: apply_impulse | apply_force | set_velocity.' },
+        vector: { type: 'array', description: 'Vector value [x, y] or [x, y, z].' },
+      },
+      'physics_body',
+      ['path', 'action', 'vector']
+    ),
+    runtimeTool(
+      'game_create_joint',
+      'Create a live physics joint connecting two bodies in the running game.',
+      true,
+      {
+        type: { type: 'string', description: 'Joint type, e.g. pin, hinge, spring, generic.' },
+        bodyA: { type: 'string', description: 'NodePath of the first body.' },
+        bodyB: { type: 'string', description: 'NodePath of the second body.' },
+        properties: { type: 'object', description: 'Optional joint properties.' },
+      },
+      'create_joint',
+      ['type', 'bodyA', 'bodyB']
+    ),
+    runtimeTool(
+      'game_bone_pose',
+      'Set the pose (rotation/position/scale) of a bone on a live Skeleton2D/3D node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Skeleton node.' },
+        bone: { description: 'Bone name or index.' },
+        property: { type: 'string', description: 'Pose property, e.g. rotation, position, scale.' },
+        value: { description: 'Value to assign.' },
+      },
+      'bone_pose',
+      ['path', 'bone', 'property', 'value']
+    ),
+    runtimeTool(
+      'game_ui_theme',
+      'Apply or override a live theme property on a Control node (color, font, constant, stylebox).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Control node.' },
+        type: { type: 'string', description: 'Theme item type: color | font | font_size | constant | stylebox.' },
+        name: { type: 'string', description: 'Theme item name, e.g. font_color.' },
+        value: { description: 'Value to assign.' },
+      },
+      'ui_theme',
+      ['path', 'type', 'name']
+    ),
+    runtimeTool(
+      'game_viewport',
+      'Configure a live Viewport/SubViewport (size, render target, world, msaa).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Viewport (default the root viewport).' },
+        property: { type: 'string', description: 'Viewport property, e.g. size, msaa_3d, render_target_update_mode.' },
+        value: { description: 'Value to assign.' },
+      },
+      'viewport',
+      ['property', 'value']
+    ),
+    runtimeTool(
+      'game_debug_draw',
+      'Toggle or issue live debug drawing in the running game (collision shapes, custom primitives). Transient overlay.',
+      true,
+      {
+        action: { type: 'string', description: 'Action: line | box | sphere | clear | toggle.' },
+        params: { type: 'object', description: 'Draw parameters (points, color, duration) per action.' },
+      },
+      'debug_draw',
+      ['action']
+    ),
   ];
 }
