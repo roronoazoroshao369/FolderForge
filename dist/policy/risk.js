@@ -86,6 +86,62 @@ export const TOOL_RISK = {
     game_set_main_scene: 'HIGH',
     game_delete_file: 'CRITICAL',
     game_create_script: 'CRITICAL',
+    // game (Godot) - runtime read tier (Step 3). RUN channel over the TCP bridge.
+    // Read-only introspection of the live game is LOW; pause/wait transiently
+    // perturb the running process (MEDIUM); eval runs arbitrary GDScript in the
+    // live process (CRITICAL, approval-gated).
+    game_runtime_status: 'LOW',
+    game_get_scene_tree: 'LOW',
+    game_get_node_info: 'LOW',
+    game_get_ui: 'LOW',
+    game_get_performance: 'LOW',
+    game_get_nodes_in_group: 'LOW',
+    game_find_nodes_by_class: 'LOW',
+    game_get_errors: 'LOW',
+    game_get_logs: 'LOW',
+    game_pause: 'MEDIUM',
+    game_wait: 'MEDIUM',
+    game_eval: 'CRITICAL',
+    // game (Godot) - runtime mutation + input tier (Step 4). RUN channel.
+    // Family 8 (node manipulation) + Family 9 (signals). Reads are LOW; live
+    // state mutations are HIGH; arbitrary live invocation (call_method) is
+    // CRITICAL (approval-gated).
+    game_get_property: 'LOW',
+    game_list_signals: 'LOW',
+    game_await_signal: 'LOW',
+    game_set_property: 'HIGH',
+    game_instantiate_scene: 'HIGH',
+    game_runtime_remove_node: 'HIGH',
+    game_change_scene: 'HIGH',
+    game_reparent_node: 'HIGH',
+    game_connect_signal: 'HIGH',
+    game_disconnect_signal: 'HIGH',
+    game_emit_signal: 'HIGH',
+    game_call_method: 'CRITICAL',
+    // game (Godot) - runtime input + animation + audio tier (Step 4 group 2).
+    // RUN channel. Family 5/14 (input injection), 10/22 (animation), 23 (audio).
+    // Read-only probes are LOW; everything else transiently perturbs the live
+    // game without persisting to disk, so it is MEDIUM (like pause/wait).
+    game_screenshot: 'LOW',
+    game_input_state: 'LOW',
+    game_click: 'MEDIUM',
+    game_key_press: 'MEDIUM',
+    game_mouse_move: 'MEDIUM',
+    game_key_hold: 'MEDIUM',
+    game_key_release: 'MEDIUM',
+    game_scroll: 'MEDIUM',
+    game_mouse_drag: 'MEDIUM',
+    game_gamepad: 'MEDIUM',
+    game_touch: 'MEDIUM',
+    game_input_action: 'MEDIUM',
+    game_play_animation: 'MEDIUM',
+    game_tween_property: 'MEDIUM',
+    game_animation_tree: 'MEDIUM',
+    game_animation_control: 'MEDIUM',
+    game_skeleton_ik: 'MEDIUM',
+    game_audio_effect: 'MEDIUM',
+    game_audio_bus_layout: 'MEDIUM',
+    game_audio_spatial: 'MEDIUM',
     // MEDIUM
     file_write: 'MEDIUM',
     file_patch: 'MEDIUM',

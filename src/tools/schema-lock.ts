@@ -223,6 +223,29 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_emit_signal', mutates: true, risk: 'HIGH' },
   { name: 'game_list_signals', mutates: false, risk: 'LOW' },
   { name: 'game_await_signal', mutates: false, risk: 'LOW' },
+  // Family 5 + 14: runtime input injection
+  { name: 'game_screenshot', mutates: false, risk: 'LOW' },
+  { name: 'game_input_state', mutates: false, risk: 'LOW' },
+  { name: 'game_click', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_key_press', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_mouse_move', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_key_hold', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_key_release', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_scroll', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_mouse_drag', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_gamepad', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_touch', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_input_action', mutates: true, risk: 'MEDIUM' },
+  // Family 10 + 22: runtime animation
+  { name: 'game_play_animation', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_tween_property', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_animation_tree', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_animation_control', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_skeleton_ik', mutates: true, risk: 'MEDIUM' },
+  // Family 23: advanced audio
+  { name: 'game_audio_effect', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_audio_bus_layout', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_audio_spatial', mutates: true, risk: 'MEDIUM' },
 
   { name: 'game_set_main_scene', mutates: true, risk: 'HIGH' },
 ] as const;

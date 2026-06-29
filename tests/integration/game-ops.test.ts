@@ -779,3 +779,174 @@ describe('game tools integration (Godot Step 4 - node manipulation + signals)', 
     expect(noSignal.error).toMatch(/signal is required/i);
   });
 });
+
+/**
+ * Godot integration - Step 4 group 2 (runtime input + animation + audio).
+ *
+ * Same fake-bridge pattern as the other Step 4 suite. Validates request framing,
+ * runtimeTool() arg-forwarding + required-arg validation, and read vs mutate
+ * classification for the input/animation/audio families - without launching Godot.
+ */
+describe('game tools integration (Godot Step 4 - input + animation + audio)', () => {
+  let server: Server | null = null;
+  let port = 0;
+  const sockets = new Set<Socket>();
+
+  async function startBridge(
+    handlers: Record<string, (params: Record<string, unknown>) => unknown>
+  ): Promise<number> {
+    server = createServer((socket) => {
+      sockets.add(socket);
+      socket.setEncoding('utf8');
+      let buffer = '';
+      socket.on('data', (chunk: string) => {
+        buffer += chunk;
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          const req = JSON.parse(line) as { id: number; op: string; params: Record<string, unknown> };
+          const handler = handlers[req.op];
+          if (!handler) {
+            socket.write(`${JSON.stringify({ id: req.id, ok: false, error: `unknown op: ${req.op}` })}\n`);
+            continue;
+          }
+          const result = handler(req.params ?? {});
+          socket.write(`${JSON.stringify({ id: req.id, ok: true, data: result })}\n`);
+        }
+      });
+      socket.on('close', () => sockets.delete(socket));
+      socket.on('error', () => sockets.delete(socket));
+    });
+    await new Promise<void>((res) => server!.listen(0, '127.0.0.1', res));
+    const addr = server!.address();
+    return typeof addr === 'object' && addr ? addr.port : 0;
+  }
+
+  function runtimeSetup(runtimePort: number, mode: PolicyMode = 'danger') {
+    const config = loadConfig({ projectRoot: tmpdir() });
+    config.policy.defaultMode = mode;
+    config.adapters = {
+      ...config.adapters,
+      godot: { enabled: true, godotPath: 'godot', editorPort: 6550, runtimePort },
+    };
+    const container = new Container(config);
+    container.policy.setMode(mode);
+    const registry = buildRegistry(container);
+    return { container, registry };
+  }
+
+  afterEach(async () => {
+    for (const s of sockets) s.destroy();
+    sockets.clear();
+    if (server) {
+      await new Promise<void>((res) => server!.close(() => res()));
+      server = null;
+    }
+    port = 0;
+  });
+
+  it('injects input events and reads input state over the bridge', async () => {
+    port = await startBridge({
+      screenshot: (p) => ({ path: p.path ?? 'res://screen.png' }),
+      click: (p) => ({ x: p.x, y: p.y, button: p.button ?? 'left' }),
+      key_press: (p) => ({ key: p.key }),
+      mouse_move: (p) => ({ x: p.x, y: p.y }),
+      mouse_drag: (p) => ({ from: [p.fromX, p.fromY], to: [p.toX, p.toY] }),
+      scroll: (p) => ({ amount: p.amount }),
+      touch: (p) => ({ x: p.x, y: p.y, pressed: p.pressed ?? true }),
+      input_action: (p) => ({ action: p.action, pressed: p.pressed ?? true }),
+      input_state: () => ({ mouse: [10, 20], pressed: ['ui_accept'] }),
+    });
+    const { registry } = runtimeSetup(port);
+
+    const shot = data<{ path: string }>(
+      await registry.call('game_screenshot', {})
+    );
+    expect(shot.path).toBe('res://screen.png');
+
+    const click = data<{ x: number; y: number; button: string }>(
+      await registry.call('game_click', { x: 100, y: 200 })
+    );
+    expect(click.x).toBe(100);
+    expect(click.button).toBe('left');
+
+    const key = data<{ key: string }>(
+      await registry.call('game_key_press', { key: 'space' })
+    );
+    expect(key.key).toBe('space');
+
+    const drag = data<{ from: number[]; to: number[] }>(
+      await registry.call('game_mouse_drag', { fromX: 0, fromY: 0, toX: 50, toY: 60 })
+    );
+    expect(drag.to).toEqual([50, 60]);
+
+    const action = data<{ action: string }>(
+      await registry.call('game_input_action', { action: 'jump' })
+    );
+    expect(action.action).toBe('jump');
+
+    const state = data<{ pressed: string[] }>(
+      await registry.call('game_input_state', {})
+    );
+    expect(state.pressed).toContain('ui_accept');
+  });
+
+  it('drives animation and audio ops over the bridge', async () => {
+    port = await startBridge({
+      play_animation: (p) => ({ path: p.path, animation: p.animation }),
+      tween_property: (p) => ({ property: p.property, to: p.to }),
+      animation_control: (p) => ({ action: p.action }),
+      audio_effect: (p) => ({ bus: p.bus, effect: p.effect }),
+      audio_bus_layout: (p) => ({ bus: p.bus, volumeDb: p.volumeDb ?? 0 }),
+      audio_spatial: (p) => ({ path: p.path, property: p.property }),
+    });
+    const { registry } = runtimeSetup(port);
+
+    const anim = data<{ animation: string }>(
+      await registry.call('game_play_animation', { path: '/root/Anim', animation: 'walk' })
+    );
+    expect(anim.animation).toBe('walk');
+
+    const tween = data<{ to: unknown }>(
+      await registry.call('game_tween_property', {
+        path: '/root/Main',
+        property: 'position',
+        to: [10, 10],
+      })
+    );
+    expect(tween.to).toEqual([10, 10]);
+
+    const ctrl = data<{ action: string }>(
+      await registry.call('game_animation_control', { path: '/root/Anim', action: 'pause' })
+    );
+    expect(ctrl.action).toBe('pause');
+
+    const fx = data<{ bus: string; effect: string }>(
+      await registry.call('game_audio_effect', { bus: 'Master', effect: 'Reverb' })
+    );
+    expect(fx.effect).toBe('Reverb');
+
+    const bus = data<{ bus: string }>(
+      await registry.call('game_audio_bus_layout', { bus: 'Music' })
+    );
+    expect(bus.bus).toBe('Music');
+  });
+
+  it('validates required args before touching the bridge', async () => {
+    const { registry } = runtimeSetup(59999);
+
+    const noXY = await registry.call('game_click', { x: 1 });
+    expect(noXY.ok).toBe(false);
+    expect(noXY.error).toMatch(/y is required/i);
+
+    const noAnim = await registry.call('game_play_animation', { path: '/root/Anim' });
+    expect(noAnim.ok).toBe(false);
+    expect(noAnim.error).toMatch(/animation is required/i);
+
+    const noEffect = await registry.call('game_audio_effect', { bus: 'Master' });
+    expect(noEffect.ok).toBe(false);
+    expect(noEffect.error).toMatch(/effect is required/i);
+  });
+});

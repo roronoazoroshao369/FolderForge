@@ -810,5 +810,234 @@ export function gameTools(): ToolDefinition[] {
       'await_signal',
       ['path', 'signal']
     ),
+
+    // --- Family 5 + 14: runtime input injection ---
+    runtimeTool(
+      'game_screenshot',
+      'Capture a screenshot of the running game and return it (path or encoded data per the bridge). Read-only.',
+      false,
+      { path: { type: 'string', description: 'Optional output path inside the project for the screenshot.' } },
+      'screenshot'
+    ),
+    runtimeTool(
+      'game_click',
+      'Inject a mouse click at screen coordinates in the running game.',
+      true,
+      {
+        x: { type: 'number', description: 'X coordinate in pixels.' },
+        y: { type: 'number', description: 'Y coordinate in pixels.' },
+        button: { type: 'string', description: 'Mouse button: left | right | middle (default left).' },
+      },
+      'click',
+      ['x', 'y']
+    ),
+    runtimeTool(
+      'game_key_press',
+      'Inject a key press-and-release in the running game.',
+      true,
+      { key: { type: 'string', description: 'Key name or keycode, e.g. space, Enter, A.' } },
+      'key_press',
+      ['key']
+    ),
+    runtimeTool(
+      'game_mouse_move',
+      'Move the mouse to screen coordinates in the running game.',
+      true,
+      {
+        x: { type: 'number', description: 'X coordinate in pixels.' },
+        y: { type: 'number', description: 'Y coordinate in pixels.' },
+      },
+      'mouse_move',
+      ['x', 'y']
+    ),
+    runtimeTool(
+      'game_key_hold',
+      'Press and hold a key in the running game (released by game_key_release).',
+      true,
+      { key: { type: 'string', description: 'Key name or keycode to hold.' } },
+      'key_hold',
+      ['key']
+    ),
+    runtimeTool(
+      'game_key_release',
+      'Release a previously held key in the running game.',
+      true,
+      { key: { type: 'string', description: 'Key name or keycode to release.' } },
+      'key_release',
+      ['key']
+    ),
+    runtimeTool(
+      'game_scroll',
+      'Inject a mouse-wheel scroll in the running game.',
+      true,
+      {
+        amount: { type: 'number', description: 'Scroll steps; positive = up, negative = down.' },
+        x: { type: 'number', description: 'Optional X coordinate to scroll at.' },
+        y: { type: 'number', description: 'Optional Y coordinate to scroll at.' },
+      },
+      'scroll',
+      ['amount']
+    ),
+    runtimeTool(
+      'game_mouse_drag',
+      'Inject a mouse drag from one point to another in the running game.',
+      true,
+      {
+        fromX: { type: 'number', description: 'Start X coordinate.' },
+        fromY: { type: 'number', description: 'Start Y coordinate.' },
+        toX: { type: 'number', description: 'End X coordinate.' },
+        toY: { type: 'number', description: 'End Y coordinate.' },
+        button: { type: 'string', description: 'Mouse button (default left).' },
+      },
+      'mouse_drag',
+      ['fromX', 'fromY', 'toX', 'toY']
+    ),
+    runtimeTool(
+      'game_gamepad',
+      'Inject a gamepad button or axis event in the running game.',
+      true,
+      {
+        control: { type: 'string', description: 'Button or axis name, e.g. a, dpad_up, left_stick_x.' },
+        value: { description: 'Pressed (bool) or axis value (number, -1..1).' },
+        device: { type: 'number', description: 'Gamepad device index (default 0).' },
+      },
+      'gamepad',
+      ['control', 'value']
+    ),
+    runtimeTool(
+      'game_touch',
+      'Inject a touchscreen touch/release in the running game.',
+      true,
+      {
+        x: { type: 'number', description: 'X coordinate.' },
+        y: { type: 'number', description: 'Y coordinate.' },
+        pressed: { type: 'boolean', description: 'true for touch down, false for release (default true).' },
+        index: { type: 'number', description: 'Touch point index (default 0).' },
+      },
+      'touch',
+      ['x', 'y']
+    ),
+    runtimeTool(
+      'game_input_state',
+      'Read the current input state (pressed keys/buttons, mouse position) of the running game. Read-only.',
+      false,
+      {},
+      'input_state'
+    ),
+    runtimeTool(
+      'game_input_action',
+      'Trigger or release a named input action (from the InputMap) in the running game.',
+      true,
+      {
+        action: { type: 'string', description: 'Input action name, e.g. ui_accept, jump.' },
+        pressed: { type: 'boolean', description: 'true to press, false to release (default true).' },
+        strength: { type: 'number', description: 'Action strength 0..1 (default 1).' },
+      },
+      'input_action',
+      ['action']
+    ),
+
+    // --- Family 10 + 22: runtime animation ---
+    runtimeTool(
+      'game_play_animation',
+      'Play an animation on a live AnimationPlayer node in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the AnimationPlayer.' },
+        animation: { type: 'string', description: 'Animation name to play.' },
+        speed: { type: 'number', description: 'Playback speed multiplier (default 1).' },
+      },
+      'play_animation',
+      ['path', 'animation']
+    ),
+    runtimeTool(
+      'game_tween_property',
+      'Tween a property on a live node toward a target value over a duration.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node.' },
+        property: { type: 'string', description: 'Property to tween, e.g. position.' },
+        to: { description: 'Target value.' },
+        duration: { type: 'number', description: 'Duration in seconds (default 1).' },
+      },
+      'tween_property',
+      ['path', 'property', 'to']
+    ),
+    runtimeTool(
+      'game_animation_tree',
+      'Configure or query a live AnimationTree node (set parameters, toggle active).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the AnimationTree.' },
+        parameter: { type: 'string', description: 'Parameter path to set, e.g. parameters/state.' },
+        value: { description: 'Value to assign to the parameter.' },
+      },
+      'animation_tree',
+      ['path']
+    ),
+    runtimeTool(
+      'game_animation_control',
+      'Control live animation playback (pause, stop, seek) on an AnimationPlayer.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the AnimationPlayer.' },
+        action: { type: 'string', description: 'Control action: pause | stop | seek.' },
+        time: { type: 'number', description: 'Seek time in seconds (for action=seek).' },
+      },
+      'animation_control',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_skeleton_ik',
+      'Configure inverse kinematics on a live Skeleton/SkeletonIK node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the SkeletonIK node.' },
+        target: { description: 'IK target (NodePath or transform per the bridge).' },
+        active: { type: 'boolean', description: 'Enable/disable the IK chain.' },
+      },
+      'skeleton_ik',
+      ['path']
+    ),
+
+    // --- Family 23: advanced audio ---
+    runtimeTool(
+      'game_audio_effect',
+      'Add, remove, or configure an audio effect on a live audio bus.',
+      true,
+      {
+        bus: { type: 'string', description: 'Audio bus name.' },
+        effect: { type: 'string', description: 'Effect type, e.g. Reverb, EQ.' },
+        action: { type: 'string', description: 'add | remove | set (default set).' },
+        params: { type: 'object', description: 'Effect parameters.' },
+      },
+      'audio_effect',
+      ['bus', 'effect']
+    ),
+    runtimeTool(
+      'game_audio_bus_layout',
+      'Configure the live audio bus layout (create buses, set volume/mute/solo).',
+      true,
+      {
+        bus: { type: 'string', description: 'Audio bus name.' },
+        volumeDb: { type: 'number', description: 'Bus volume in dB.' },
+        mute: { type: 'boolean', description: 'Mute the bus.' },
+        solo: { type: 'boolean', description: 'Solo the bus.' },
+      },
+      'audio_bus_layout',
+      ['bus']
+    ),
+    runtimeTool(
+      'game_audio_spatial',
+      'Configure spatial/positional audio on a live AudioStreamPlayer2D/3D node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the audio player node.' },
+        property: { type: 'string', description: 'Spatial property, e.g. max_distance, unit_size.' },
+        value: { description: 'Value to assign.' },
+      },
+      'audio_spatial',
+      ['path']
+    ),
   ];
 }

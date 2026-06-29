@@ -127,6 +127,31 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   game_emit_signal: 'HIGH',
   game_call_method: 'CRITICAL',
 
+  // game (Godot) - runtime input + animation + audio tier (Step 4 group 2).
+  // RUN channel. Family 5/14 (input injection), 10/22 (animation), 23 (audio).
+  // Read-only probes are LOW; everything else transiently perturbs the live
+  // game without persisting to disk, so it is MEDIUM (like pause/wait).
+  game_screenshot: 'LOW',
+  game_input_state: 'LOW',
+  game_click: 'MEDIUM',
+  game_key_press: 'MEDIUM',
+  game_mouse_move: 'MEDIUM',
+  game_key_hold: 'MEDIUM',
+  game_key_release: 'MEDIUM',
+  game_scroll: 'MEDIUM',
+  game_mouse_drag: 'MEDIUM',
+  game_gamepad: 'MEDIUM',
+  game_touch: 'MEDIUM',
+  game_input_action: 'MEDIUM',
+  game_play_animation: 'MEDIUM',
+  game_tween_property: 'MEDIUM',
+  game_animation_tree: 'MEDIUM',
+  game_animation_control: 'MEDIUM',
+  game_skeleton_ik: 'MEDIUM',
+  game_audio_effect: 'MEDIUM',
+  game_audio_bus_layout: 'MEDIUM',
+  game_audio_spatial: 'MEDIUM',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',
