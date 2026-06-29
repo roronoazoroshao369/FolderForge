@@ -63,6 +63,29 @@ export const TOOL_RISK = {
     approval_status: 'LOW',
     approval_approve: 'LOW',
     approval_deny: 'LOW',
+    // game (Godot) - read tier (Step 1). All file/engine introspection only.
+    game_get_godot_version: 'LOW',
+    game_get_project_info: 'LOW',
+    game_read_scene: 'LOW',
+    game_read_project_settings: 'LOW',
+    game_list_project_files: 'LOW',
+    game_read_file: 'LOW',
+    // game (Godot) - edit tier (Step 2). Text-based mutations of project files.
+    // HIGH for structural edits; CRITICAL for delete (data loss) and script
+    // creation (introduces executable code). All gated by the approval queue.
+    game_write_file: 'HIGH',
+    game_create_directory: 'MEDIUM',
+    game_rename_file: 'HIGH',
+    game_create_scene: 'HIGH',
+    game_add_node: 'HIGH',
+    game_remove_node: 'HIGH',
+    game_modify_node: 'HIGH',
+    game_attach_script: 'HIGH',
+    game_create_resource: 'HIGH',
+    game_modify_project_settings: 'HIGH',
+    game_set_main_scene: 'HIGH',
+    game_delete_file: 'CRITICAL',
+    game_create_script: 'CRITICAL',
     // MEDIUM
     file_write: 'MEDIUM',
     file_patch: 'MEDIUM',

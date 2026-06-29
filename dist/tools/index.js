@@ -14,6 +14,7 @@ import { dbTools } from './db-tools.js';
 import { pkgTools } from './pkg-tools.js';
 import { formatTools } from './format-tools.js';
 import { coverageTools } from './coverage-tools.js';
+import { gameTools } from './game-tools.js';
 import { buildAdapterTools } from './adapter-tools.js';
 /**
  * Build the full tool registry with every group registered.
@@ -36,6 +37,7 @@ export function buildRegistry(container) {
         ...pkgTools(),
         ...formatTools(),
         ...coverageTools(),
+        ...gameTools(),
     ]);
     // Expose the registry on the container so routing tools (workspace_route)
     // can switch the active tool subset at runtime.
@@ -94,6 +96,14 @@ export const GROUP_PRESETS = {
     full: [
         'workspace', 'file', 'search', 'terminal', 'process', 'git', 'build',
         'memory', 'security', 'code', 'browser', 'db', 'pkg', 'format', 'coverage',
+        'game',
+    ],
+    // Godot game-dev focus: the coding essentials plus the `game` group, so an
+    // agent can read/edit project files and drive the engine without the db /
+    // coverage / pkg noise. Runtime tiers (later steps) join the same group.
+    godot: [
+        'workspace', 'file', 'search', 'code', 'terminal', 'build', 'git',
+        'process', 'browser', 'game',
     ],
 };
 /**

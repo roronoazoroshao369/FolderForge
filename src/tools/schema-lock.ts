@@ -179,6 +179,21 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_read_project_settings', mutates: false, risk: 'LOW' },
   { name: 'game_list_project_files', mutates: false, risk: 'LOW' },
   { name: 'game_read_file', mutates: false, risk: 'LOW' },
+
+  // --- game (Godot) - edit tier (Step 2) ---
+  { name: 'game_write_file', mutates: true, risk: 'HIGH' },
+  { name: 'game_delete_file', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_create_directory', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_rename_file', mutates: true, risk: 'HIGH' },
+  { name: 'game_create_scene', mutates: true, risk: 'HIGH' },
+  { name: 'game_add_node', mutates: true, risk: 'HIGH' },
+  { name: 'game_remove_node', mutates: true, risk: 'HIGH' },
+  { name: 'game_modify_node', mutates: true, risk: 'HIGH' },
+  { name: 'game_attach_script', mutates: true, risk: 'HIGH' },
+  { name: 'game_create_script', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_create_resource', mutates: true, risk: 'HIGH' },
+  { name: 'game_modify_project_settings', mutates: true, risk: 'HIGH' },
+  { name: 'game_set_main_scene', mutates: true, risk: 'HIGH' },
 ] as const;
 
 /** Set of frozen tool names for O(1) membership checks. */

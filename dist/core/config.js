@@ -86,6 +86,7 @@ export function defaultConfig(projectRoot) {
             serena: { enabled: false, command: 'serena', args: [] },
             playwright: { enabled: false, command: 'npx', args: ['-y', '@playwright/mcp@0.0.41'] },
             desktopCommander: { enabled: false, command: 'npx', args: ['-y', '@wonderwhy-er/desktop-commander@latest'] },
+            godot: { enabled: false, godotPath: 'godot', editorPort: 6550, runtimePort: 9090 },
         },
         lsp: {
             enabled: true,
@@ -151,6 +152,7 @@ export function fullConfig() {
                 command: 'npx',
                 args: ['-y', '@wonderwhy-er/desktop-commander@latest'],
             },
+            godot: { enabled: false, godotPath: 'godot', editorPort: 6550, runtimePort: 9090 },
         },
     };
 }

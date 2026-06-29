@@ -173,9 +173,20 @@ Closes the UX gap where AI clients got stuck on high-risk tool calls (e.g.
 Verification status: `npm run typecheck`, `npm run lint`, `npm run build`, and
 `npm test` (27 files, 225 tests) all green at 1.4.2.
 
-## In progress (1.5 - Godot Step 1 shipped, Step 2 next)
+## In progress (1.5 - Godot Step 2 shipped, Step 3 next)
 
 - **Step 0 - `approval_approve` / `approval_deny`** - **Done** (see below).
+- **Step 2 - headless edit tier (~13 tools)** - **Done.** Mutating `game_*`
+  tools backed by `GodotCli` doing text-based edits on project files with the
+  editor closed (project-root-guarded): `game_write_file`, `game_rename_file`,
+  `game_create_directory`, `game_delete_file` (CRITICAL), `game_create_scene`,
+  `game_add_node`, `game_remove_node`, `game_modify_node`, `game_attach_script`,
+  `game_create_script` (CRITICAL), `game_create_resource`,
+  `game_modify_project_settings`, `game_set_main_scene`. CRITICAL tools stay
+  approval-gated even in danger mode. Wired through `risk.ts`, the frozen
+  `schema-lock.ts`, and covered by `tests/integration/game-ops.test.ts`.
+  Verification: typecheck, lint, `npm test` (29 files, 246 tests), and build all
+  green. Runtime bridge (Step 3) is next.
 - **Step 1 - adapter + headless read tier** - **Done.** New `GodotCli`
   (`src/adapters/godot/cli.ts`) is the CLI/file-read channel; six read-only
   `game_*` tools route through it (`src/tools/game-tools.ts`, group `game`):

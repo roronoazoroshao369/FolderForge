@@ -1,6 +1,15 @@
 import { execa } from 'execa';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { resolve, join, relative, sep } from 'node:path';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  renameSync,
+} from 'node:fs';
+import { resolve, join, relative, sep, dirname } from 'node:path';
 import type { GodotConfig } from '../../core/types.js';
 
 /**
@@ -288,6 +297,279 @@ export class GodotCli {
     };
   }
 
+  // -------------------------------------------------------------------------
+  // Step 2 - headless edit tier. All of these mutate files on disk inside the
+  // project root (guarded by safeResolve). They are text-based edits to the
+  // Godot `.tscn` / `project.godot` / source files, so they need no running
+  // engine or editor. Risk bands (HIGH, plus CRITICAL for delete/script) are
+  // declared in src/policy/risk.ts and gated by the normal pipeline.
+  // -------------------------------------------------------------------------
+
+  /** Write a UTF-8 text file, creating parent dirs. Refuses to clobber unless overwrite. */
+  writeFile(
+    projectRoot: string,
+    filePath: string,
+    content: string,
+    overwrite = true
+  ): GodotCliResult<{ resPath: string; bytes: number; created: boolean }> {
+    const abs = this.safeResolve(projectRoot, filePath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    const existed = existsSync(abs.path);
+    if (existed && !overwrite) {
+      return { ok: false, error: `File exists (pass overwrite=true to replace): ${filePath}` };
+    }
+    mkdirSync(dirname(abs.path), { recursive: true });
+    writeFileSync(abs.path, content, 'utf8');
+    return {
+      ok: true,
+      data: { resPath: toResPath(projectRoot, abs.path), bytes: Buffer.byteLength(content), created: !existed },
+    };
+  }
+
+  /** Delete a file (CRITICAL). Refuses directories to avoid mass deletion. */
+  deleteFile(projectRoot: string, filePath: string): GodotCliResult<{ resPath: string }> {
+    const abs = this.safeResolve(projectRoot, filePath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!existsSync(abs.path)) return { ok: false, error: `File not found: ${filePath}` };
+    if (statSync(abs.path).isDirectory()) {
+      return { ok: false, error: `Refusing to delete a directory: ${filePath}` };
+    }
+    rmSync(abs.path);
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path) } };
+  }
+
+  /** Create a directory (recursive). */
+  createDirectory(projectRoot: string, dirPath: string): GodotCliResult<{ resPath: string; created: boolean }> {
+    const abs = this.safeResolve(projectRoot, dirPath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    const existed = existsSync(abs.path);
+    mkdirSync(abs.path, { recursive: true });
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path), created: !existed } };
+  }
+
+  /** Rename/move a file inside the project. Refuses to clobber unless overwrite. */
+  renameFile(
+    projectRoot: string,
+    from: string,
+    to: string,
+    overwrite = false
+  ): GodotCliResult<{ from: string; to: string }> {
+    const src = this.safeResolve(projectRoot, from);
+    if (!src.ok) return { ok: false, error: src.error };
+    const dst = this.safeResolve(projectRoot, to);
+    if (!dst.ok) return { ok: false, error: dst.error };
+    if (!existsSync(src.path)) return { ok: false, error: `Source not found: ${from}` };
+    if (existsSync(dst.path) && !overwrite) {
+      return { ok: false, error: `Destination exists (pass overwrite=true): ${to}` };
+    }
+    mkdirSync(dirname(dst.path), { recursive: true });
+    renameSync(src.path, dst.path);
+    return {
+      ok: true,
+      data: { from: toResPath(projectRoot, src.path), to: toResPath(projectRoot, dst.path) },
+    };
+  }
+
+  /**
+   * Create a new `.tscn` scene with a single root node. Refuses to clobber
+   * unless overwrite. The format is the minimal valid text scene Godot 4 emits.
+   */
+  createScene(
+    projectRoot: string,
+    scenePath: string,
+    rootName = 'Root',
+    rootType = 'Node',
+    overwrite = false
+  ): GodotCliResult<{ resPath: string }> {
+    const abs = this.safeResolve(projectRoot, scenePath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!abs.path.endsWith('.tscn')) {
+      return { ok: false, error: 'Scene path must end in .tscn' };
+    }
+    if (existsSync(abs.path) && !overwrite) {
+      return { ok: false, error: `Scene exists (pass overwrite=true): ${scenePath}` };
+    }
+    const body = `[gd_scene format=3]\n\n[node name="${rootName}" type="${rootType}"]\n`;
+    mkdirSync(dirname(abs.path), { recursive: true });
+    writeFileSync(abs.path, body, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path) } };
+  }
+
+  /** Append a node to a scene under `parent` (default the root, ".") . */
+  addNode(
+    projectRoot: string,
+    scenePath: string,
+    name: string,
+    type: string,
+    parent = '.'
+  ): GodotCliResult<{ resPath: string; nodeCount: number }> {
+    const loaded = this.loadScene(projectRoot, scenePath);
+    if (!loaded.ok) return { ok: false, error: loaded.error };
+    let text = loaded.text;
+    if (new RegExp(`\\[node name="${escapeRe(name)}"[^\\]]*parent="${escapeRe(parent)}"`).test(text)) {
+      return { ok: false, error: `Node "${name}" already exists under parent "${parent}".` };
+    }
+    const block = `\n[node name="${name}" type="${type}" parent="${parent}"]\n`;
+    text = `${text.replace(/\s*$/, '')}\n${block}`;
+    writeFileSync(loaded.path, text, 'utf8');
+    const count = (text.match(/^\[node\s/gm) ?? []).length;
+    return { ok: true, data: { resPath: toResPath(projectRoot, loaded.path), nodeCount: count } };
+  }
+
+  /** Remove a node block (and its property lines) by name. */
+  removeSceneNode(
+    projectRoot: string,
+    scenePath: string,
+    name: string
+  ): GodotCliResult<{ resPath: string; removed: boolean }> {
+    const loaded = this.loadScene(projectRoot, scenePath);
+    if (!loaded.ok) return { ok: false, error: loaded.error };
+    const blockRe = new RegExp(
+      `\\n?\\[node name="${escapeRe(name)}"[^\\]]*\\][^\\[]*`,
+      'm'
+    );
+    if (!blockRe.test(loaded.text)) {
+      return { ok: false, error: `Node "${name}" not found in ${scenePath}.` };
+    }
+    const text = loaded.text.replace(blockRe, '\n');
+    writeFileSync(loaded.path, text.replace(/\n{3,}/g, '\n\n'), 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, loaded.path), removed: true } };
+  }
+
+  /** Set/replace a property line inside a node block. */
+  modifySceneNode(
+    projectRoot: string,
+    scenePath: string,
+    name: string,
+    property: string,
+    value: string
+  ): GodotCliResult<{ resPath: string }> {
+    const loaded = this.loadScene(projectRoot, scenePath);
+    if (!loaded.ok) return { ok: false, error: loaded.error };
+    const updated = upsertNodeProperty(loaded.text, name, property, value);
+    if (updated === null) return { ok: false, error: `Node "${name}" not found in ${scenePath}.` };
+    writeFileSync(loaded.path, updated, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, loaded.path) } };
+  }
+
+  /**
+   * Attach a script (res:// path) to a node: ensure an ext_resource entry for
+   * the script, then set `script = ExtResource("id")` on the node block.
+   */
+  attachScript(
+    projectRoot: string,
+    scenePath: string,
+    name: string,
+    scriptResPath: string
+  ): GodotCliResult<{ resPath: string; scriptId: string }> {
+    const loaded = this.loadScene(projectRoot, scenePath);
+    if (!loaded.ok) return { ok: false, error: loaded.error };
+    let text = loaded.text;
+    // Reuse an existing ext_resource for this script, else create one.
+    let id: string | null = matchValue(
+      text,
+      new RegExp(`\\[ext_resource[^\\]]*path="${escapeRe(scriptResPath)}"[^\\]]*id="?([^"\\s\\]]+)"?`)
+    );
+    if (id === null) {
+      id = `${nextExtId(text)}_${randomTag()}`;
+      const extLine = `[ext_resource type="Script" path="${scriptResPath}" id="${id}"]\n`;
+      text = insertExtResource(text, extLine);
+    }
+    const updated = upsertNodeProperty(text, name, 'script', `ExtResource("${id}")`);
+    if (updated === null) return { ok: false, error: `Node "${name}" not found in ${scenePath}.` };
+    writeFileSync(loaded.path, withLoadSteps(updated), 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, loaded.path), scriptId: id } };
+  }
+
+  /**
+   * Create a GDScript file (CRITICAL - it is executable code). Writes a minimal
+   * `extends <base>` stub unless explicit content is supplied.
+   */
+  createScript(
+    projectRoot: string,
+    scriptPath: string,
+    opts: { extends?: string; content?: string; overwrite?: boolean } = {}
+  ): GodotCliResult<{ resPath: string }> {
+    const abs = this.safeResolve(projectRoot, scriptPath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!abs.path.endsWith('.gd')) return { ok: false, error: 'Script path must end in .gd' };
+    if (existsSync(abs.path) && !opts.overwrite) {
+      return { ok: false, error: `Script exists (pass overwrite=true): ${scriptPath}` };
+    }
+    const content = opts.content ?? `extends ${opts.extends ?? 'Node'}\n\n\nfunc _ready() -> void:\n\tpass\n`;
+    mkdirSync(dirname(abs.path), { recursive: true });
+    writeFileSync(abs.path, content, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path) } };
+  }
+
+  /**
+   * Create a text `.tres` resource with a [resource] section and optional
+   * scalar/string properties.
+   */
+  createResource(
+    projectRoot: string,
+    resPath: string,
+    type: string,
+    properties: Record<string, unknown> = {},
+    overwrite = false
+  ): GodotCliResult<{ resPath: string }> {
+    const abs = this.safeResolve(projectRoot, resPath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!abs.path.endsWith('.tres')) return { ok: false, error: 'Resource path must end in .tres' };
+    if (existsSync(abs.path) && !overwrite) {
+      return { ok: false, error: `Resource exists (pass overwrite=true): ${resPath}` };
+    }
+    const props = Object.entries(properties)
+      .map(([k, v]) => `${k} = ${serializeValue(v)}`)
+      .join('\n');
+    const body = `[gd_resource type="${type}" format=3]\n\n[resource]\n${props ? `${props}\n` : ''}`;
+    mkdirSync(dirname(abs.path), { recursive: true });
+    writeFileSync(abs.path, body, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path) } };
+  }
+
+  /**
+   * Set a `key=value` setting in `project.godot` under the given section,
+   * creating the section/key if needed. `value` is written verbatim if it
+   * already looks like a Godot literal, else quoted as a string.
+   */
+  modifyProjectSettings(
+    projectRoot: string,
+    section: string,
+    key: string,
+    value: string
+  ): GodotCliResult<{ section: string; key: string }> {
+    const root = resolve(projectRoot);
+    const projectFile = join(root, 'project.godot');
+    if (!existsSync(projectFile)) return { ok: false, error: 'No project.godot found in the project root.' };
+    const literal = looksLikeLiteral(value) ? value : `"${value}"`;
+    const updated = upsertIniKey(readFileSync(projectFile, 'utf8'), section, key, literal);
+    writeFileSync(projectFile, updated, 'utf8');
+    return { ok: true, data: { section, key } };
+  }
+
+  /** Convenience: set `application/run/main_scene` in project.godot. */
+  setMainScene(projectRoot: string, scenePath: string): GodotCliResult<{ mainScene: string }> {
+    const resPath = scenePath.startsWith('res://') ? scenePath : `res://${scenePath.replace(/^\.?\//, '')}`;
+    const res = this.modifyProjectSettings(projectRoot, 'application', 'run/main_scene', `"${resPath}"`);
+    if (!res.ok) return { ok: false, error: res.error ?? 'Failed to set main scene' };
+    return { ok: true, data: { mainScene: resPath } };
+  }
+
+  /** Load a `.tscn` for editing: resolve, existence + text-format guard, read. */
+  private loadScene(
+    projectRoot: string,
+    scenePath: string
+  ): { ok: true; path: string; text: string } | { ok: false; error: string } {
+    const abs = this.safeResolve(projectRoot, scenePath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!existsSync(abs.path)) return { ok: false, error: `Scene not found: ${scenePath}` };
+    if (!abs.path.endsWith('.tscn')) {
+      return { ok: false, error: 'Only text .tscn scenes can be edited.' };
+    }
+    return { ok: true, path: abs.path, text: readFileSync(abs.path, 'utf8') };
+  }
+
   /**
    * Resolve a project-relative or res:// path to an absolute path, refusing any
    * path that escapes the project root.
@@ -330,4 +612,142 @@ function extOf(name: string): string {
 function toResPath(projectRoot: string, abs: string): string {
   const rel = relative(resolve(projectRoot), resolve(abs)).split(sep).join('/');
   return `res://${rel}`;
+}
+
+// --- edit-tier helpers (Step 2) -------------------------------------------
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function randomTag(): string {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+/** Next free ext_resource integer id (max existing leading int + 1). */
+function nextExtId(text: string): number {
+  let max = 0;
+  const re = /\[ext_resource[^\]]*id="?(\d+)/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max + 1;
+}
+
+/** Insert an ext_resource line after the gd_scene header (or other ext lines). */
+function insertExtResource(text: string, line: string): string {
+  const lastExt = [...text.matchAll(/\[ext_resource[^\]]*\]\n/g)].pop();
+  if (lastExt && lastExt.index !== undefined) {
+    const at = lastExt.index + lastExt[0].length;
+    return `${text.slice(0, at)}${line}${text.slice(at)}`;
+  }
+  // No ext_resources yet: place right after the gd_scene header line.
+  const header = text.match(/\[gd_scene[^\]]*\]\n/);
+  if (header && header.index !== undefined) {
+    const at = header.index + header[0].length;
+    return `${text.slice(0, at)}\n${line}${text.slice(at)}`;
+  }
+  return `${line}${text}`;
+}
+
+/** Keep the gd_scene `load_steps` in sync with the ext_resource count. */
+function withLoadSteps(text: string): string {
+  const extCount = (text.match(/\[ext_resource\s/g) ?? []).length;
+  const loadSteps = extCount + 1;
+  if (/\[gd_scene[^\]]*load_steps=\d+/.test(text)) {
+    return text.replace(/(\[gd_scene[^\]]*load_steps=)\d+/, `$1${loadSteps}`);
+  }
+  return text.replace(/\[gd_scene\b/, `[gd_scene load_steps=${loadSteps}`);
+}
+
+/**
+ * Set/replace a `property = value` line inside a node block identified by name.
+ * Returns null when the node is not found. Properties are inserted directly
+ * under the matched `[node ...]` header line.
+ */
+function upsertNodeProperty(
+  text: string,
+  nodeName: string,
+  property: string,
+  value: string
+): string | null {
+  const headerRe = new RegExp(`\\[node name="${escapeRe(nodeName)}"[^\\]]*\\]`, 'm');
+  const header = text.match(headerRe);
+  if (!header || header.index === undefined) return null;
+  const blockStart = header.index + header[0].length;
+  const rest = text.slice(blockStart);
+  const nextHeader = rest.search(/\n\[/);
+  const blockEnd = nextHeader === -1 ? text.length : blockStart + nextHeader;
+  const block = text.slice(blockStart, blockEnd);
+  const propRe = new RegExp(`(^|\\n)${escapeRe(property)}\\s*=\\s*[^\\n]*`);
+  let newBlock: string;
+  if (propRe.test(block)) {
+    newBlock = block.replace(propRe, `$1${property} = ${value}`);
+  } else {
+    newBlock = `\n${property} = ${value}${block.startsWith('\n') ? '' : '\n'}${block}`;
+  }
+  return text.slice(0, blockStart) + newBlock + text.slice(blockEnd);
+}
+
+/** Whether a raw setting value already looks like a Godot literal (not a string). */
+function looksLikeLiteral(v: string): boolean {
+  const t = v.trim();
+  if (t === 'true' || t === 'false') return true;
+  if (/^-?\d+(\.\d+)?$/.test(t)) return true;
+  // Quoted strings, arrays, dictionaries, and constructor calls are literals.
+  if (/^".*"$/.test(t)) return true;
+  if (/^[[{].*[\]}]$/.test(t)) return true;
+  if (/^[A-Z][A-Za-z0-9_]*\(.*\)$/.test(t)) return true;
+  return false;
+}
+
+/** Serialize a JS value to a Godot resource literal. */
+function serializeValue(v: unknown): string {
+  if (typeof v === 'string') return looksLikeLiteral(v) ? v : `"${v}"`;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (v === null || v === undefined) return 'null';
+  return `"${String(v)}"`;
+}
+
+/**
+ * Upsert a `key=value` under `[section]` in an INI-style project.godot.
+ * Creates the section at the end if it does not exist; replaces the key in
+ * place if it does.
+ */
+function upsertIniKey(text: string, section: string, key: string, value: string): string {
+  const lines = text.split('\n');
+  const sectionHeader = `[${section}]`;
+  let secStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]?.trim() === sectionHeader) {
+      secStart = i;
+      break;
+    }
+  }
+  const line = `${key}=${value}`;
+  if (secStart === -1) {
+    const tail = text.endsWith('\n') ? '' : '\n';
+    return `${text}${tail}\n${sectionHeader}\n\n${line}\n`;
+  }
+  // Find the section's extent (until the next header or EOF).
+  let secEnd = lines.length;
+  for (let i = secStart + 1; i < lines.length; i++) {
+    if (/^\[[^\]]+\]\s*$/.test(lines[i] ?? '')) {
+      secEnd = i;
+      break;
+    }
+  }
+  const keyRe = new RegExp(`^${escapeRe(key)}\\s*=`);
+  for (let i = secStart + 1; i < secEnd; i++) {
+    if (keyRe.test(lines[i] ?? '')) {
+      lines[i] = line;
+      return lines.join('\n');
+    }
+  }
+  // Insert before the trailing blank line of the section, if any.
+  let insertAt = secEnd;
+  while (insertAt - 1 > secStart && (lines[insertAt - 1] ?? '').trim() === '') insertAt--;
+  lines.splice(insertAt, 0, line);
+  return lines.join('\n');
 }

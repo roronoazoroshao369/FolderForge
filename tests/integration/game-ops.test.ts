@@ -167,3 +167,245 @@ describe('game tools integration (Godot Step 1 - read tier)', () => {
     expect(res.error).toMatch(/escape/i);
   });
 });
+
+/**
+ * Godot integration - Step 2 (headless edit tier).
+ *
+ * Exercises the mutating `game_*` tools end-to-end. These do text-based edits
+ * to project files on disk, so they need no Godot binary. Tests run in `danger`
+ * mode so HIGH/CRITICAL tools execute without an approval round-trip; the risk
+ * classification and gating itself is covered by the policy unit tests.
+ */
+describe('game tools integration (Godot Step 2 - edit tier)', () => {
+  let ws: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), 'ff-godot-edit-'));
+    writeFileSync(join(ws, 'project.godot'), PROJECT_GODOT);
+    writeFileSync(join(ws, 'main.tscn'), MAIN_TSCN);
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('writes a new file and refuses to clobber without overwrite', async () => {
+    const { registry } = setup(ws, 'danger');
+    const w = data<{ resPath: string; created: boolean }>(
+      await registry.call('game_write_file', {
+        projectPath: ws,
+        filePath: 'res://data/notes.txt',
+        content: 'hello',
+      })
+    );
+    expect(w.resPath).toBe('res://data/notes.txt');
+    expect(w.created).toBe(true);
+
+    const clobber = await registry.call('game_write_file', {
+      projectPath: ws,
+      filePath: 'res://data/notes.txt',
+      content: 'again',
+      overwrite: false,
+    });
+    expect(clobber.ok).toBe(false);
+    expect(clobber.error).toMatch(/exists/i);
+
+    const read = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'res://data/notes.txt' })
+    );
+    expect(read.content).toBe('hello');
+  });
+
+  it('creates a directory, renames a file, and deletes it', async () => {
+    const { container, registry } = setup(ws, 'danger');
+    // game_delete_file is CRITICAL: pre-grant a session approval so it runs.
+    container.policy.approvals.approve(
+      container.policy.approvals.create('game_delete_file', {}, 'CRITICAL', 'test').id,
+      'session'
+    );
+    data(await registry.call('game_create_directory', { projectPath: ws, dirPath: 'res://scenes' }));
+    data(
+      await registry.call('game_write_file', {
+        projectPath: ws,
+        filePath: 'res://scenes/a.txt',
+        content: 'x',
+      })
+    );
+    const renamed = data<{ from: string; to: string }>(
+      await registry.call('game_rename_file', {
+        projectPath: ws,
+        from: 'res://scenes/a.txt',
+        to: 'res://scenes/b.txt',
+      })
+    );
+    expect(renamed.to).toBe('res://scenes/b.txt');
+
+    const del = data<{ resPath: string }>(
+      await registry.call('game_delete_file', { projectPath: ws, filePath: 'res://scenes/b.txt' })
+    );
+    expect(del.resPath).toBe('res://scenes/b.txt');
+
+    const gone = await registry.call('game_read_file', {
+      projectPath: ws,
+      filePath: 'res://scenes/b.txt',
+    });
+    expect(gone.ok).toBe(false);
+  });
+
+  it('creates a scene, adds, modifies, and removes nodes', async () => {
+    const { registry } = setup(ws, 'danger');
+    data(
+      await registry.call('game_create_scene', {
+        projectPath: ws,
+        scenePath: 'res://level.tscn',
+        rootName: 'Level',
+        rootType: 'Node2D',
+      })
+    );
+    data(
+      await registry.call('game_add_node', {
+        projectPath: ws,
+        scenePath: 'res://level.tscn',
+        name: 'Hero',
+        type: 'CharacterBody2D',
+      })
+    );
+    data(
+      await registry.call('game_modify_node', {
+        projectPath: ws,
+        scenePath: 'res://level.tscn',
+        name: 'Hero',
+        property: 'position',
+        value: 'Vector2(10, 20)',
+      })
+    );
+    const scene = data<{
+      nodes: Array<{ name: string; type: string | null }>;
+    }>(await registry.call('game_read_scene', { projectPath: ws, scenePath: 'res://level.tscn' }));
+    expect(scene.nodes.map((n) => n.name)).toContain('Hero');
+
+    const raw = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'res://level.tscn' })
+    );
+    expect(raw.content).toContain('position = Vector2(10, 20)');
+
+    data(
+      await registry.call('game_remove_node', {
+        projectPath: ws,
+        scenePath: 'res://level.tscn',
+        name: 'Hero',
+      })
+    );
+    const after = data<{ nodes: Array<{ name: string }> }>(
+      await registry.call('game_read_scene', { projectPath: ws, scenePath: 'res://level.tscn' })
+    );
+    expect(after.nodes.map((n) => n.name)).not.toContain('Hero');
+  });
+
+  it('creates a script and attaches it to a node', async () => {
+    const { container, registry } = setup(ws, 'danger');
+    // game_create_script is CRITICAL: pre-grant a session approval so it runs.
+    container.policy.approvals.approve(
+      container.policy.approvals.create('game_create_script', {}, 'CRITICAL', 'test').id,
+      'session'
+    );
+    data(
+      await registry.call('game_create_script', {
+        projectPath: ws,
+        scriptPath: 'res://hero.gd',
+        extends: 'CharacterBody2D',
+      })
+    );
+    data(
+      await registry.call('game_create_scene', {
+        projectPath: ws,
+        scenePath: 'res://hero.tscn',
+        rootName: 'Hero',
+        rootType: 'CharacterBody2D',
+      })
+    );
+    const attached = data<{ scriptId: string }>(
+      await registry.call('game_attach_script', {
+        projectPath: ws,
+        scenePath: 'res://hero.tscn',
+        name: 'Hero',
+        scriptPath: 'res://hero.gd',
+      })
+    );
+    expect(attached.scriptId).toBeTruthy();
+
+    const raw = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'res://hero.tscn' })
+    );
+    expect(raw.content).toContain('ext_resource');
+    expect(raw.content).toContain('res://hero.gd');
+    expect(raw.content).toMatch(/script = ExtResource/);
+    expect(raw.content).toMatch(/load_steps=\d+/);
+  });
+
+  it('creates a .tres resource with properties', async () => {
+    const { registry } = setup(ws, 'danger');
+    data(
+      await registry.call('game_create_resource', {
+        projectPath: ws,
+        resPath: 'res://theme.tres',
+        type: 'Theme',
+        properties: { default_font_size: 16, name: 'Main' },
+      })
+    );
+    const raw = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'res://theme.tres' })
+    );
+    expect(raw.content).toContain('[gd_resource type="Theme"');
+    expect(raw.content).toContain('default_font_size = 16');
+    expect(raw.content).toContain('name = "Main"');
+  });
+
+  it('modifies project settings and sets the main scene', async () => {
+    const { registry } = setup(ws, 'danger');
+    data(
+      await registry.call('game_modify_project_settings', {
+        projectPath: ws,
+        section: 'application',
+        key: 'config/name',
+        value: 'Renamed Game',
+      })
+    );
+    data(
+      await registry.call('game_modify_project_settings', {
+        projectPath: ws,
+        section: 'display',
+        key: 'window/size/viewport_width',
+        value: '1280',
+      })
+    );
+    data(
+      await registry.call('game_set_main_scene', {
+        projectPath: ws,
+        scenePath: 'res://level.tscn',
+      })
+    );
+    const info = data<{ name: string; mainScene: string }>(
+      await registry.call('game_get_project_info', { projectPath: ws })
+    );
+    expect(info.name).toBe('Renamed Game');
+    expect(info.mainScene).toBe('res://level.tscn');
+
+    const settings = data<{ raw: string; sections: string[] }>(
+      await registry.call('game_read_project_settings', { projectPath: ws })
+    );
+    expect(settings.sections).toContain('display');
+    expect(settings.raw).toContain('window/size/viewport_width=1280');
+  });
+
+  it('refuses an edit that escapes the project root', async () => {
+    const { registry } = setup(ws, 'danger');
+    const res = await registry.call('game_write_file', {
+      projectPath: ws,
+      filePath: '../../tmp/evil.txt',
+      content: 'x',
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/escape/i);
+  });
+});

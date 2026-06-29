@@ -8,6 +8,22 @@ semantic versioning.
 
 ### Added
 
+- **Godot integration Step 2 - headless edit tier (`game_*` tools).** Mutating
+  `game_*` tools backed by `GodotCli`, working directly on project files with the
+  editor closed and project-root-guarded paths:
+  - `game_create_directory` (MEDIUM) - create a `res://` directory tree.
+  - `game_write_file` / `game_rename_file` (HIGH) - write or move a project file.
+  - `game_delete_file` (CRITICAL) - remove a project file.
+  - `game_create_scene` / `game_add_node` / `game_remove_node` /
+    `game_modify_node` / `game_attach_script` (HIGH) - create and mutate `.tscn`
+    scenes and their node trees.
+  - `game_create_script` (CRITICAL) - create a new GDScript file.
+  - `game_create_resource` / `game_modify_project_settings` /
+    `game_set_main_scene` (HIGH) - create resources and edit `project.godot`.
+
+  CRITICAL tools require an explicit approval (Step 0), even in danger mode. The
+  new surface is risk-classified, added to the frozen schema lock, and covered by
+  `tests/integration/game-ops.test.ts`.
 - **Godot integration Step 1 - headless read tier (`game_*` tools).** A new
   `game` tool group with six LOW-risk, read-only tools backed by `GodotCli`
   (`src/adapters/godot/cli.ts`), the headless-CLI + file-parsing channel:

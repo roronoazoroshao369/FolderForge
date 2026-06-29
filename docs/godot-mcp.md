@@ -276,9 +276,9 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 
 ## Status
 
-**Updated:** 2026-06-29 - **Phase:** Step 1 complete (headless read tier
-shipped: adapter + 6 read tools, wired + tested); headless edit tier (Step 2)
-is next.
+**Updated:** 2026-06-29 - **Phase:** Step 2 complete (headless edit tier
+shipped: mutating `game_*` tools for scenes, scripts, resources, project
+settings, and file I/O, wired + tested); runtime bridge (Step 3) is next.
 
 | Item | Status |
 | --- | --- |
@@ -289,7 +289,7 @@ is next.
 | Decision: integrate into FolderForge (no separate repo) | Done |
 | Step 0 - approval_approve / approval_deny | Done |
 | Step 1 - adapter + headless read tier | Done |
-| Step 2 - headless edit tier | Not started |
+| Step 2 - headless edit tier | Done |
 | Step 3 - runtime bridge + runtime reads | Not started |
 | Step 4 - runtime mutation + input | Not started |
 | Step 5 - advanced runtime + rendering | Not started |
