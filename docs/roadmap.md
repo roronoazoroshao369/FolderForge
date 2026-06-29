@@ -173,11 +173,23 @@ Closes the UX gap where AI clients got stuck on high-risk tool calls (e.g.
 Verification status: `npm run typecheck`, `npm run lint`, `npm run build`, and
 `npm test` (27 files, 225 tests) all green at 1.4.2.
 
-## In progress (1.5 - Godot Step 5c shipped, 142/149; Step 5d next)
+## Done (1.5 - Godot integration complete, 149/149)
+
+The full 1.5 Godot integration is delivered: the live registry contains exactly
+**149/149 `game_*` tools**, matching the frozen surface in `schema-lock.ts` (the
+`schema-lock.test.ts` guard is the source of truth). Verified green at 1.5.0:
+typecheck, lint, `npm test` (29 files, 279 tests), and build. See
+`docs/godot-mcp.md` for the per-step delivery record and session handoff.
 
 - **Step 0 - `approval_approve` / `approval_deny`** - **Done** (see below).
+- **Step 5d - remaining editor/scene helpers (7 tools)** - **Done.** Reaches
+  **149/149**. Six headless CLI text edits (`game_load_sprite`,
+  `game_export_mesh_library`, `game_manage_scene_signals`, `game_manage_shader`
+  (CRITICAL), `game_manage_theme_resource`, `game_manage_resource`) plus the
+  RUN-channel `game_locale`. All risk-classified, frozen in `schema-lock.ts`, and
+  covered by the Step 5d suite in `tests/integration/game-ops.test.ts`.
 - **Step 5c - project mgmt (PROC) + project/editor CLI tier (16 tools)** -
-  **Done.** Surface is now **142/149**. PROC channel launches the Godot binary
+  **Done.** PROC channel launches the Godot binary
   through the shared `ProcessManager`: `game_run_project`, `game_launch_editor`,
   `game_stop_project`, `game_get_debug_output`, `game_export_project`. Headless
   CLI: `game_list_projects`, `game_save_scene`, `game_get_uid`,
@@ -185,9 +197,7 @@ Verification status: `npm run typecheck`, `npm run lint`, `npm run build`, and
   `game_manage_autoloads`, `game_manage_input_map`, `game_manage_export_presets`,
   `game_manage_layers`, `game_manage_plugins`, `game_manage_translations`. Wired
   through `risk.ts` + frozen `schema-lock.ts`, covered by
-  `tests/integration/game-ops.test.ts`. Verification: typecheck, lint,
-  `npm test` (29 files, 269 tests), build all green. Step 5d (remaining ~7
-  editor/scene helpers to 149) is next.
+  `tests/integration/game-ops.test.ts`.
 - **Step 5a/5b - advanced runtime + networking/3D/2D/rendering** - **Done.**
   Family 16 (23 tools), plus Families 18, 20, 21, 26.
 - **Step 4 - runtime mutation + input tier** - **Done** (4a node/signals,

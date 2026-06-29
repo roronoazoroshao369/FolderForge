@@ -43,34 +43,55 @@ async function routeToPlaywright(ctx, toolName, args) {
         return { ok: false, error: `Playwright call failed: ${String(err)}` };
     }
 }
-function bTool(name, description, mutates, props) {
+function bTool(name, description, mutates, props, required = []) {
     return defineTool({
         name,
         description,
         group: 'browser',
         mutates,
-        inputSchema: { type: 'object', properties: props },
+        inputSchema: { type: 'object', properties: props, ...(required.length ? { required } : {}) },
         handler: (args, ctx) => routeToPlaywright(ctx, name, args),
     });
 }
 export function browserTools() {
     return [
-        bTool('browser_open', 'Navigate the browser to a URL (localhost only by default).', true, {
-            url: { type: 'string' },
-        }),
+        bTool('browser_open', 'Navigate the browser to a URL (localhost only by default).', true, { url: { type: 'string', description: 'The URL to navigate to.' } }, ['url']),
         bTool('browser_snapshot', 'Return the accessibility tree snapshot of the page.', false, {}),
-        bTool('browser_click', 'Click an element on the page.', true, { element: { type: 'string' }, ref: { type: 'string' } }),
-        bTool('browser_type', 'Type text into an input.', true, {
-            element: { type: 'string' },
-            ref: { type: 'string' },
-            text: { type: 'string' },
-        }),
+        bTool('browser_click', 'Click an element on the page. Take a browser_snapshot first to obtain the element ref.', true, {
+            element: {
+                type: 'string',
+                description: 'Human-readable description of the element (e.g. "Submit button"), used for logging.',
+            },
+            ref: {
+                type: 'string',
+                description: 'Exact element ref from the latest browser_snapshot (e.g. "e12").',
+            },
+        }, ['element', 'ref']),
+        bTool('browser_type', 'Type text into an editable element. Take a browser_snapshot first to obtain the element ref.', true, {
+            element: {
+                type: 'string',
+                description: 'Human-readable description of the field (e.g. "Email textbox"), used for logging.',
+            },
+            ref: {
+                type: 'string',
+                description: 'Exact element ref from the latest browser_snapshot (e.g. "e5").',
+            },
+            text: { type: 'string', description: 'Text to type into the element.' },
+            submit: {
+                type: 'boolean',
+                description: 'Press Enter after typing (submit the form). Optional.',
+            },
+            slowly: {
+                type: 'boolean',
+                description: 'Type one character at a time to trigger key handlers/autocomplete. Optional.',
+            },
+        }, ['element', 'ref', 'text']),
         bTool('browser_console', 'Read browser console messages.', false, {}),
         bTool('browser_network', 'List network requests made by the page.', false, {}),
         bTool('browser_screenshot', 'Capture a screenshot of the page.', true, {}),
         bTool('browser_close', 'Close the browser session.', true, {}),
         bTool('browser_eval', 'Evaluate a JavaScript expression in the page context. HIGH risk.', true, {
             function: { type: 'string', description: 'A JavaScript function body to evaluate in the page.' },
-        }),
+        }, ['function']),
     ];
 }
