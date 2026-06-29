@@ -201,6 +201,39 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   game_ui_theme: 'HIGH',
   game_viewport: 'HIGH',
 
+  // game (Godot) - advanced rendering tier (Step 5b). RUN channel. Family 18
+  // (networking, all CRITICAL - reach the host, approval-gated even in danger),
+  // 20 (3D rendering & geometry), 21 (2D systems), 26 (rendering & resources).
+  // 3D/2D construction + rendering mutate live scene state (HIGH); physics
+  // queries and resource load/preload are reads (LOW) but the umbrella tools are
+  // classified at their most dangerous sub-op (HIGH) since one tool covers both.
+  game_http_request: 'CRITICAL',
+  game_websocket: 'CRITICAL',
+  game_multiplayer: 'CRITICAL',
+  game_rpc: 'CRITICAL',
+  game_csg: 'HIGH',
+  game_multimesh: 'HIGH',
+  game_procedural_mesh: 'HIGH',
+  game_light_3d: 'HIGH',
+  game_mesh_instance: 'HIGH',
+  game_gridmap: 'HIGH',
+  game_3d_effects: 'HIGH',
+  game_gi: 'HIGH',
+  game_path_3d: 'HIGH',
+  game_sky: 'HIGH',
+  game_camera_attributes: 'HIGH',
+  game_navigation_3d: 'HIGH',
+  game_physics_3d: 'HIGH',
+  game_canvas: 'HIGH',
+  game_canvas_draw: 'HIGH',
+  game_light_2d: 'HIGH',
+  game_parallax: 'HIGH',
+  game_shape_2d: 'HIGH',
+  game_path_2d: 'HIGH',
+  game_physics_2d: 'HIGH',
+  game_render_settings: 'HIGH',
+  game_resource: 'HIGH',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',

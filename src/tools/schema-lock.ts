@@ -286,6 +286,37 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_bone_pose', mutates: true, risk: 'HIGH' },
   { name: 'game_ui_theme', mutates: true, risk: 'HIGH' },
   { name: 'game_viewport', mutates: true, risk: 'HIGH' },
+  // Family 18: networking (Step 5b)
+  { name: 'game_http_request', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_websocket', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_multiplayer', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_rpc', mutates: true, risk: 'CRITICAL' },
+  // Family 20: 3D rendering & geometry (Step 5b)
+  { name: 'game_csg', mutates: true, risk: 'HIGH' },
+  { name: 'game_multimesh', mutates: true, risk: 'HIGH' },
+  { name: 'game_procedural_mesh', mutates: true, risk: 'HIGH' },
+  { name: 'game_light_3d', mutates: true, risk: 'HIGH' },
+  { name: 'game_mesh_instance', mutates: true, risk: 'HIGH' },
+  { name: 'game_gridmap', mutates: true, risk: 'HIGH' },
+  { name: 'game_3d_effects', mutates: true, risk: 'HIGH' },
+  { name: 'game_gi', mutates: true, risk: 'HIGH' },
+  { name: 'game_path_3d', mutates: true, risk: 'HIGH' },
+  { name: 'game_sky', mutates: true, risk: 'HIGH' },
+  { name: 'game_camera_attributes', mutates: true, risk: 'HIGH' },
+  { name: 'game_navigation_3d', mutates: true, risk: 'HIGH' },
+  { name: 'game_physics_3d', mutates: true, risk: 'HIGH' },
+  // Family 21: 2D systems (Step 5b)
+  { name: 'game_canvas', mutates: true, risk: 'HIGH' },
+  { name: 'game_canvas_draw', mutates: true, risk: 'HIGH' },
+  { name: 'game_light_2d', mutates: true, risk: 'HIGH' },
+  { name: 'game_parallax', mutates: true, risk: 'HIGH' },
+  { name: 'game_shape_2d', mutates: true, risk: 'HIGH' },
+  { name: 'game_path_2d', mutates: true, risk: 'HIGH' },
+  { name: 'game_physics_2d', mutates: true, risk: 'HIGH' },
+  // Family 26: rendering & resources (Step 5b)
+  { name: 'game_render_settings', mutates: true, risk: 'HIGH' },
+  { name: 'game_resource', mutates: true, risk: 'HIGH' },
+
 
   { name: 'game_set_main_scene', mutates: true, risk: 'HIGH' },
 ] as const;

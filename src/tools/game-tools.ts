@@ -1473,5 +1473,336 @@ export function gameTools(): ToolDefinition[] {
       'debug_draw',
       ['action']
     ),
+
+    // -----------------------------------------------------------------------
+    // Step 5b - advanced rendering tier (RUN channel). Family 18 (networking),
+    // 20 (3D rendering & geometry), 21 (2D systems), 26 (rendering & resources).
+    // Networking tools reach the host and are CRITICAL (approval-gated even in
+    // danger). 3D/2D construction and rendering mutate live scene state (HIGH).
+    // Risk bands live in src/policy/risk.ts and are frozen in schema-lock.ts;
+    // the live game's runtime-bridge autoload owns each op's semantics.
+    // -----------------------------------------------------------------------
+
+    // Family 18: networking (all CRITICAL).
+    runtimeTool(
+      'game_http_request',
+      'Issue an HTTP request from the running game (reaches the host network). CRITICAL: approval-gated even in danger mode.',
+      true,
+      {
+        url: { type: 'string', description: 'Request URL.' },
+        method: { type: 'string', description: 'HTTP method (GET, POST, ...); default GET.' },
+        headers: { type: 'object', description: 'Optional request headers.' },
+        body: { type: 'string', description: 'Optional request body.' },
+      },
+      'http_request',
+      ['url']
+    ),
+    runtimeTool(
+      'game_websocket',
+      'Open, send on, or close a WebSocket connection from the running game. CRITICAL: reaches the host network.',
+      true,
+      {
+        action: { type: 'string', description: 'Action: connect | send | close.' },
+        url: { type: 'string', description: 'WebSocket URL (for connect).' },
+        message: { type: 'string', description: 'Message payload (for send).' },
+      },
+      'websocket',
+      ['action']
+    ),
+    runtimeTool(
+      'game_multiplayer',
+      'Manage the live multiplayer peer (host/join/disconnect) in the running game. CRITICAL: opens network sockets.',
+      true,
+      {
+        action: { type: 'string', description: 'Action: host | join | disconnect.' },
+        address: { type: 'string', description: 'Peer address (for join).' },
+        port: { type: 'number', description: 'Network port.' },
+      },
+      'multiplayer',
+      ['action']
+    ),
+    runtimeTool(
+      'game_rpc',
+      'Invoke an RPC method on a networked node in the running game. CRITICAL: executes a remote procedure call.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the target node.' },
+        method: { type: 'string', description: 'RPC method name.' },
+        args: { type: 'array', description: 'RPC arguments.' },
+      },
+      'rpc',
+      ['path', 'method']
+    ),
+
+    // Family 20: 3D rendering & geometry (all HIGH).
+    runtimeTool(
+      'game_csg',
+      'Create or modify a live CSG node (union/subtract/intersect) for constructive 3D geometry.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the CSG node (or parent for create).' },
+        shape: { type: 'string', description: 'CSG shape: box | sphere | cylinder | mesh | combiner.' },
+        operation: { type: 'string', description: 'Boolean operation: union | intersection | subtraction.' },
+        properties: { type: 'object', description: 'Optional shape/operation properties.' },
+      },
+      'csg',
+      ['shape']
+    ),
+    runtimeTool(
+      'game_multimesh',
+      'Configure a live MultiMeshInstance (instance count, transforms) for efficient instanced 3D rendering.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the MultiMeshInstance node.' },
+        count: { type: 'number', description: 'Instance count.' },
+        transforms: { type: 'array', description: 'Per-instance transforms.' },
+      },
+      'multimesh',
+      ['path']
+    ),
+    runtimeTool(
+      'game_procedural_mesh',
+      'Build a procedural mesh on a live node from vertices/indices/normals (SurfaceTool/ArrayMesh).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the MeshInstance3D node.' },
+        vertices: { type: 'array', description: 'Vertex positions.' },
+        indices: { type: 'array', description: 'Optional index array.' },
+        normals: { type: 'array', description: 'Optional normals.' },
+      },
+      'procedural_mesh',
+      ['path', 'vertices']
+    ),
+    runtimeTool(
+      'game_light_3d',
+      'Create or configure a live 3D light (Directional/Omni/Spot): energy, color, range, shadows.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the light node (or parent for create).' },
+        kind: { type: 'string', description: 'Light kind: directional | omni | spot.' },
+        property: { type: 'string', description: 'Property to set, e.g. light_energy, light_color.' },
+        value: { description: 'Value to assign.' },
+      },
+      'light_3d',
+      ['path']
+    ),
+    runtimeTool(
+      'game_mesh_instance',
+      'Assign or modify the mesh/material of a live MeshInstance3D node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the MeshInstance3D node.' },
+        mesh: { type: 'string', description: 'Mesh res:// path to assign.' },
+        material: { type: 'string', description: 'Material res:// path to assign.' },
+      },
+      'mesh_instance',
+      ['path']
+    ),
+    runtimeTool(
+      'game_gridmap',
+      'Edit a live GridMap (set/erase cells using a MeshLibrary item).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the GridMap node.' },
+        action: { type: 'string', description: 'Action: set_cell | erase_cell | clear.' },
+        coords: { type: 'array', description: 'Cell coordinates [x, y, z].' },
+        item: { type: 'number', description: 'MeshLibrary item id (for set_cell).' },
+      },
+      'gridmap',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_3d_effects',
+      'Toggle or configure live 3D post-processing effects (SSAO, SSR, glow, DOF) via the environment.',
+      true,
+      {
+        effect: { type: 'string', description: 'Effect: ssao | ssr | glow | dof | sdfgi.' },
+        enabled: { type: 'boolean', description: 'Enable or disable the effect.' },
+        properties: { type: 'object', description: 'Optional effect parameters.' },
+      },
+      '3d_effects',
+      ['effect']
+    ),
+    runtimeTool(
+      'game_gi',
+      'Configure live global illumination (VoxelGI / LightmapGI / SDFGI) in the running game.',
+      true,
+      {
+        kind: { type: 'string', description: 'GI kind: voxel | lightmap | sdfgi.' },
+        action: { type: 'string', description: 'Action: enable | disable | bake.' },
+        properties: { type: 'object', description: 'Optional GI parameters.' },
+      },
+      'gi',
+      ['kind', 'action']
+    ),
+    runtimeTool(
+      'game_path_3d',
+      'Create or modify a live Path3D curve (points/handles) for 3D path following.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Path3D node (or parent for create).' },
+        points: { type: 'array', description: 'Curve points [[x,y,z], ...].' },
+      },
+      'path_3d',
+      ['path']
+    ),
+    runtimeTool(
+      'game_sky',
+      'Configure the live sky/background (procedural sky, panorama, color) on the WorldEnvironment.',
+      true,
+      {
+        mode: { type: 'string', description: 'Sky mode: procedural | panorama | physical | color.' },
+        properties: { type: 'object', description: 'Sky parameters (top/horizon color, energy, texture).' },
+      },
+      'sky',
+      ['mode']
+    ),
+    runtimeTool(
+      'game_camera_attributes',
+      'Set live CameraAttributes (exposure, depth of field, auto-exposure) on a 3D camera.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Camera3D node.' },
+        property: { type: 'string', description: 'Attribute, e.g. exposure_multiplier, dof_blur_far_enabled.' },
+        value: { description: 'Value to assign.' },
+      },
+      'camera_attributes',
+      ['path', 'property', 'value']
+    ),
+    runtimeTool(
+      'game_navigation_3d',
+      'Manage a live 3D navigation region/agent (bake region, set target, query). 3D nav authoring.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the NavigationRegion3D / agent node.' },
+        action: { type: 'string', description: 'Action: bake | set_target | enable | disable.' },
+        target: { type: 'array', description: 'Target point [x, y, z] (for set_target).' },
+      },
+      'navigation_3d',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_physics_3d',
+      'Run a live 3D physics action or query (shape cast, intersect, set gravity). Queries are read-only.',
+      true,
+      {
+        action: { type: 'string', description: 'Action: shape_cast | intersect | set_gravity | apply.' },
+        path: { type: 'string', description: 'Optional NodePath of the body.' },
+        params: { type: 'object', description: 'Action/query parameters.' },
+      },
+      'physics_3d',
+      ['action']
+    ),
+
+    // Family 21: 2D systems (all HIGH).
+    runtimeTool(
+      'game_canvas',
+      'Configure a live CanvasLayer/CanvasItem (layer, offset, modulate, visibility) in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the canvas node.' },
+        property: { type: 'string', description: 'Property, e.g. layer, offset, modulate, visible.' },
+        value: { description: 'Value to assign.' },
+      },
+      'canvas',
+      ['path', 'property', 'value']
+    ),
+    runtimeTool(
+      'game_canvas_draw',
+      'Issue immediate-mode 2D drawing on a live canvas item (line, rect, circle, polygon, text).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the CanvasItem to draw on.' },
+        primitive: { type: 'string', description: 'Primitive: line | rect | circle | polygon | text | clear.' },
+        params: { type: 'object', description: 'Draw parameters (points, color, width, text).' },
+      },
+      'canvas_draw',
+      ['path', 'primitive']
+    ),
+    runtimeTool(
+      'game_light_2d',
+      'Create or configure a live 2D light (PointLight2D/DirectionalLight2D): energy, color, texture, range.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the light node (or parent for create).' },
+        kind: { type: 'string', description: 'Light kind: point | directional.' },
+        property: { type: 'string', description: 'Property, e.g. energy, color, texture_scale.' },
+        value: { description: 'Value to assign.' },
+      },
+      'light_2d',
+      ['path']
+    ),
+    runtimeTool(
+      'game_parallax',
+      'Configure a live ParallaxBackground/ParallaxLayer (motion scale, offset, mirroring) for 2D scrolling.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the parallax node.' },
+        property: { type: 'string', description: 'Property, e.g. motion_scale, motion_offset, motion_mirroring.' },
+        value: { description: 'Value to assign.' },
+      },
+      'parallax',
+      ['path', 'property', 'value']
+    ),
+    runtimeTool(
+      'game_shape_2d',
+      'Create or modify a live 2D shape (rectangle, circle, capsule, polygon) on a node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node holding the shape.' },
+        shape: { type: 'string', description: 'Shape: rectangle | circle | capsule | polygon | segment.' },
+        params: { type: 'object', description: 'Shape parameters (size, radius, points).' },
+      },
+      'shape_2d',
+      ['path', 'shape']
+    ),
+    runtimeTool(
+      'game_path_2d',
+      'Create or modify a live Path2D curve (points/handles) for 2D path following.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Path2D node (or parent for create).' },
+        points: { type: 'array', description: 'Curve points [[x,y], ...].' },
+      },
+      'path_2d',
+      ['path']
+    ),
+    runtimeTool(
+      'game_physics_2d',
+      'Run a live 2D physics action or query (shape cast, intersect, set gravity). Queries are read-only.',
+      true,
+      {
+        action: { type: 'string', description: 'Action: shape_cast | intersect | set_gravity | apply.' },
+        path: { type: 'string', description: 'Optional NodePath of the body.' },
+        params: { type: 'object', description: 'Action/query parameters.' },
+      },
+      'physics_2d',
+      ['action']
+    ),
+
+    // Family 26: rendering & resources (HIGH; resource load/preload are reads).
+    runtimeTool(
+      'game_render_settings',
+      'Configure live rendering settings (MSAA, scaling, debug draw mode, viewport flags) in the running game.',
+      true,
+      {
+        property: { type: 'string', description: 'Render setting, e.g. msaa_3d, scaling_3d_scale, debug_draw.' },
+        value: { description: 'Value to assign.' },
+      },
+      'render_settings',
+      ['property', 'value']
+    ),
+    runtimeTool(
+      'game_resource',
+      'Manage a live resource (load, preload, save, free). load/preload are read-only fetches; save/free mutate.',
+      true,
+      {
+        action: { type: 'string', description: 'Action: load | preload | save | free.' },
+        path: { type: 'string', description: 'Resource res:// path.' },
+        target: { type: 'string', description: 'Optional NodePath/property to assign the resource to.' },
+      },
+      'resource',
+      ['action', 'path']
+    ),
   ];
 }
