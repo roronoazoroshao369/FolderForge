@@ -276,11 +276,13 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 
 ## Status
 
-**Updated:** 2026-06-29 - **Phase:** Step 3 complete (runtime bridge + runtime
-read tier shipped: `GodotRuntime` RUN-channel adapter and twelve live-game
-`game_*` tools - scene-tree/node/UI inspection, performance, groups/class
-lookups, errors/logs, pause/wait, and approval-gated eval, wired + tested);
-runtime mutation + input (Step 4) is next.
+**Updated:** 2026-06-29 - **Phase:** Step 4 complete (runtime mutation + input
+tier shipped across three increments). Step 4a: node manipulation + signals
+(12 tools). Step 4b: input + animation + audio (20 tools). Step 4c: system/window
++ UI controls (14 tools). All RUN-channel `game_*` tools are risk-classified,
+frozen in the schema lock, and covered by `tests/integration/game-ops.test.ts`
+(31 game tests, 262 suite-wide, all green). Advanced runtime + rendering (Step 5)
+is next.
 
 | Item | Status |
 | --- | --- |
@@ -293,7 +295,7 @@ runtime mutation + input (Step 4) is next.
 | Step 1 - adapter + headless read tier | Done |
 | Step 2 - headless edit tier | Done |
 | Step 3 - runtime bridge + runtime reads | Done |
-| Step 4 - runtime mutation + input | Not started |
+| Step 4 - runtime mutation + input | Done (4a node/signals, 4b input/anim/audio, 4c system/window + UI) |
 | Step 5 - advanced runtime + rendering | Not started |
 
 ### Step 1 - delivered surface (6 tools)

@@ -8,6 +8,28 @@ semantic versioning.
 
 ### Added
 
+- **Godot integration Step 4 - runtime mutation + input tier (`game_*` tools).**
+  46 new RUN-channel tools shipped in three green increments, all risk-classified,
+  frozen in the schema lock, and covered by `tests/integration/game-ops.test.ts`
+  (31 game tests; full suite 262 green):
+  - **Step 4a - node manipulation + signals (12 tools).** Family 8:
+    `game_get_property` (LOW), `game_set_property` (HIGH),
+    `game_call_method` (CRITICAL), `game_instantiate_scene` /
+    `game_remove_node` / `game_change_scene` / `game_reparent_node` (HIGH).
+    Family 9: `game_connect_signal` / `game_disconnect_signal` /
+    `game_emit_signal` (HIGH), `game_list_signals` / `game_await_signal` (LOW).
+  - **Step 4b - input + animation + audio (20 tools).** Family 5 runtime input
+    and Family 14 enhanced input (MEDIUM), Family 10 animation
+    (`game_play_animation`, `game_tween_property`, MEDIUM), Family 22 advanced
+    animation and Family 23 advanced audio (MEDIUM).
+  - **Step 4c - system/window + UI controls (14 tools).** Family 19:
+    `game_os_info` (LOW), `game_time_scale` (MEDIUM),
+    `game_window` / `game_process_mode` / `game_world_settings` (HIGH),
+    `game_script` (CRITICAL). Family 25 UI controls (`game_ui_control`,
+    `game_ui_text`, `game_ui_popup`, `game_ui_tree`, `game_ui_item_list`,
+    `game_ui_tabs`, `game_ui_menu`, `game_ui_range`, all MEDIUM).
+
+  When no game is running, every tool returns a structured, actionable error.
 - **Godot integration Step 3 - runtime bridge + runtime read tier (`game_*`
   tools).** A new RUN channel (`GodotRuntime`, `src/adapters/godot/runtime.ts`)
   talks to a GDScript runtime-bridge autoload inside the *live game* over a
