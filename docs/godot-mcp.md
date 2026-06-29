@@ -471,11 +471,17 @@ The plan is complete, so these are proposals based on the codebase state
    **Done.** The editor plugin (`plugin.gd`, registers the `FolderForgeBridge`
    autoload), the runtime autoload (`runtime_bridge.gd`, loopback JSON/TCP server
    on :9090 implementing the full RUN-channel op set), `plugin.cfg`, and an
-   install/protocol/security `README.md` are all in the tree. The only remaining
-   gap is an end-to-end smoke test against a real Godot 4.2+ engine (see #4); the
-   addon's protocol is otherwise validated by the TS adapter's fake-bridge
-   integration suite. Blocker for the smoke test: no Godot binary in this offline
-   sandbox.
-4. **End-to-end smoke test with a real Godot binary** once the addon exists -
-   the only coverage gap is that no test has ever talked to a live engine.
+   install/protocol/security `README.md` are all in the tree, and the addon has
+   now been validated against a real engine (see #4).
+4. **End-to-end smoke test with a real Godot binary** - **Done (2026-06-29).**
+   Ran on the MCP host against Godot **4.4.1-stable** (headless): a test project
+   with the addon copied in, imported, then launched with a 14-check smoke client
+   covering ping/liveness, scene-tree/UI/group/class inspection, performance,
+   set/get property round-trip, call_method, eval, get_node_info, os_info,
+   spawn_node, and structured-error paths (unknown op, bad node path) - **14/14
+   passed.** The run surfaced one bug: `_dispatch` can suspend (via
+   `wait`/`await_signal`), so it is a coroutine; `_handle_line` now `await`s it
+   (`var res = await _dispatch(...)`), which fixed the autoload parse/load
+   failure. The live RUN channel is now proven end-to-end, not just against the
+   fake bridge.
 5. Revisit `game_export_mesh_library` for engine-backed baking (see context).

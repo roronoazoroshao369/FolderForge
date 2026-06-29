@@ -109,7 +109,8 @@ func _handle_line(peer: StreamPeerTCP, line: String) -> void:
 	var id = req.get("id", null)
 	var op := str(req.get("op", ""))
 	var params: Dictionary = req.get("params", {}) if typeof(req.get("params")) == TYPE_DICTIONARY else {}
-	var res := _dispatch(op, params)
+	# _dispatch may suspend (wait / await_signal), so it is a coroutine: await it.
+	var res = await _dispatch(op, params)
 	if typeof(res) == TYPE_DICTIONARY and res.has("ok"):
 		res["id"] = id
 		_send(peer, res)

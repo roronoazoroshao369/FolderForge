@@ -23,9 +23,13 @@ semantic versioning.
   setting. Every op is wrapped so a bad path or failed call returns
   `{ok:false,error}` instead of crashing the game; `eval` maps to the
   CRITICAL/approval-gated `game_eval` tool. Includes an install/protocol/security
-  `README.md`. Requires Godot 4.2+. Note: this is GDScript, so it is validated
-  by the TS adapter's fake-bridge integration tests; an end-to-end smoke test
-  against a real Godot engine is still pending (no engine in this environment).
+  `README.md`. Requires Godot 4.2+. Verified end-to-end against a real Godot
+  4.4.1 engine (headless): a 14-check smoke client exercised ping/liveness,
+  scene-tree/UI/group/class inspection, performance, property round-trip,
+  call_method, eval, get_node_info, os_info, spawn_node, and structured-error
+  paths (unknown op, bad node path) - 14/14 passed. The smoke run surfaced and
+  fixed a coroutine bug: `_handle_line` now `await`s `_dispatch` (which can
+  suspend via `wait`/`await_signal`), so the autoload loads cleanly.
 
 - **Godot integration Step 5d - remaining editor/scene helpers (`game_*`
   tools).** 7 new tools bring the surface to **149/149 - full parity with the
