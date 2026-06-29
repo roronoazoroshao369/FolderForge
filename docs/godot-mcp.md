@@ -276,13 +276,18 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 
 ## Status
 
-**Updated:** 2026-06-29 - **Phase:** Step 4 complete (runtime mutation + input
-tier shipped across three increments). Step 4a: node manipulation + signals
-(12 tools). Step 4b: input + animation + audio (20 tools). Step 4c: system/window
-+ UI controls (14 tools). All RUN-channel `game_*` tools are risk-classified,
-frozen in the schema lock, and covered by `tests/integration/game-ops.test.ts`
-(31 game tests, 262 suite-wide, all green). Advanced runtime + rendering (Step 5)
-is next.
+**Updated:** 2026-06-29 - **Phase:** Step 5c shipped (project management PROC
+channel + headless project/editor CLI tier). Surface is now **142/149** game
+tools. Step 5a (advanced runtime, 23 tools) and Step 5b (build/export,
+networking, 3D/2D, rendering/resources) are in; Step 5c adds the final
+project-lifecycle tier (run/launch/stop/export via the shared ProcessManager,
+plus project creation and project.godot-backed editor/project management).
+All `game_*` tools are risk-classified, frozen in the schema lock, and covered by
+`tests/integration/game-ops.test.ts` (full suite 269 green: typecheck, lint,
+test, build all pass). Remaining to 149: a handful of editor/scene helpers
+(Family 20 reuse, shader/scene-signals/theme management, `game_locale`,
+`game_load_sprite`, `game_export_mesh_library`, `game_modify_scene_node` /
+`game_remove_scene_node` aliases).
 
 | Item | Status |
 | --- | --- |
@@ -296,7 +301,10 @@ is next.
 | Step 2 - headless edit tier | Done |
 | Step 3 - runtime bridge + runtime reads | Done |
 | Step 4 - runtime mutation + input | Done (4a node/signals, 4b input/anim/audio, 4c system/window + UI) |
-| Step 5 - advanced runtime + rendering | Not started |
+| Step 5a - advanced runtime (Family 16) | Done (23 tools) |
+| Step 5b - networking + 3D/2D + rendering/resources | Done (Families 18, 20, 21, 26) |
+| Step 5c - project mgmt PROC + project/editor CLI tier | Done (16 tools; surface 142/149) |
+| Step 5d - remaining editor/scene helpers | Not started (7 tools to 149) |
 
 ### Step 1 - delivered surface (6 tools)
 

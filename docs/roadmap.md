@@ -173,9 +173,26 @@ Closes the UX gap where AI clients got stuck on high-risk tool calls (e.g.
 Verification status: `npm run typecheck`, `npm run lint`, `npm run build`, and
 `npm test` (27 files, 225 tests) all green at 1.4.2.
 
-## In progress (1.5 - Godot Step 2 shipped, Step 3 next)
+## In progress (1.5 - Godot Step 5c shipped, 142/149; Step 5d next)
 
 - **Step 0 - `approval_approve` / `approval_deny`** - **Done** (see below).
+- **Step 5c - project mgmt (PROC) + project/editor CLI tier (16 tools)** -
+  **Done.** Surface is now **142/149**. PROC channel launches the Godot binary
+  through the shared `ProcessManager`: `game_run_project`, `game_launch_editor`,
+  `game_stop_project`, `game_get_debug_output`, `game_export_project`. Headless
+  CLI: `game_list_projects`, `game_save_scene`, `game_get_uid`,
+  `game_update_project_uids`, `game_create_project` (CRITICAL),
+  `game_manage_autoloads`, `game_manage_input_map`, `game_manage_export_presets`,
+  `game_manage_layers`, `game_manage_plugins`, `game_manage_translations`. Wired
+  through `risk.ts` + frozen `schema-lock.ts`, covered by
+  `tests/integration/game-ops.test.ts`. Verification: typecheck, lint,
+  `npm test` (29 files, 269 tests), build all green. Step 5d (remaining ~7
+  editor/scene helpers to 149) is next.
+- **Step 5a/5b - advanced runtime + networking/3D/2D/rendering** - **Done.**
+  Family 16 (23 tools), plus Families 18, 20, 21, 26.
+- **Step 4 - runtime mutation + input tier** - **Done** (4a node/signals,
+  4b input/anim/audio, 4c system/window + UI).
+- **Step 3 - runtime bridge + runtime read tier** - **Done.**
 - **Step 2 - headless edit tier (~13 tools)** - **Done.** Mutating `game_*`
   tools backed by `GodotCli` doing text-based edits on project files with the
   editor closed (project-root-guarded): `game_write_file`, `game_rename_file`,

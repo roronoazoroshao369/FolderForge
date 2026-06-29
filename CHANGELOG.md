@@ -8,6 +8,37 @@ semantic versioning.
 
 ### Added
 
+- **Godot integration Step 5c - project management (PROC) + headless
+  project/editor CLI tier (`game_*` tools).** 16 new tools bring the surface to
+  **142/149**, all risk-classified, frozen in the schema lock, and covered by
+  `tests/integration/game-ops.test.ts` (full suite 269 green; typecheck, lint,
+  test, build all pass):
+  - **Family 1 - project management (PROC channel).** `game_list_projects`
+    (LOW), `game_run_project` / `game_launch_editor` / `game_stop_project`
+    (MEDIUM), `game_get_debug_output` (LOW). Launch tools start the Godot binary
+    through the shared `ProcessManager`, so output streams and they are governed
+    like any other long-running process; stop/read reuse the process session id.
+  - **Family 17 - build & export (PROC).** `game_export_project` (MEDIUM) runs a
+    headless preset export as a managed process.
+  - **Family 2 (writes) - scene save + UID.** `game_save_scene` (HIGH,
+    validate-and-rewrite round-trip), `game_get_uid` (LOW, reads `uid://` from a
+    text header), `game_update_project_uids` (HIGH, headless `--import`).
+  - **Family 15 - project creation + config.** `game_create_project`
+    (**CRITICAL**, approval-gated; bootstraps a valid `project.godot`),
+    `game_manage_autoloads` / `game_manage_input_map` /
+    `game_manage_export_presets` (HIGH).
+  - **Family 24 - editor & project tools.** `game_manage_layers` /
+    `game_manage_plugins` / `game_manage_translations` (HIGH), all
+    `project.godot`-backed text edits.
+
+  All CLI tools are pure file edits (no Godot binary required); PROC tools degrade
+  to a normal process error when the binary is absent. Remaining to 149: a handful
+  of editor/scene helpers (shader/scene-signals/theme management, `game_locale`,
+  `game_load_sprite`, `game_export_mesh_library`, `game_modify_scene_node` /
+  `game_remove_scene_node`).
+
+### Added (earlier in Unreleased)
+
 - **Godot integration Step 4 - runtime mutation + input tier (`game_*` tools).**
   46 new RUN-channel tools shipped in three green increments, all risk-classified,
   frozen in the schema lock, and covered by `tests/integration/game-ops.test.ts`

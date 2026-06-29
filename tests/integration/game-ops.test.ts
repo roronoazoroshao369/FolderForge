@@ -1088,3 +1088,177 @@ describe('game tools integration (Godot Step 4 - system/window + UI controls)', 
     expect(res.ok).toBe(false);
   });
 });
+
+/**
+ * Godot integration - Step 5c (project management PROC channel + headless
+ * project/editor CLI tier).
+ *
+ * Covers the final-parity tier that closes the gap toward 149 tools: project
+ * discovery/creation, project-config management (autoloads, input map, layers,
+ * plugins, translations, export presets), scene save + UID reads, and the
+ * PROC-channel launch/run/stop/export tools. All CLI tools are pure file edits
+ * (no Godot binary required); the PROC tools start a managed process through the
+ * shared ProcessManager - here we point godotPath at a harmless shim so launch
+ * is observable without a real engine.
+ */
+describe('game tools integration (Godot Step 5c - project mgmt + CLI tier)', () => {
+  let ws: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), 'ff-godot-5c-'));
+    writeFileSync(join(ws, 'project.godot'), PROJECT_GODOT);
+    writeFileSync(join(ws, 'main.tscn'), MAIN_TSCN);
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('discovers projects under a directory', async () => {
+    const { registry } = setup(ws, 'danger');
+    const res = data<{ count: number; projects: Array<{ name: string }> }>(
+      await registry.call('game_list_projects', { searchDir: ws })
+    );
+    expect(res.count).toBeGreaterThanOrEqual(1);
+    expect(res.projects.some((p) => p.name === 'Test Game')).toBe(true);
+  });
+
+  it('creates a new project (CRITICAL, approval-gated)', async () => {
+    const { container, registry } = setup(ws, 'danger');
+    container.policy.approvals.approve(
+      container.policy.approvals.create('game_create_project', {}, 'CRITICAL', 'test').id,
+      'session'
+    );
+    const target = join(ws, 'new_game');
+    const res = data<{ created: boolean; projectFile: string }>(
+      await registry.call('game_create_project', {
+        targetDir: target,
+        name: 'Fresh',
+        mainScene: 'res://main.tscn',
+      })
+    );
+    expect(res.created).toBe(true);
+    const info = data<{ name: string; mainScene: string }>(
+      await registry.call('game_get_project_info', { projectPath: target })
+    );
+    expect(info.name).toBe('Fresh');
+    expect(info.mainScene).toBe('res://main.tscn');
+  });
+
+  it('saves a scene and reads its uid', async () => {
+    const { registry } = setup(ws, 'danger');
+    const saved = data<{ resPath: string; nodeCount: number }>(
+      await registry.call('game_save_scene', { projectPath: ws, scenePath: 'res://main.tscn' })
+    );
+    expect(saved.nodeCount).toBe(3);
+
+    const uid = data<{ uid: string | null }>(
+      await registry.call('game_get_uid', { projectPath: ws, filePath: 'res://main.tscn' })
+    );
+    expect(uid.uid).toBe('uid://abc123');
+  });
+
+  it('manages autoloads, input map, layers, plugins, and translations', async () => {
+    const { registry } = setup(ws, 'danger');
+    data(
+      await registry.call('game_manage_autoloads', {
+        projectPath: ws,
+        op: 'add',
+        name: 'GameState',
+        scriptPath: 'res://game_state.gd',
+      })
+    );
+    data(
+      await registry.call('game_manage_input_map', {
+        projectPath: ws,
+        op: 'add',
+        action: 'jump',
+        keys: ['space'],
+      })
+    );
+    data(
+      await registry.call('game_manage_layers', {
+        projectPath: ws,
+        kind: '2d_physics',
+        index: 1,
+        name: 'world',
+      })
+    );
+    data(
+      await registry.call('game_manage_translations', {
+        projectPath: ws,
+        files: ['res://i18n/en.po'],
+      })
+    );
+
+    const settings = data<{ raw: string; sections: string[] }>(
+      await registry.call('game_read_project_settings', { projectPath: ws })
+    );
+    expect(settings.sections).toContain('autoload');
+    expect(settings.raw).toContain('GameState');
+    expect(settings.raw).toContain('jump');
+    expect(settings.raw).toContain('2d_physics/layer_1');
+    expect(settings.raw).toContain('locale/translations');
+
+    const removed = data<{ op: string }>(
+      await registry.call('game_manage_autoloads', { projectPath: ws, op: 'remove', name: 'GameState' })
+    );
+    expect(removed.op).toBe('remove');
+  });
+
+  it('writes an export preset to export_presets.cfg', async () => {
+    const { registry } = setup(ws, 'danger');
+    data(
+      await registry.call('game_manage_export_presets', {
+        projectPath: ws,
+        preset: 'preset.0',
+        key: 'name',
+        value: 'Linux/X11',
+      })
+    );
+    const cfg = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'export_presets.cfg' })
+    );
+    expect(cfg.content).toContain('[preset.0]');
+    expect(cfg.content).toContain('name="Linux/X11"');
+  });
+
+  it('launches and stops a managed Godot process (PROC channel)', async () => {
+    const { container, registry } = setup(ws, 'danger');
+    // Point the "godot" binary at a harmless long-runner so launch is observable.
+    container.config.adapters!.godot!.godotPath = 'sleep 30; echo';
+    const launched = data<{ sessionId: string; mode: string }>(
+      await registry.call('game_run_project', { projectPath: ws })
+    );
+    expect(launched.sessionId).toBeTruthy();
+    expect(launched.mode).toBe('run');
+    expect(container.processes.isManaged(launched.sessionId)).toBe(true);
+
+    const dbg = data<{ status: string }>(
+      await registry.call('game_get_debug_output', { sessionId: launched.sessionId })
+    );
+    expect(dbg.status).toBeTruthy();
+
+    const stopped = data<{ sessionId: string }>(
+      await registry.call('game_stop_project', { sessionId: launched.sessionId })
+    );
+    expect(stopped.sessionId).toBe(launched.sessionId);
+  });
+
+  it('validates required args for the new tools', async () => {
+    const { registry } = setup(ws, 'danger');
+    // game_create_project is CRITICAL: gated before the handler runs.
+    const gated = await registry.call('game_create_project', { name: 'X' });
+    expect(gated.ok).toBe(false);
+
+    const noFiles = await registry.call('game_manage_translations', { projectPath: ws, files: [] });
+    expect(noFiles.ok).toBe(false);
+    expect(noFiles.error).toMatch(/non-empty/i);
+
+    const noStop = await registry.call('game_stop_project', { sessionId: 'nope_123' });
+    expect(noStop.ok).toBe(false);
+
+    const badOp = await registry.call('game_manage_autoloads', { projectPath: ws, op: 'frobnicate', name: 'X' });
+    expect(badOp.ok).toBe(false);
+  });
+});

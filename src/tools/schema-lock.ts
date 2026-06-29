@@ -319,6 +319,24 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
 
 
   { name: 'game_set_main_scene', mutates: true, risk: 'HIGH' },
+
+  // Step 5c: project management (PROC) + headless project/editor CLI tier.
+  { name: 'game_list_projects', mutates: false, risk: 'LOW' },
+  { name: 'game_run_project', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_launch_editor', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_stop_project', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_get_debug_output', mutates: false, risk: 'LOW' },
+  { name: 'game_export_project', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_save_scene', mutates: true, risk: 'HIGH' },
+  { name: 'game_get_uid', mutates: false, risk: 'LOW' },
+  { name: 'game_update_project_uids', mutates: true, risk: 'HIGH' },
+  { name: 'game_create_project', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_manage_autoloads', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_input_map', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_export_presets', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_layers', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_plugins', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_translations', mutates: true, risk: 'HIGH' },
 ] as const;
 
 /** Set of frozen tool names for O(1) membership checks. */

@@ -234,6 +234,24 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   game_render_settings: 'HIGH',
   game_resource: 'HIGH',
 
+  // game (Godot) - Step 5c: project management (PROC) + project/editor CLI tier.
+  game_list_projects: 'LOW',
+  game_run_project: 'MEDIUM',
+  game_launch_editor: 'MEDIUM',
+  game_stop_project: 'MEDIUM',
+  game_get_debug_output: 'LOW',
+  game_export_project: 'MEDIUM',
+  game_save_scene: 'HIGH',
+  game_get_uid: 'LOW',
+  game_update_project_uids: 'HIGH',
+  game_create_project: 'CRITICAL',
+  game_manage_autoloads: 'HIGH',
+  game_manage_input_map: 'HIGH',
+  game_manage_export_presets: 'HIGH',
+  game_manage_layers: 'HIGH',
+  game_manage_plugins: 'HIGH',
+  game_manage_translations: 'HIGH',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',

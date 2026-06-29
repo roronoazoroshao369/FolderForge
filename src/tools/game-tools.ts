@@ -77,6 +77,57 @@ function projectRoot(ctx: ToolContext, args: Record<string, unknown>): string {
   return typeof p === 'string' && p.length ? p : ctx.projectRoot;
 }
 
+/** Shell-quote a single argument for the process-manager command string. */
+function shq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Launch the Godot binary as a managed process (PROC channel). Builds the
+ * appropriate CLI invocation for the given mode, starts it through the shared
+ * ProcessManager (so output streams and it is governed like any process), and
+ * returns the sessionId. Stop with `game_stop_project`, read output with
+ * `game_get_debug_output` / `process_tail`.
+ */
+async function launchGodot(
+  ctx: ToolContext,
+  args: Record<string, unknown>,
+  mode: 'run' | 'editor' | 'export-release' | 'export-debug' | 'import',
+  extra: { preset?: string; out?: string } = {}
+): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+  const root = projectRoot(ctx, args);
+  const bin = ctx.container.config.adapters?.godot?.godotPath || 'godot';
+  const parts: string[] = [shq(bin)];
+  switch (mode) {
+    case 'editor':
+      parts.push('--editor', '--path', shq(root));
+      break;
+    case 'run':
+      parts.push('--path', shq(root));
+      if (typeof args.scene === 'string' && args.scene.length) parts.push(shq(args.scene));
+      break;
+    case 'import':
+      parts.push('--headless', '--path', shq(root), '--import');
+      break;
+    case 'export-release':
+    case 'export-debug':
+      parts.push(
+        '--headless',
+        '--path',
+        shq(root),
+        mode === 'export-debug' ? '--export-debug' : '--export-release',
+        shq(extra.preset ?? ''),
+        shq(extra.out ?? '')
+      );
+      break;
+  }
+  const command = parts.join(' ');
+  const shell = ctx.config?.terminal?.shell ?? ctx.container.config?.terminal?.shell ?? '/bin/sh';
+  const session = ctx.container.processes.start(command, root, shell);
+  ctx.container.audit.record({ type: 'process_event', summary: `game ${mode}: ${session.sessionId}` });
+  return { ok: true, data: { sessionId: session.sessionId, command, mode, status: session.status } };
+}
+
 function gameTool(
   name: string,
   description: string,
@@ -1803,6 +1854,293 @@ export function gameTools(): ToolDefinition[] {
       },
       'resource',
       ['action', 'path']
+    ),
+
+    // -----------------------------------------------------------------------
+    // Step 5c - project management (PROC channel) + headless project/scene CLI
+    // + project/editor management (Families 1, 2 writes, 15, 24, 17). These
+    // close the gap to full 149-tool parity. The PROC tools launch the Godot
+    // binary through the shared ProcessManager (so they stream output and are
+    // governed like any other long-running process); the rest are headless,
+    // text-based edits to project files via GodotCli (no running game needed).
+    // -----------------------------------------------------------------------
+
+    // Family 1: project management (PROC). Launch/run/stop go through the
+    // process manager; reads are LOW.
+    gameTool(
+      'game_list_projects',
+      'Discover Godot projects under a directory (one level deep): any folder containing project.godot. No engine required.',
+      false,
+      {
+        searchDir: { type: 'string', description: 'Directory to scan. Defaults to the active workspace.' },
+      },
+      async (args, ctx) => {
+        const dir = typeof args.searchDir === 'string' && args.searchDir.length ? args.searchDir : ctx.projectRoot;
+        const res = cli(ctx).listProjects(dir);
+        return res.ok
+          ? { ok: true, data: { count: res.data?.projects.length ?? 0, ...res.data } }
+          : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_run_project',
+      'Run a Godot project (godot --path <root>) as a managed process. Returns a sessionId; stream output with process_tail / game_get_debug_output and stop with game_stop_project.',
+      true,
+      {
+        ...PROJECT_PROP,
+        scene: { type: 'string', description: 'Optional scene to run instead of the main scene.' },
+      },
+      async (args, ctx) => launchGodot(ctx, args, 'run'),
+    ),
+
+    gameTool(
+      'game_launch_editor',
+      'Open the Godot editor on a project (godot --editor --path <root>) as a managed process. Returns a sessionId.',
+      true,
+      { ...PROJECT_PROP },
+      async (args, ctx) => launchGodot(ctx, args, 'editor'),
+    ),
+
+    gameTool(
+      'game_stop_project',
+      'Stop a running Godot process started by game_run_project / game_launch_editor / game_export_project.',
+      true,
+      { sessionId: { type: 'string', description: 'The process session id to stop.' } },
+      async (args, ctx) => {
+        const id = String(args.sessionId ?? '');
+        if (!id) return { ok: false, error: 'sessionId is required.' };
+        if (!ctx.container.processes.isManaged(id)) {
+          return { ok: false, error: `Unknown or already-finished session: ${id}` };
+        }
+        const s = ctx.container.processes.stop(id);
+        ctx.container.audit.record({ type: 'process_event', summary: `game_stop_project ${id}` });
+        return { ok: true, data: { sessionId: s.sessionId, status: s.status } };
+      }
+    ),
+
+    gameTool(
+      'game_get_debug_output',
+      'Read buffered stdout/stderr from a running Godot process by sessionId (secrets redacted).',
+      false,
+      { sessionId: { type: 'string', description: 'The process session id to read from.' } },
+      async (args, ctx) => {
+        const id = String(args.sessionId ?? '');
+        if (!id) return { ok: false, error: 'sessionId is required.' };
+        if (!ctx.container.processes.isManaged(id)) {
+          return { ok: false, error: `Unknown or already-finished session: ${id}` };
+        }
+        const out = ctx.container.processes.read(id);
+        return { ok: true, data: { ...out, output: ctx.container.policy.secret.redact(out.output) } };
+      }
+    ),
+
+    // Family 17: build & export (PROC).
+    gameTool(
+      'game_export_project',
+      'Export a Godot project with a configured preset (godot --headless --export-release <preset> <out>) as a managed process. Returns a sessionId.',
+      true,
+      {
+        ...PROJECT_PROP,
+        preset: { type: 'string', description: 'Export preset name (must exist in export_presets.cfg).' },
+        outputPath: { type: 'string', description: 'Output file path for the exported build.' },
+        debug: { type: 'boolean', description: 'Export a debug build (--export-debug) instead of release.' },
+      },
+      async (args, ctx) => {
+        const preset = String(args.preset ?? '');
+        const out = String(args.outputPath ?? '');
+        if (!preset) return { ok: false, error: 'preset is required.' };
+        if (!out) return { ok: false, error: 'outputPath is required.' };
+        return launchGodot(ctx, args, args.debug ? 'export-debug' : 'export-release', { preset, out });
+      }
+    ),
+
+    // Family 2 (writes): scene save + UID maintenance (CLI).
+    gameTool(
+      'game_save_scene',
+      'Validate and rewrite a text .tscn scene (headless save round-trip). Confirms the scene parses and is well-formed.',
+      true,
+      {
+        ...PROJECT_PROP,
+        scenePath: { type: 'string', description: 'Scene file path (project-relative or res://...).' },
+      },
+      async (args, ctx) => {
+        const scene = String(args.scenePath ?? '');
+        if (!scene) return { ok: false, error: 'scenePath is required.' };
+        const res = cli(ctx).saveScene(projectRoot(ctx, args), scene);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_get_uid',
+      'Read the uid:// identifier from a text scene/resource header (Godot 4.4+). Returns uid:null when absent.',
+      false,
+      {
+        ...PROJECT_PROP,
+        filePath: { type: 'string', description: 'File path (project-relative or res://...).' },
+      },
+      async (args, ctx) => {
+        const file = String(args.filePath ?? '');
+        if (!file) return { ok: false, error: 'filePath is required.' };
+        const res = cli(ctx).getUid(projectRoot(ctx, args), file);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_update_project_uids',
+      'Regenerate the Godot UID cache (godot --headless --import) so moved/renamed resources keep stable uid:// references. Runs to completion.',
+      true,
+      { ...PROJECT_PROP },
+      async (args, ctx) => launchGodot(ctx, args, 'import'),
+    ),
+
+    // Family 15: project creation + project-config management (CLI).
+    gameTool(
+      'game_create_project',
+      'Create a new Godot project: make the directory and write a minimal valid project.godot. CRITICAL - it bootstraps a new project on disk; approval-gated.',
+      true,
+      {
+        targetDir: { type: 'string', description: 'Directory to create the project in.' },
+        name: { type: 'string', description: 'Project display name (config/name).' },
+        features: { type: 'string', description: 'Godot feature/version tag, e.g. "4.4". Defaults to 4.4.' },
+        mainScene: { type: 'string', description: 'Optional main scene res:// path.' },
+        overwrite: { type: 'boolean', description: 'Overwrite an existing project.godot.' },
+      },
+      async (args, ctx) => {
+        const dir = String(args.targetDir ?? '');
+        const name = String(args.name ?? '');
+        if (!dir) return { ok: false, error: 'targetDir is required.' };
+        if (!name) return { ok: false, error: 'name is required.' };
+        const res = cli(ctx).createProject(dir, name, {
+          ...(typeof args.features === 'string' ? { features: args.features } : {}),
+          ...(typeof args.mainScene === 'string' ? { mainScene: args.mainScene } : {}),
+          overwrite: args.overwrite === true,
+        });
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_manage_autoloads',
+      'Add or remove an autoload (singleton) in project.godot under [autoload].',
+      true,
+      {
+        ...PROJECT_PROP,
+        op: { type: 'string', description: 'add | remove.' },
+        name: { type: 'string', description: 'Autoload singleton name.' },
+        scriptPath: { type: 'string', description: 'res:// script/scene path (required for add).' },
+      },
+      async (args, ctx) => {
+        const op = String(args.op ?? '');
+        const name = String(args.name ?? '');
+        if (op !== 'add' && op !== 'remove') return { ok: false, error: 'op must be "add" or "remove".' };
+        if (!name) return { ok: false, error: 'name is required.' };
+        const res = cli(ctx).manageAutoloads(
+          projectRoot(ctx, args), op, name,
+          typeof args.scriptPath === 'string' ? args.scriptPath : undefined
+        );
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_manage_input_map',
+      'Define or remove an input action (InputMap) in project.godot under [input].',
+      true,
+      {
+        ...PROJECT_PROP,
+        op: { type: 'string', description: 'add | remove.' },
+        action: { type: 'string', description: 'Input action name.' },
+        keys: { type: 'array', description: 'Physical key names for the action (add only).' },
+      },
+      async (args, ctx) => {
+        const op = String(args.op ?? '');
+        const action = String(args.action ?? '');
+        if (op !== 'add' && op !== 'remove') return { ok: false, error: 'op must be "add" or "remove".' };
+        if (!action) return { ok: false, error: 'action is required.' };
+        const keys = Array.isArray(args.keys) ? args.keys.map(String) : [];
+        const res = cli(ctx).manageInputMap(projectRoot(ctx, args), op, action, keys);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_manage_export_presets',
+      'Set an export preset key in export_presets.cfg via a section/key/value edit. Bootstraps the file if missing.',
+      true,
+      {
+        ...PROJECT_PROP,
+        preset: { type: 'string', description: 'Preset index/section, e.g. "preset.0".' },
+        key: { type: 'string', description: 'Preset key, e.g. name, platform, export_path.' },
+        value: { type: 'string', description: 'Value to assign.' },
+      },
+      async (args, ctx) => {
+        const preset = String(args.preset ?? '');
+        const key = String(args.key ?? '');
+        const value = String(args.value ?? '');
+        if (!preset || !key) return { ok: false, error: 'preset and key are required.' };
+        const res = cli(ctx).setExportPreset(projectRoot(ctx, args), preset, key, value);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // Family 24: editor & project tools (CLI, project.godot-backed).
+    gameTool(
+      'game_manage_layers',
+      'Name a physics/render layer in project.godot under [layer_names], e.g. 2d_physics/3d_render.',
+      true,
+      {
+        ...PROJECT_PROP,
+        kind: { type: 'string', description: 'Layer group, e.g. 2d_physics | 2d_render | 3d_physics | 3d_render.' },
+        index: { type: 'number', description: 'Layer index (1-32).' },
+        name: { type: 'string', description: 'Human-readable layer name.' },
+      },
+      async (args, ctx) => {
+        const kind = String(args.kind ?? '');
+        const name = String(args.name ?? '');
+        const index = Number(args.index);
+        if (!kind || !name) return { ok: false, error: 'kind and name are required.' };
+        if (!Number.isInteger(index)) return { ok: false, error: 'index must be an integer.' };
+        const res = cli(ctx).manageLayers(projectRoot(ctx, args), kind, index, name);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_manage_plugins',
+      'Enable or disable an editor plugin in project.godot under [editor_plugins].',
+      true,
+      {
+        ...PROJECT_PROP,
+        op: { type: 'string', description: 'enable | disable.' },
+        pluginPath: { type: 'string', description: 'Plugin addon name or res://addons/<name>/plugin.cfg path.' },
+      },
+      async (args, ctx) => {
+        const op = String(args.op ?? '');
+        const pluginPath = String(args.pluginPath ?? '');
+        if (op !== 'enable' && op !== 'disable') return { ok: false, error: 'op must be "enable" or "disable".' };
+        if (!pluginPath) return { ok: false, error: 'pluginPath is required.' };
+        const res = cli(ctx).managePlugins(projectRoot(ctx, args), op, pluginPath);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_manage_translations',
+      'Register translation files in project.godot under [internationalization] locale/translations.',
+      true,
+      {
+        ...PROJECT_PROP,
+        files: { type: 'array', description: 'res:// .po/.translation file paths.' },
+      },
+      async (args, ctx) => {
+        const files = Array.isArray(args.files) ? args.files.map(String) : [];
+        if (files.length === 0) return { ok: false, error: 'files must be a non-empty array.' };
+        const res = cli(ctx).manageTranslations(projectRoot(ctx, args), files);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
     ),
   ];
 }
