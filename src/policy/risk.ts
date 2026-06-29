@@ -110,6 +110,23 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   game_wait: 'MEDIUM',
   game_eval: 'CRITICAL',
 
+  // game (Godot) - runtime mutation + input tier (Step 4). RUN channel.
+  // Family 8 (node manipulation) + Family 9 (signals). Reads are LOW; live
+  // state mutations are HIGH; arbitrary live invocation (call_method) is
+  // CRITICAL (approval-gated).
+  game_get_property: 'LOW',
+  game_list_signals: 'LOW',
+  game_await_signal: 'LOW',
+  game_set_property: 'HIGH',
+  game_instantiate_scene: 'HIGH',
+  game_runtime_remove_node: 'HIGH',
+  game_change_scene: 'HIGH',
+  game_reparent_node: 'HIGH',
+  game_connect_signal: 'HIGH',
+  game_disconnect_signal: 'HIGH',
+  game_emit_signal: 'HIGH',
+  game_call_method: 'CRITICAL',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',

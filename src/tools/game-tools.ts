@@ -38,6 +38,39 @@ function runtime(ctx: ToolContext): GodotRuntime {
   return new GodotRuntime(godot);
 }
 
+/**
+ * Build a RUN-channel passthrough tool (Step 4+). It validates that the
+ * `required` args are present and non-empty, forwards the declared input props
+ * (as-is) to the runtime-bridge `op`, and surfaces the typed result. When no
+ * game is running, `GodotRuntime` already returns a structured, actionable
+ * error, so these tools never throw. This keeps the large runtime
+ * mutation/input surface declarative and uniform; the GDScript bridge owns each
+ * op's semantics (see docs/godot-mcp.md).
+ */
+function runtimeTool(
+  name: string,
+  description: string,
+  mutates: boolean,
+  props: Record<string, unknown>,
+  op: string,
+  required: string[] = []
+): ToolDefinition {
+  return gameTool(name, description, mutates, props, async (args, ctx) => {
+    for (const key of required) {
+      const v = args[key];
+      if (v === undefined || v === null || (typeof v === 'string' && v.length === 0)) {
+        return { ok: false, error: `${key} is required.` };
+      }
+    }
+    const params: Record<string, unknown> = {};
+    for (const key of Object.keys(props)) {
+      if (args[key] !== undefined) params[key] = args[key];
+    }
+    const res = await runtime(ctx).send(op, params);
+    return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+  });
+}
+
 /** Resolve the Godot project root: explicit arg, else the active workspace. */
 function projectRoot(ctx: ToolContext, args: Record<string, unknown>): string {
   const p = args.projectPath ?? args.projectRoot;
@@ -634,6 +667,148 @@ export function gameTools(): ToolDefinition[] {
         const res = await runtime(ctx).evaluate(code);
         return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
       }
+    ),
+
+    // -----------------------------------------------------------------------
+    // Step 4 - runtime mutation + input tier (RUN channel). All route through
+    // GodotRuntime.send() via runtimeTool(). Risk bands live in
+    // src/policy/risk.ts and are frozen in src/tools/schema-lock.ts. The live
+    // game's runtime-bridge autoload owns each op's semantics (docs/godot-mcp.md).
+    // When no game is running, every tool returns a structured error.
+    // -----------------------------------------------------------------------
+
+    // --- Family 8: runtime node manipulation ---
+    runtimeTool(
+      'game_get_property',
+      'Read a property value from a live node by NodePath (read-only).',
+      false,
+      {
+        path: { type: 'string', description: 'NodePath of the node, e.g. /root/Main/Player.' },
+        property: { type: 'string', description: 'Property name to read, e.g. position.' },
+      },
+      'get_property',
+      ['path', 'property']
+    ),
+    runtimeTool(
+      'game_set_property',
+      'Set a property on a live node by NodePath. HIGH: persists a live state change.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node.' },
+        property: { type: 'string', description: 'Property name to set.' },
+        value: { description: 'New value (any JSON type; coerced by the bridge).' },
+      },
+      'set_property',
+      ['path', 'property', 'value']
+    ),
+    runtimeTool(
+      'game_call_method',
+      'Call a method on a live node by NodePath with optional args. CRITICAL: arbitrary live invocation; approval-gated.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node.' },
+        method: { type: 'string', description: 'Method name to call.' },
+        args: { type: 'array', description: 'Positional arguments (default []).' },
+      },
+      'call_method',
+      ['path', 'method']
+    ),
+    runtimeTool(
+      'game_instantiate_scene',
+      'Instantiate a packed scene (res:// path) and add it under a parent in the running game.',
+      true,
+      {
+        scenePath: { type: 'string', description: 'Scene res:// path to instantiate.' },
+        parent: { type: 'string', description: 'Parent NodePath (default the current scene root).' },
+      },
+      'instantiate_scene',
+      ['scenePath']
+    ),
+    runtimeTool(
+      'game_runtime_remove_node',
+      'Remove a live node from the running game by NodePath (queue_free). Distinct from game_remove_node, which edits a .tscn file on disk.',
+      true,
+      { path: { type: 'string', description: 'NodePath of the node to free.' } },
+      'remove_node',
+      ['path']
+    ),
+    runtimeTool(
+      'game_change_scene',
+      'Change the running game to a different packed scene (res:// path).',
+      true,
+      { scenePath: { type: 'string', description: 'Scene res:// path to switch to.' } },
+      'change_scene',
+      ['scenePath']
+    ),
+    runtimeTool(
+      'game_reparent_node',
+      'Reparent a live node to a new parent in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node to move.' },
+        newParent: { type: 'string', description: 'NodePath of the new parent.' },
+      },
+      'reparent_node',
+      ['path', 'newParent']
+    ),
+
+    // --- Family 9: runtime signals ---
+    runtimeTool(
+      'game_connect_signal',
+      'Connect a live node signal to a target node method in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'Emitter NodePath.' },
+        signal: { type: 'string', description: 'Signal name on the emitter.' },
+        target: { type: 'string', description: 'Target NodePath that receives the call.' },
+        method: { type: 'string', description: 'Method name on the target.' },
+      },
+      'connect_signal',
+      ['path', 'signal', 'target', 'method']
+    ),
+    runtimeTool(
+      'game_disconnect_signal',
+      'Disconnect a previously connected live node signal in the running game.',
+      true,
+      {
+        path: { type: 'string', description: 'Emitter NodePath.' },
+        signal: { type: 'string', description: 'Signal name on the emitter.' },
+        target: { type: 'string', description: 'Target NodePath.' },
+        method: { type: 'string', description: 'Method name on the target.' },
+      },
+      'disconnect_signal',
+      ['path', 'signal', 'target', 'method']
+    ),
+    runtimeTool(
+      'game_emit_signal',
+      'Emit a signal on a live node in the running game, with optional args.',
+      true,
+      {
+        path: { type: 'string', description: 'Emitter NodePath.' },
+        signal: { type: 'string', description: 'Signal name to emit.' },
+        args: { type: 'array', description: 'Signal arguments (default []).' },
+      },
+      'emit_signal',
+      ['path', 'signal']
+    ),
+    runtimeTool(
+      'game_list_signals',
+      'List the signals declared on a live node (read-only).',
+      false,
+      { path: { type: 'string', description: 'NodePath of the node.' } },
+      'list_signals',
+      ['path']
+    ),
+    runtimeTool(
+      'game_await_signal',
+      'Wait for the next emission of a signal on a live node and return its payload (read-only).',
+      false,
+      {
+        path: { type: 'string', description: 'Emitter NodePath.' },
+        signal: { type: 'string', description: 'Signal name to await.' },
+      },
+      'await_signal',
+      ['path', 'signal']
     ),
   ];
 }

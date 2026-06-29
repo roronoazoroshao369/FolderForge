@@ -592,3 +592,190 @@ describe('game tools integration (Godot Step 3 - runtime read tier)', () => {
     expect(noGroup.error).toMatch(/group is required/i);
   });
 });
+
+/**
+ * Godot integration - Step 4 (runtime mutation + input tier, RUN channel).
+ *
+ * These suites drive the mutating/input runtime tools against a fake TCP bridge
+ * (same echo-server pattern as Step 3). They validate request framing, the
+ * runtimeTool() arg-forwarding + required-arg validation, and approval gating on
+ * CRITICAL tools - without launching Godot.
+ */
+describe('game tools integration (Godot Step 4 - node manipulation + signals)', () => {
+  let server: Server | null = null;
+  let port = 0;
+  const sockets = new Set<Socket>();
+
+  async function startBridge(
+    handlers: Record<string, (params: Record<string, unknown>) => unknown>
+  ): Promise<number> {
+    server = createServer((socket) => {
+      sockets.add(socket);
+      socket.setEncoding('utf8');
+      let buffer = '';
+      socket.on('data', (chunk: string) => {
+        buffer += chunk;
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          const req = JSON.parse(line) as { id: number; op: string; params: Record<string, unknown> };
+          const handler = handlers[req.op];
+          if (!handler) {
+            socket.write(`${JSON.stringify({ id: req.id, ok: false, error: `unknown op: ${req.op}` })}\n`);
+            continue;
+          }
+          const result = handler(req.params ?? {});
+          socket.write(`${JSON.stringify({ id: req.id, ok: true, data: result })}\n`);
+        }
+      });
+      socket.on('close', () => sockets.delete(socket));
+      socket.on('error', () => sockets.delete(socket));
+    });
+    await new Promise<void>((res) => server!.listen(0, '127.0.0.1', res));
+    const addr = server!.address();
+    return typeof addr === 'object' && addr ? addr.port : 0;
+  }
+
+  function runtimeSetup(runtimePort: number, mode: PolicyMode = 'danger') {
+    const config = loadConfig({ projectRoot: tmpdir() });
+    config.policy.defaultMode = mode;
+    config.adapters = {
+      ...config.adapters,
+      godot: { enabled: true, godotPath: 'godot', editorPort: 6550, runtimePort },
+    };
+    const container = new Container(config);
+    container.policy.setMode(mode);
+    const registry = buildRegistry(container);
+    return { container, registry };
+  }
+
+  afterEach(async () => {
+    for (const s of sockets) s.destroy();
+    sockets.clear();
+    if (server) {
+      await new Promise<void>((res) => server!.close(() => res()));
+      server = null;
+    }
+    port = 0;
+  });
+
+  it('reads, sets, and forwards node-manipulation ops over the bridge', async () => {
+    port = await startBridge({
+      get_property: (p) => ({ path: p.path, property: p.property, value: 42 }),
+      set_property: (p) => ({ path: p.path, property: p.property, value: p.value }),
+      instantiate_scene: (p) => ({ scenePath: p.scenePath, parent: p.parent ?? null }),
+      remove_node: (p) => ({ removed: p.path }),
+      change_scene: (p) => ({ scene: p.scenePath }),
+      reparent_node: (p) => ({ path: p.path, newParent: p.newParent }),
+    });
+    const { registry } = runtimeSetup(port);
+
+    const get = data<{ value: number }>(
+      await registry.call('game_get_property', { path: '/root/Main/Player', property: 'health' })
+    );
+    expect(get.value).toBe(42);
+
+    const set = data<{ value: unknown }>(
+      await registry.call('game_set_property', {
+        path: '/root/Main/Player',
+        property: 'health',
+        value: 99,
+      })
+    );
+    expect(set.value).toBe(99);
+
+    const inst = data<{ scenePath: string; parent: string | null }>(
+      await registry.call('game_instantiate_scene', { scenePath: 'res://enemy.tscn' })
+    );
+    expect(inst.scenePath).toBe('res://enemy.tscn');
+    expect(inst.parent).toBeNull();
+
+    const removed = data<{ removed: string }>(
+      await registry.call('game_runtime_remove_node', { path: '/root/Main/Old' })
+    );
+    expect(removed.removed).toBe('/root/Main/Old');
+
+    const changed = data<{ scene: string }>(
+      await registry.call('game_change_scene', { scenePath: 'res://level2.tscn' })
+    );
+    expect(changed.scene).toBe('res://level2.tscn');
+
+    const re = data<{ newParent: string }>(
+      await registry.call('game_reparent_node', {
+        path: '/root/Main/Player',
+        newParent: '/root/Main/Holder',
+      })
+    );
+    expect(re.newParent).toBe('/root/Main/Holder');
+  });
+
+  it('gates game_call_method behind a CRITICAL approval', async () => {
+    port = await startBridge({
+      call_method: (p) => ({ method: p.method, args: p.args ?? [] }),
+    });
+    const { container, registry } = runtimeSetup(port);
+
+    container.policy.approvals.approve(
+      container.policy.approvals.create('game_call_method', {}, 'CRITICAL', 'test').id,
+      'session'
+    );
+    const called = data<{ method: string; args: unknown[] }>(
+      await registry.call('game_call_method', {
+        path: '/root/Main/Player',
+        method: 'take_damage',
+        args: [10],
+      })
+    );
+    expect(called.method).toBe('take_damage');
+    expect(called.args).toEqual([10]);
+  });
+
+  it('connects, emits, and lists signals over the bridge', async () => {
+    port = await startBridge({
+      connect_signal: (p) => ({ connected: `${String(p.signal)}->${String(p.method)}` }),
+      disconnect_signal: (p) => ({ disconnected: p.signal }),
+      emit_signal: (p) => ({ emitted: p.signal, args: p.args ?? [] }),
+      list_signals: (p) => ({ path: p.path, signals: ['pressed', 'tree_entered'] }),
+      await_signal: (p) => ({ signal: p.signal, payload: ['ok'] }),
+    });
+    const { registry } = runtimeSetup(port);
+
+    const conn = data<{ connected: string }>(
+      await registry.call('game_connect_signal', {
+        path: '/root/Main/Button',
+        signal: 'pressed',
+        target: '/root/Main',
+        method: '_on_pressed',
+      })
+    );
+    expect(conn.connected).toBe('pressed->_on_pressed');
+
+    const list = data<{ signals: string[] }>(
+      await registry.call('game_list_signals', { path: '/root/Main/Button' })
+    );
+    expect(list.signals).toContain('pressed');
+
+    const emit = data<{ emitted: string }>(
+      await registry.call('game_emit_signal', { path: '/root/Main', signal: 'game_over' })
+    );
+    expect(emit.emitted).toBe('game_over');
+
+    const awaited = data<{ payload: string[] }>(
+      await registry.call('game_await_signal', { path: '/root/Main', signal: 'ready' })
+    );
+    expect(awaited.payload).toContain('ok');
+  });
+
+  it('validates required args before touching the bridge', async () => {
+    const { registry } = runtimeSetup(59999);
+    const noProp = await registry.call('game_set_property', { path: '/root/Main' });
+    expect(noProp.ok).toBe(false);
+    expect(noProp.error).toMatch(/property is required/i);
+
+    const noSignal = await registry.call('game_emit_signal', { path: '/root/Main' });
+    expect(noSignal.ok).toBe(false);
+    expect(noSignal.error).toMatch(/signal is required/i);
+  });
+});

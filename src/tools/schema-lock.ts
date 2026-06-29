@@ -208,6 +208,22 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_wait', mutates: true, risk: 'MEDIUM' },
   { name: 'game_eval', mutates: true, risk: 'CRITICAL' },
 
+  // --- game (Godot) - runtime mutation + input tier (Step 4) ---
+  // Family 8: runtime node manipulation
+  { name: 'game_get_property', mutates: false, risk: 'LOW' },
+  { name: 'game_set_property', mutates: true, risk: 'HIGH' },
+  { name: 'game_call_method', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_instantiate_scene', mutates: true, risk: 'HIGH' },
+  { name: 'game_runtime_remove_node', mutates: true, risk: 'HIGH' },
+  { name: 'game_change_scene', mutates: true, risk: 'HIGH' },
+  { name: 'game_reparent_node', mutates: true, risk: 'HIGH' },
+  // Family 9: runtime signals
+  { name: 'game_connect_signal', mutates: true, risk: 'HIGH' },
+  { name: 'game_disconnect_signal', mutates: true, risk: 'HIGH' },
+  { name: 'game_emit_signal', mutates: true, risk: 'HIGH' },
+  { name: 'game_list_signals', mutates: false, risk: 'LOW' },
+  { name: 'game_await_signal', mutates: false, risk: 'LOW' },
+
   { name: 'game_set_main_scene', mutates: true, risk: 'HIGH' },
 ] as const;
 
