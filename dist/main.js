@@ -8,7 +8,21 @@ import { startHttpTransport } from './server/transports/http.js';
 import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
 import { randomBytes } from 'node:crypto';
-const VERSION = '1.4.0';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+function readVersion() {
+    try {
+        const here = dirname(fileURLToPath(import.meta.url));
+        // dist/main.js -> ../package.json
+        const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'));
+        return pkg.version ?? '0.0.0';
+    }
+    catch {
+        return '0.0.0';
+    }
+}
+const VERSION = readVersion();
 function parseArgs(argv) {
     const args = { stdio: false, http: false, dashboard: true };
     for (let i = 0; i < argv.length; i++) {
