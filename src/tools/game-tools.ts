@@ -2142,5 +2142,172 @@ export function gameTools(): ToolDefinition[] {
         return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
       }
     ),
+
+    // --- Step 5d: remaining editor/scene helpers (149/149) ---
+
+    // Family 2: attach a texture to a sprite-like node in a scene.
+    gameTool(
+      'game_load_sprite',
+      'Attach a texture (res:// path) to a sprite-like node in a .tscn: ensures a Texture2D ext_resource and sets the node property (default "texture").',
+      true,
+      {
+        ...PROJECT_PROP,
+        scenePath: { type: 'string', description: 'res:// or project-relative .tscn path.' },
+        node: { type: 'string', description: 'Target node name.' },
+        texturePath: { type: 'string', description: 'res:// path to the texture asset.' },
+        property: { type: 'string', description: 'Node property to set (default "texture").' },
+      },
+      async (args, ctx) => {
+        const scenePath = String(args.scenePath ?? '');
+        const node = String(args.node ?? '');
+        const texturePath = String(args.texturePath ?? '');
+        if (!scenePath || !node || !texturePath) {
+          return { ok: false, error: 'scenePath, node, and texturePath are required.' };
+        }
+        const property = typeof args.property === 'string' && args.property.length ? args.property : 'texture';
+        const res = cli(ctx).loadSprite(projectRoot(ctx, args), scenePath, node, texturePath, property);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // Family 2: export a scene's meshes to a MeshLibrary resource.
+    gameTool(
+      'game_export_mesh_library',
+      'Export a scene to a MeshLibrary resource (.meshlib/.tres/.res) referencing the source scene. Refuses to clobber unless overwrite=true.',
+      true,
+      {
+        ...PROJECT_PROP,
+        scenePath: { type: 'string', description: 'res:// or project-relative source .tscn.' },
+        outPath: { type: 'string', description: 'Output MeshLibrary path (.meshlib/.tres/.res).' },
+        overwrite: { type: 'boolean', description: 'Replace an existing output file.' },
+      },
+      async (args, ctx) => {
+        const scenePath = String(args.scenePath ?? '');
+        const outPath = String(args.outPath ?? '');
+        if (!scenePath || !outPath) return { ok: false, error: 'scenePath and outPath are required.' };
+        const res = cli(ctx).exportMeshLibrary(projectRoot(ctx, args), scenePath, outPath, args.overwrite === true);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // Family 24: manage [connection] entries in a scene.
+    gameTool(
+      'game_manage_scene_signals',
+      'Manage [connection] entries in a .tscn: op connect | disconnect | list. connect/disconnect require signal, from, to, method.',
+      true,
+      {
+        ...PROJECT_PROP,
+        scenePath: { type: 'string', description: 'res:// or project-relative .tscn path.' },
+        op: { type: 'string', description: 'connect | disconnect | list.' },
+        signal: { type: 'string', description: 'Signal name (connect/disconnect).' },
+        from: { type: 'string', description: 'Emitter node path (connect/disconnect).' },
+        to: { type: 'string', description: 'Receiver node path (connect/disconnect).' },
+        method: { type: 'string', description: 'Receiver method (connect/disconnect).' },
+      },
+      async (args, ctx) => {
+        const scenePath = String(args.scenePath ?? '');
+        const op = String(args.op ?? '');
+        if (!scenePath) return { ok: false, error: 'scenePath is required.' };
+        if (op !== 'connect' && op !== 'disconnect' && op !== 'list') {
+          return { ok: false, error: 'op must be "connect", "disconnect", or "list".' };
+        }
+        const res = cli(ctx).manageSceneSignals(projectRoot(ctx, args), scenePath, op, {
+          signal: args.signal ? String(args.signal) : undefined,
+          from: args.from ? String(args.from) : undefined,
+          to: args.to ? String(args.to) : undefined,
+          method: args.method ? String(args.method) : undefined,
+        });
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // Family 24: create/overwrite a shader file (CRITICAL - executable GPU code).
+    gameTool(
+      'game_manage_shader',
+      'Create or overwrite a .gdshader file (CRITICAL). Writes a canvas_item stub unless explicit content is supplied.',
+      true,
+      {
+        ...PROJECT_PROP,
+        shaderPath: { type: 'string', description: 'res:// or project-relative .gdshader path.' },
+        content: { type: 'string', description: 'Full shader source (optional).' },
+        shaderType: { type: 'string', description: 'shader_type for the stub (default canvas_item).' },
+        overwrite: { type: 'boolean', description: 'Replace an existing shader.' },
+      },
+      async (args, ctx) => {
+        const shaderPath = String(args.shaderPath ?? '');
+        if (!shaderPath) return { ok: false, error: 'shaderPath is required.' };
+        const res = cli(ctx).manageShader(projectRoot(ctx, args), shaderPath, {
+          content: args.content ? String(args.content) : undefined,
+          shaderType: args.shaderType ? String(args.shaderType) : undefined,
+          overwrite: args.overwrite === true,
+        });
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // Family 24: create/update a Theme resource.
+    gameTool(
+      'game_manage_theme_resource',
+      'Create or update a Theme .tres resource. With no properties it bootstraps an empty Theme; with properties it upserts scalar/string entries.',
+      true,
+      {
+        ...PROJECT_PROP,
+        resPath: { type: 'string', description: 'res:// or project-relative .tres path.' },
+        properties: { type: 'object', description: 'Key/value resource properties to upsert.' },
+        overwrite: { type: 'boolean', description: 'Replace an existing resource on create.' },
+      },
+      async (args, ctx) => {
+        const resPath = String(args.resPath ?? '');
+        if (!resPath) return { ok: false, error: 'resPath is required.' };
+        const properties =
+          args.properties && typeof args.properties === 'object'
+            ? (args.properties as Record<string, unknown>)
+            : {};
+        const res = cli(ctx).manageThemeResource(projectRoot(ctx, args), resPath, properties, args.overwrite === true);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // Family 24: generic text-resource management (create | set | read).
+    gameTool(
+      'game_manage_resource',
+      'Manage a text .tres resource: op create (needs type) | set (needs key/value) | read. All paths are project-root-guarded.',
+      true,
+      {
+        ...PROJECT_PROP,
+        op: { type: 'string', description: 'create | set | read.' },
+        resPath: { type: 'string', description: 'res:// or project-relative .tres path.' },
+        type: { type: 'string', description: 'Resource type (op=create).' },
+        key: { type: 'string', description: 'Property key (op=set).' },
+        value: { description: 'Property value (op=set).' },
+        overwrite: { type: 'boolean', description: 'Replace an existing resource (op=create).' },
+      },
+      async (args, ctx) => {
+        const op = String(args.op ?? '');
+        const resPath = String(args.resPath ?? '');
+        if (!resPath) return { ok: false, error: 'resPath is required.' };
+        if (op !== 'create' && op !== 'set' && op !== 'read') {
+          return { ok: false, error: 'op must be "create", "set", or "read".' };
+        }
+        const res = cli(ctx).manageResource(projectRoot(ctx, args), op, resPath, {
+          type: args.type ? String(args.type) : undefined,
+          key: args.key ? String(args.key) : undefined,
+          value: args.value,
+          overwrite: args.overwrite === true,
+        });
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // Family 24: set/query the runtime locale (RUN channel).
+    runtimeTool(
+      'game_locale',
+      'Get or set the running game locale. Pass locale to set the TranslationServer locale; omit to read the current locale.',
+      true,
+      {
+        locale: { type: 'string', description: 'BCP-47 locale code, e.g. "en", "fr". Omit to read.' },
+      },
+      'locale'
+    ),
   ];
 }

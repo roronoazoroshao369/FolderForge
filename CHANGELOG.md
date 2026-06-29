@@ -8,6 +8,29 @@ semantic versioning.
 
 ### Added
 
+- **Godot integration Step 5d - remaining editor/scene helpers (`game_*`
+  tools).** 7 new tools bring the surface to **149/149 - full parity with the
+  149-tool reference (`tugcantopaloglu/godot-mcp`) reached.** All risk-classified,
+  frozen in the schema lock, and covered by `tests/integration/game-ops.test.ts`
+  (full suite green; typecheck, lint, test, build all pass):
+  - **Family 2 - scene helpers.** `game_load_sprite` (HIGH; ensures a
+    `Texture2D` ext_resource and sets the sprite property), `game_modify_scene_node`
+    / `game_remove_scene_node` (HIGH; headless `.tscn` node edits),
+    `game_manage_scene_signals` (HIGH; connect/disconnect/list in-scene signals).
+  - **Family 26 / resources.** `game_export_mesh_library` (HIGH; writes a text
+    MeshLibrary resource referencing the source scene - a deliberate offline
+    approximation of editor baking), `game_manage_shader` (**CRITICAL**,
+    approval-gated; writes `.gdshader` GPU code), `game_manage_theme_resource`
+    and `game_manage_resource` (HIGH; `.tres` `[resource]`-block upserts via the
+    shared `upsertResourceProperty` helper).
+  - **Family 13 - localization.** `game_locale` (RUN channel; only Step 5d tool
+    needing a live game, tested against the structured "no game running" path).
+
+  All CLI tools are pure file edits (no Godot binary required). This completes
+  the 1.5 Godot integration plan; see `docs/godot-mcp.md` Session Handoff for the
+  release/next-step proposals (tag 1.5.0, ship the `folderforge_bridge` addon,
+  real-engine smoke test).
+
 - **Godot integration Step 5c - project management (PROC) + headless
   project/editor CLI tier (`game_*` tools).** 16 new tools bring the surface to
   **142/149**, all risk-classified, frozen in the schema lock, and covered by

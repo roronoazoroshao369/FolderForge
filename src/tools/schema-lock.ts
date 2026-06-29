@@ -337,6 +337,15 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_manage_layers', mutates: true, risk: 'HIGH' },
   { name: 'game_manage_plugins', mutates: true, risk: 'HIGH' },
   { name: 'game_manage_translations', mutates: true, risk: 'HIGH' },
+
+  // Step 5d: remaining editor/scene helpers (149/149).
+  { name: 'game_load_sprite', mutates: true, risk: 'HIGH' },
+  { name: 'game_export_mesh_library', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_scene_signals', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_shader', mutates: true, risk: 'CRITICAL' },
+  { name: 'game_manage_theme_resource', mutates: true, risk: 'HIGH' },
+  { name: 'game_manage_resource', mutates: true, risk: 'HIGH' },
+  { name: 'game_locale', mutates: true, risk: 'MEDIUM' },
 ] as const;
 
 /** Set of frozen tool names for O(1) membership checks. */

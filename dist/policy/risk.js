@@ -238,6 +238,14 @@ export const TOOL_RISK = {
     game_manage_layers: 'HIGH',
     game_manage_plugins: 'HIGH',
     game_manage_translations: 'HIGH',
+    // Step 5d: remaining editor/scene helpers (149/149).
+    game_load_sprite: 'HIGH',
+    game_export_mesh_library: 'HIGH',
+    game_manage_scene_signals: 'HIGH',
+    game_manage_shader: 'CRITICAL',
+    game_manage_theme_resource: 'HIGH',
+    game_manage_resource: 'HIGH',
+    game_locale: 'MEDIUM',
     // MEDIUM
     file_write: 'MEDIUM',
     file_patch: 'MEDIUM',

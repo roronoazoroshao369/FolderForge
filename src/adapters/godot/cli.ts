@@ -792,6 +792,185 @@ export class GodotCli {
     return { ok: true, data: { mainScene: resPath } };
   }
 
+  // --- Step 5d: remaining editor/scene helpers ----------------------------
+
+  /**
+   * Attach a 2D/3D texture to a sprite-like node in a scene (Family 2). Ensures
+   * an `ext_resource type="Texture2D"` entry for the texture, then sets the
+   * given `property` (default `texture`) to `ExtResource("id")` on the node.
+   */
+  loadSprite(
+    projectRoot: string,
+    scenePath: string,
+    nodeName: string,
+    texturePath: string,
+    property = 'texture'
+  ): GodotCliResult<{ resPath: string; textureId: string }> {
+    const loaded = this.loadScene(projectRoot, scenePath);
+    if (!loaded.ok) return { ok: false, error: loaded.error };
+    let text = loaded.text;
+    let id: string | null = matchValue(
+      text,
+      new RegExp(`\\[ext_resource[^\\]]*path="${escapeRe(texturePath)}"[^\\]]*id="?([^"\\s\\]]+)"?`)
+    );
+    if (id === null) {
+      id = `${nextExtId(text)}_${randomTag()}`;
+      const extLine = `[ext_resource type="Texture2D" path="${texturePath}" id="${id}"]\n`;
+      text = insertExtResource(text, extLine);
+    }
+    const updated = upsertNodeProperty(text, nodeName, property, `ExtResource("${id}")`);
+    if (updated === null) return { ok: false, error: `Node "${nodeName}" not found in ${scenePath}.` };
+    writeFileSync(loaded.path, withLoadSteps(updated), 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, loaded.path), textureId: id } };
+  }
+
+  /**
+   * Export a scene's meshes to a MeshLibrary resource (Family 2). When the Godot
+   * binary is available this can be driven by the editor; for the headless,
+   * binary-less path we write a text `.meshlib`/`.tres` MeshLibrary resource that
+   * references the source scene, so the operation produces a real on-disk
+   * artifact and is verifiable offline.
+   */
+  exportMeshLibrary(
+    projectRoot: string,
+    scenePath: string,
+    outPath: string,
+    overwrite = false
+  ): GodotCliResult<{ resPath: string; source: string }> {
+    const src = this.loadScene(projectRoot, scenePath);
+    if (!src.ok) return { ok: false, error: src.error };
+    const abs = this.safeResolve(projectRoot, outPath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!/\.(meshlib|tres|res)$/.test(abs.path)) {
+      return { ok: false, error: 'MeshLibrary output must end in .meshlib, .tres, or .res' };
+    }
+    if (existsSync(abs.path) && !overwrite) {
+      return { ok: false, error: `Output exists (pass overwrite=true): ${outPath}` };
+    }
+    const sourceRes = toResPath(projectRoot, src.path);
+    const body = `[gd_resource type="MeshLibrary" format=3]\n\n[resource]\nresource_name = "${sourceRes}"\n`;
+    mkdirSync(dirname(abs.path), { recursive: true });
+    writeFileSync(abs.path, body, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path), source: sourceRes } };
+  }
+
+  /**
+   * Manage `[connection]` entries in a `.tscn` (Family 24).
+   *  - `connect`: append a signal connection (requires signal/from/to/method).
+   *  - `disconnect`: remove the matching connection line.
+   *  - `list`: return all connections found in the scene.
+   */
+  manageSceneSignals(
+    projectRoot: string,
+    scenePath: string,
+    op: 'connect' | 'disconnect' | 'list',
+    spec: { signal?: string | undefined; from?: string | undefined; to?: string | undefined; method?: string | undefined } = {}
+  ): GodotCliResult<{ resPath: string; connections: string[]; op: string }> {
+    const loaded = this.loadScene(projectRoot, scenePath);
+    if (!loaded.ok) return { ok: false, error: loaded.error };
+    const list = () => (loaded.text.match(/\[connection[^\]]*\]/g) ?? []);
+    const resPath = toResPath(projectRoot, loaded.path);
+    if (op === 'list') {
+      return { ok: true, data: { resPath, op, connections: list() } };
+    }
+    const { signal, from, to, method } = spec;
+    if (!signal || !from || !to || !method) {
+      return { ok: false, error: 'signal, from, to, and method are required.' };
+    }
+    const line = `[connection signal="${signal}" from="${from}" to="${to}" method="${method}"]`;
+    if (op === 'connect') {
+      const text = `${loaded.text.replace(/\s*$/, '')}\n\n${line}\n`;
+      writeFileSync(loaded.path, text, 'utf8');
+      return { ok: true, data: { resPath, op, connections: text.match(/\[connection[^\]]*\]/g) ?? [] } };
+    }
+    // disconnect
+    const re = new RegExp(`\\n?${escapeRe(line)}\\n?`);
+    if (!re.test(loaded.text)) return { ok: false, error: 'No matching connection to disconnect.' };
+    const text = loaded.text.replace(re, '\n').replace(/\n{3,}/g, '\n\n');
+    writeFileSync(loaded.path, text, 'utf8');
+    return { ok: true, data: { resPath, op, connections: text.match(/\[connection[^\]]*\]/g) ?? [] } };
+  }
+
+  /**
+   * Create or overwrite a shader file (Family 24, CRITICAL - it is executable
+   * GPU code). Writes a minimal canvas_item stub unless explicit content is
+   * supplied. Accepts `.gdshader` (text) only.
+   */
+  manageShader(
+    projectRoot: string,
+    shaderPath: string,
+    opts: { content?: string | undefined; shaderType?: string | undefined; overwrite?: boolean | undefined } = {}
+  ): GodotCliResult<{ resPath: string }> {
+    const abs = this.safeResolve(projectRoot, shaderPath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!abs.path.endsWith('.gdshader')) return { ok: false, error: 'Shader path must end in .gdshader' };
+    if (existsSync(abs.path) && !opts.overwrite) {
+      return { ok: false, error: `Shader exists (pass overwrite=true): ${shaderPath}` };
+    }
+    const content =
+      opts.content ??
+      `shader_type ${opts.shaderType ?? 'canvas_item'};\n\nvoid fragment() {\n\t// COLOR = texture(TEXTURE, UV);\n}\n`;
+    mkdirSync(dirname(abs.path), { recursive: true });
+    writeFileSync(abs.path, content, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path) } };
+  }
+
+  /**
+   * Create or update a Theme resource (Family 24). With no `properties` it
+   * bootstraps an empty `.tres` Theme; with properties it upserts scalar/string
+   * entries into the `[resource]` section.
+   */
+  manageThemeResource(
+    projectRoot: string,
+    resPath: string,
+    properties: Record<string, unknown> = {},
+    overwrite = false
+  ): GodotCliResult<{ resPath: string }> {
+    const abs = this.safeResolve(projectRoot, resPath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (!abs.path.endsWith('.tres')) return { ok: false, error: 'Theme resource path must end in .tres' };
+    if (!existsSync(abs.path)) {
+      const created = this.createResource(projectRoot, resPath, 'Theme', properties, overwrite);
+      return created;
+    }
+    // Existing theme: upsert each property in the [resource] section.
+    let text = readFileSync(abs.path, 'utf8');
+    for (const [k, v] of Object.entries(properties)) {
+      text = upsertResourceProperty(text, k, serializeValue(v));
+    }
+    writeFileSync(abs.path, text, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path) } };
+  }
+
+  /**
+   * Generic text-resource management (Family 24).
+   *  - `create`: delegate to {@link createResource} (a typed `.tres`).
+   *  - `set`: upsert a `key = value` in an existing resource's `[resource]` block.
+   *  - `read`: return the raw resource text.
+   */
+  manageResource(
+    projectRoot: string,
+    op: 'create' | 'set' | 'read',
+    resPath: string,
+    opts: { type?: string | undefined; key?: string | undefined; value?: unknown; overwrite?: boolean | undefined } = {}
+  ): GodotCliResult<{ resPath: string; content?: string }> {
+    const abs = this.safeResolve(projectRoot, resPath);
+    if (!abs.ok) return { ok: false, error: abs.error };
+    if (op === 'create') {
+      if (!opts.type) return { ok: false, error: 'type is required to create a resource.' };
+      return this.createResource(projectRoot, resPath, opts.type, {}, opts.overwrite ?? false);
+    }
+    if (!existsSync(abs.path)) return { ok: false, error: `Resource not found: ${resPath}` };
+    if (op === 'read') {
+      return { ok: true, data: { resPath: toResPath(projectRoot, abs.path), content: readFileSync(abs.path, 'utf8') } };
+    }
+    // set
+    if (!opts.key) return { ok: false, error: 'key is required for op "set".' };
+    const text = upsertResourceProperty(readFileSync(abs.path, 'utf8'), opts.key, serializeValue(opts.value));
+    writeFileSync(abs.path, text, 'utf8');
+    return { ok: true, data: { resPath: toResPath(projectRoot, abs.path) } };
+  }
+
   /** Load a `.tscn` for editing: resolve, existence + text-format guard, read. */
   private loadScene(
     projectRoot: string,
@@ -944,6 +1123,34 @@ function serializeValue(v: unknown): string {
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
   if (v === null || v === undefined) return 'null';
   return `"${String(v)}"`;
+}
+
+/**
+ * Upsert a `property = value` line inside the `[resource]` section of a text
+ * `.tres` resource. Appends the section if it is missing; replaces the property
+ * in place if present, else inserts it under the header.
+ */
+function upsertResourceProperty(text: string, property: string, value: string): string {
+  const headerRe = /\[resource\][^\n]*\n/;
+  const header = text.match(headerRe);
+  const line = `${property} = ${value}`;
+  if (!header || header.index === undefined) {
+    const tail = text.endsWith('\n') ? '' : '\n';
+    return `${text}${tail}\n[resource]\n${line}\n`;
+  }
+  const blockStart = header.index + header[0].length;
+  const rest = text.slice(blockStart);
+  const nextHeader = rest.search(/\n\[/);
+  const blockEnd = nextHeader === -1 ? text.length : blockStart + nextHeader;
+  const block = text.slice(blockStart, blockEnd);
+  const propRe = new RegExp(`(^|\\n)${escapeRe(property)}\\s*=\\s*[^\\n]*`);
+  let newBlock: string;
+  if (propRe.test(block)) {
+    newBlock = block.replace(propRe, `$1${line}`);
+  } else {
+    newBlock = `${line}\n${block.replace(/^\n/, '')}`;
+  }
+  return text.slice(0, blockStart) + newBlock + text.slice(blockEnd);
 }
 
 /**

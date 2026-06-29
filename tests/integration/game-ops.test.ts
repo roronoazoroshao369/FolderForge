@@ -1262,3 +1262,226 @@ describe('game tools integration (Godot Step 5c - project mgmt + CLI tier)', () 
     expect(badOp.ok).toBe(false);
   });
 });
+
+describe('game tools integration (Godot Step 5d - editor/scene helpers, 149/149)', () => {
+  let ws: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), 'ff-godot-5d-'));
+    writeFileSync(join(ws, 'project.godot'), PROJECT_GODOT);
+    writeFileSync(join(ws, 'main.tscn'), MAIN_TSCN);
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it('attaches a texture to a sprite node (game_load_sprite)', async () => {
+    const { registry } = setup(ws, 'danger');
+    const res = data<{ resPath: string; textureId: string }>(
+      await registry.call('game_load_sprite', {
+        projectPath: ws,
+        scenePath: 'res://main.tscn',
+        node: 'Sprite',
+        texturePath: 'res://icon.svg',
+      })
+    );
+    expect(res.textureId).toBeTruthy();
+    const scene = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'main.tscn' })
+    );
+    expect(scene.content).toContain('type="Texture2D"');
+    expect(scene.content).toContain('res://icon.svg');
+    expect(scene.content).toContain(`texture = ExtResource("${res.textureId}")`);
+  });
+
+  it('rejects game_load_sprite for a missing node', async () => {
+    const { registry } = setup(ws, 'danger');
+    const res = await registry.call('game_load_sprite', {
+      projectPath: ws,
+      scenePath: 'res://main.tscn',
+      node: 'Ghost',
+      texturePath: 'res://icon.svg',
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/not found/i);
+  });
+
+  it('exports a scene to a MeshLibrary resource (game_export_mesh_library)', async () => {
+    const { registry } = setup(ws, 'danger');
+    const res = data<{ resPath: string; source: string }>(
+      await registry.call('game_export_mesh_library', {
+        projectPath: ws,
+        scenePath: 'res://main.tscn',
+        outPath: 'res://main.meshlib',
+      })
+    );
+    expect(res.source).toBe('res://main.tscn');
+    const lib = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'main.meshlib' })
+    );
+    expect(lib.content).toContain('type="MeshLibrary"');
+
+    const clobber = await registry.call('game_export_mesh_library', {
+      projectPath: ws,
+      scenePath: 'res://main.tscn',
+      outPath: 'res://main.meshlib',
+    });
+    expect(clobber.ok).toBe(false);
+    expect(clobber.error).toMatch(/overwrite/i);
+  });
+
+  it('connects, lists, and disconnects scene signals (game_manage_scene_signals)', async () => {
+    const { registry } = setup(ws, 'danger');
+    const connected = data<{ connections: string[]; op: string }>(
+      await registry.call('game_manage_scene_signals', {
+        projectPath: ws,
+        scenePath: 'res://main.tscn',
+        op: 'connect',
+        signal: 'pressed',
+        from: 'Player',
+        to: 'Main',
+        method: '_on_player_pressed',
+      })
+    );
+    expect(connected.connections.some((c) => c.includes('signal="pressed"'))).toBe(true);
+
+    const listed = data<{ connections: string[] }>(
+      await registry.call('game_manage_scene_signals', {
+        projectPath: ws,
+        scenePath: 'res://main.tscn',
+        op: 'list',
+      })
+    );
+    expect(listed.connections.length).toBe(1);
+
+    const disconnected = data<{ connections: string[] }>(
+      await registry.call('game_manage_scene_signals', {
+        projectPath: ws,
+        scenePath: 'res://main.tscn',
+        op: 'disconnect',
+        signal: 'pressed',
+        from: 'Player',
+        to: 'Main',
+        method: '_on_player_pressed',
+      })
+    );
+    expect(disconnected.connections.length).toBe(0);
+  });
+
+  it('validates required args for game_manage_scene_signals', async () => {
+    const { registry } = setup(ws, 'danger');
+    const badOp = await registry.call('game_manage_scene_signals', {
+      projectPath: ws,
+      scenePath: 'res://main.tscn',
+      op: 'frob',
+    });
+    expect(badOp.ok).toBe(false);
+
+    const missing = await registry.call('game_manage_scene_signals', {
+      projectPath: ws,
+      scenePath: 'res://main.tscn',
+      op: 'connect',
+      signal: 'pressed',
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toMatch(/required/i);
+  });
+
+  it('creates a shader file (game_manage_shader, CRITICAL)', async () => {
+    const { container, registry } = setup(ws, 'danger');
+    container.policy.approvals.approve(
+      container.policy.approvals.create('game_manage_shader', {}, 'CRITICAL', 'test').id,
+      'session'
+    );
+    const res = data<{ resPath: string }>(
+      await registry.call('game_manage_shader', {
+        projectPath: ws,
+        shaderPath: 'res://fx.gdshader',
+      })
+    );
+    expect(res.resPath).toBe('res://fx.gdshader');
+    const shader = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'fx.gdshader' })
+    );
+    expect(shader.content).toContain('shader_type canvas_item;');
+  });
+
+  it('creates and updates a Theme resource (game_manage_theme_resource)', async () => {
+    const { registry } = setup(ws, 'danger');
+    data(
+      await registry.call('game_manage_theme_resource', {
+        projectPath: ws,
+        resPath: 'res://ui.tres',
+      })
+    );
+    data(
+      await registry.call('game_manage_theme_resource', {
+        projectPath: ws,
+        resPath: 'res://ui.tres',
+        properties: { default_font_size: 16 },
+      })
+    );
+    const theme = data<{ content: string }>(
+      await registry.call('game_read_file', { projectPath: ws, filePath: 'ui.tres' })
+    );
+    expect(theme.content).toContain('type="Theme"');
+    expect(theme.content).toContain('default_font_size = 16');
+  });
+
+  it('creates, sets, and reads a generic resource (game_manage_resource)', async () => {
+    const { registry } = setup(ws, 'danger');
+    data(
+      await registry.call('game_manage_resource', {
+        projectPath: ws,
+        op: 'create',
+        resPath: 'res://data.tres',
+        type: 'Resource',
+      })
+    );
+    data(
+      await registry.call('game_manage_resource', {
+        projectPath: ws,
+        op: 'set',
+        resPath: 'res://data.tres',
+        key: 'score',
+        value: 42,
+      })
+    );
+    const read = data<{ content: string }>(
+      await registry.call('game_manage_resource', {
+        projectPath: ws,
+        op: 'read',
+        resPath: 'res://data.tres',
+      })
+    );
+    expect(read.content).toContain('type="Resource"');
+    expect(read.content).toContain('score = 42');
+  });
+
+  it('validates required args for game_manage_resource', async () => {
+    const { registry } = setup(ws, 'danger');
+    const badOp = await registry.call('game_manage_resource', {
+      projectPath: ws,
+      op: 'frob',
+      resPath: 'res://data.tres',
+    });
+    expect(badOp.ok).toBe(false);
+
+    const noType = await registry.call('game_manage_resource', {
+      projectPath: ws,
+      op: 'create',
+      resPath: 'res://x.tres',
+    });
+    expect(noType.ok).toBe(false);
+    expect(noType.error).toMatch(/type is required/i);
+  });
+
+  it('returns a structured error for game_locale with no running game (RUN channel)', async () => {
+    const { registry } = setup(ws, 'danger');
+    const res = await registry.call('game_locale', { locale: 'fr' });
+    // No game running: the runtime bridge returns a structured, non-throwing error.
+    expect(res.ok).toBe(false);
+    expect(typeof res.error).toBe('string');
+  });
+});

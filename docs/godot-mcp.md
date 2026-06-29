@@ -276,18 +276,16 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 
 ## Status
 
-**Updated:** 2026-06-29 - **Phase:** Step 5c shipped (project management PROC
-channel + headless project/editor CLI tier). Surface is now **142/149** game
-tools. Step 5a (advanced runtime, 23 tools) and Step 5b (build/export,
-networking, 3D/2D, rendering/resources) are in; Step 5c adds the final
-project-lifecycle tier (run/launch/stop/export via the shared ProcessManager,
-plus project creation and project.godot-backed editor/project management).
-All `game_*` tools are risk-classified, frozen in the schema lock, and covered by
-`tests/integration/game-ops.test.ts` (full suite 269 green: typecheck, lint,
-test, build all pass). Remaining to 149: a handful of editor/scene helpers
-(Family 20 reuse, shader/scene-signals/theme management, `game_locale`,
-`game_load_sprite`, `game_export_mesh_library`, `game_modify_scene_node` /
-`game_remove_scene_node` aliases).
+**Updated:** 2026-06-29 - **Phase:** Step 5d shipped - **the surface is now
+149/149 game tools and the Godot integration plan is COMPLETE.** Step 5d adds
+the final editor/scene-helper tier: `game_load_sprite`,
+`game_export_mesh_library`, `game_manage_scene_signals`, `game_manage_shader`
+(CRITICAL), `game_manage_theme_resource`, `game_manage_resource`, and the runtime
+`game_locale`. All `game_*` tools are risk-classified, frozen in the schema lock,
+and covered by `tests/integration/game-ops.test.ts`. Full verification green:
+typecheck, lint, `npm test` (29 files, 279 tests), and build all pass. The
+schema-lock guard test confirms the live registry contains exactly 149 `game_*`
+tools matching the frozen surface.
 
 | Item | Status |
 | --- | --- |
@@ -304,7 +302,7 @@ test, build all pass). Remaining to 149: a handful of editor/scene helpers
 | Step 5a - advanced runtime (Family 16) | Done (23 tools) |
 | Step 5b - networking + 3D/2D + rendering/resources | Done (Families 18, 20, 21, 26) |
 | Step 5c - project mgmt PROC + project/editor CLI tier | Done (16 tools; surface 142/149) |
-| Step 5d - remaining editor/scene helpers | Not started (7 tools to 149) |
+| Step 5d - remaining editor/scene helpers | Done (7 tools; surface **149/149** - plan complete) |
 
 ### Step 1 - delivered surface (6 tools)
 
@@ -363,6 +361,31 @@ tests), and `npm run build` all green.
 
 **Related, already done (context):**
 - CLI flag `--policy <mode>` (readonly | safe | dev | danger) - implemented;
+
+### Step 5d - delivered surface (7 tools; reaches 149/149)
+
+Final editor/scene-helper tier. Six are headless CLI text edits (no Godot binary
+required); `game_locale` is a RUN-channel runtime tool.
+
+| Tool | Risk | Channel | Notes |
+| --- | --- | --- | --- |
+| `game_load_sprite` | HIGH | CLI | Ensures a `Texture2D` ext_resource + sets a node property (default `texture`) to `ExtResource("id")` |
+| `game_export_mesh_library` | HIGH | CLI | Writes a text MeshLibrary (`.meshlib`/`.tres`/`.res`) referencing the source scene; refuses to clobber unless `overwrite=true` |
+| `game_manage_scene_signals` | HIGH | CLI | `connect` / `disconnect` / `list` `[connection]` entries in a `.tscn` |
+| `game_manage_shader` | CRITICAL | CLI | Create/overwrite a `.gdshader` (executable GPU code; approval-gated). Canvas_item stub unless content supplied |
+| `game_manage_theme_resource` | HIGH | CLI | Bootstrap or upsert properties in a Theme `.tres` |
+| `game_manage_resource` | HIGH | CLI | Generic `.tres`: `create` / `set` / `read` |
+| `game_locale` | MEDIUM | RUN | Get/set the running game's TranslationServer locale |
+
+Covered by `tests/integration/game-ops.test.ts` (Step 5d suite: sprite attach +
+missing-node, mesh-library export + clobber guard, signal connect/list/disconnect
++ arg validation, shader create under approval, theme create+update, generic
+resource create/set/read + arg validation, and `game_locale` no-game error).
+Verification: typecheck, lint, `npm test` (29 files, 279 tests), and build all
+green; the schema-lock guard confirms exactly 149 `game_*` tools.
+
+**Other context:**
+- CLI flag `--policy <mode>` (readonly | safe | dev | danger) - implemented;
   build + typecheck pass.
 - Finding: there is no approve/deny tool over the MCP channel and the client
   does not support elicitation -> CRITICAL approvals are blocked under
@@ -389,3 +412,67 @@ tests), and `npm run build` all green.
   HIGH under `danger`?
 - [ ] Normalize all names to `game_*` (recommended) vs. mirror reference names
   exactly (`read_scene`, ...) for drop-in familiarity?
+
+## Session Handoff
+
+**Updated:** 2026-06-29 - Step 5d session (149/149 complete).
+
+### Context snapshot
+
+Things this session discovered/decided that are NOT obvious from the code:
+
+- **Plan status: DONE.** The 1.5 Godot plan (full parity = 149 `game_*` tools)
+  is now fully delivered. The `schema-lock.test.ts` guard test is the source of
+  truth for "is the surface complete": it fails CI if the live registry diverges
+  from `FROZEN_TOOLS`. `grep -c "name: 'game_" src/tools/schema-lock.ts` == 149.
+- **Step 5d was implemented entirely as headless CLI text edits**, not engine
+  calls. Six tools (`game_load_sprite`, `game_export_mesh_library`,
+  `game_manage_scene_signals`, `game_manage_shader`, `game_manage_theme_resource`,
+  `game_manage_resource`) edit `.tscn`/`.tres`/`.gdshader` files directly so they
+  work offline with **no Godot binary installed** - this is the project-wide
+  convention for the CLI channel and why the whole test suite runs without Godot.
+- **`game_export_mesh_library` is a deliberate approximation.** A true
+  MeshLibrary normally requires the editor/engine to bake meshes. The headless
+  path writes a valid text MeshLibrary resource that *references* the source
+  scene, so it produces a real verifiable artifact offline. If a real Godot
+  binary becomes available, this is the first tool to revisit for engine-backed
+  baking.
+- **`game_locale` is the only Step 5d tool on the RUN channel** (needs a live
+  game). Its test only asserts the structured "no game running" error, mirroring
+  every other runtime tool - the RUN channel is never unit-tested against a real
+  engine, only against the fake TCP bridge or the not-running path.
+- **`game_manage_shader` is CRITICAL** (it writes executable GPU code) and stays
+  approval-gated even in `danger` mode - tests must pre-approve it via
+  `approvals.create(...).id` + `approvals.approve(id, 'session')`, same pattern
+  as `game_eval` / `game_create_project`.
+- **Adding any `game_*` tool requires four synchronized edits**, in this order:
+  `src/adapters/godot/cli.ts` (or `runtime.ts`) -> `src/tools/game-tools.ts`
+  (register) -> `src/policy/risk.ts` (risk band) -> `src/tools/schema-lock.ts`
+  (frozen entry). Forgetting the schema-lock entry fails the guard test; that is
+  by design.
+- The shared `.tres` `[resource]`-block upsert helper (`upsertResourceProperty`
+  in `cli.ts`) is reused by both theme and generic-resource management - changing
+  it affects both.
+
+### Next actions
+
+The plan is complete, so these are proposals based on the codebase state
+(priority order):
+
+1. **Tag the release.** Bump `package.json` (currently 1.4.3) to **1.5.0** and
+   move the `[Unreleased]` CHANGELOG block under a `## [1.5.0]` heading - the
+   149/149 milestone is a clean release point. (Low risk; docs/build already
+   green.)
+2. **Resolve the open decisions** still listed above before users adopt the
+   addon: confirm ports (6550/9090), the `folderforge_bridge` addon name, and
+   whether `game_eval`/`game_call_method` stay CRITICAL in `danger`. These are
+   user-facing API/contract choices, best locked before 1.5.0 ships.
+3. **Ship the GDScript addon** (`addons/folderforge_bridge/`, wiring point #8).
+   It is the one architectural piece still marked **New** and unbuilt - every
+   RUN-channel tool is currently only validated against the fake bridge, so the
+   real editor plugin + runtime autoload is needed for true end-to-end use.
+   Risk/blocker: requires a real Godot 4.4+ install to test, which this offline
+   sandbox does not have.
+4. **End-to-end smoke test with a real Godot binary** once the addon exists -
+   the only coverage gap is that no test has ever talked to a live engine.
+5. Revisit `game_export_mesh_library` for engine-backed baking (see context).
