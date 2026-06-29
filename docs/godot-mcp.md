@@ -276,8 +276,9 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 
 ## Status
 
-**Updated:** 2026-06-29 - **Phase:** Step 0 complete (`approval_approve` /
-`approval_deny` shipped); headless adapter (Step 1) is next.
+**Updated:** 2026-06-29 - **Phase:** Step 1 complete (headless read tier
+shipped: adapter + 6 read tools, wired + tested); headless edit tier (Step 2)
+is next.
 
 | Item | Status |
 | --- | --- |
@@ -287,11 +288,36 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 | Confirm multi-channel (CLI / EDIT / RUN) architecture | Done |
 | Decision: integrate into FolderForge (no separate repo) | Done |
 | Step 0 - approval_approve / approval_deny | Done |
-| Step 1 - adapter + headless read tier | Not started |
+| Step 1 - adapter + headless read tier | Done |
 | Step 2 - headless edit tier | Not started |
 | Step 3 - runtime bridge + runtime reads | Not started |
 | Step 4 - runtime mutation + input | Not started |
 | Step 5 - advanced runtime + rendering | Not started |
+
+### Step 1 - delivered surface (6 tools)
+
+`GodotCli` (`src/adapters/godot/cli.ts`) is the CLI/file-read channel; all six
+tools route through it (`src/tools/game-tools.ts`, group `game`). They parse
+Godot project files directly, so the file-based reads work even with no Godot
+binary installed; the engine probe degrades to `available: false` rather than
+failing.
+
+| Tool | Risk | Channel | Notes |
+| --- | --- | --- | --- |
+| `game_get_godot_version` | LOW | CLI | Probes `godot --headless --version`; graceful when absent |
+| `game_get_project_info` | LOW | CLI | Parses `project.godot` (name, config version, main scene) |
+| `game_read_scene` | LOW | CLI | Parses a `.tscn` into nodes + ext_resource refs |
+| `game_read_project_settings` | LOW | CLI | Raw `project.godot` + section list |
+| `game_list_project_files` | LOW | CLI | Recursive `res://` listing, skips `.git`/`.godot`/`.import` |
+| `game_read_file` | LOW | CLI | Capped UTF-8 read, project-root-guarded |
+
+Wiring done: `adapters.godot` config (`enabled`, `godotPath`, `editorPort`,
+`runtimePort`) in `src/core/config.ts` + `GodotConfig` in `src/core/types.ts`;
+risk bands in `src/policy/risk.ts`; frozen surface in `src/tools/schema-lock.ts`;
+registered in `src/tools/index.ts` with `game` added to the `full` preset and a
+new `godot` preset. Covered by `tests/integration/game-ops.test.ts` (8 tests).
+Verification: `npm run typecheck`, `npm run lint`, `npm test` (29 files, 239
+tests), and `npm run build` all green.
 
 **Related, already done (context):**
 - CLI flag `--policy <mode>` (readonly | safe | dev | danger) - implemented;

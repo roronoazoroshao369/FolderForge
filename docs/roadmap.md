@@ -173,6 +173,23 @@ Closes the UX gap where AI clients got stuck on high-risk tool calls (e.g.
 Verification status: `npm run typecheck`, `npm run lint`, `npm run build`, and
 `npm test` (27 files, 225 tests) all green at 1.4.2.
 
+## In progress (1.5 - Godot Step 1 shipped, Step 2 next)
+
+- **Step 0 - `approval_approve` / `approval_deny`** - **Done** (see below).
+- **Step 1 - adapter + headless read tier** - **Done.** New `GodotCli`
+  (`src/adapters/godot/cli.ts`) is the CLI/file-read channel; six read-only
+  `game_*` tools route through it (`src/tools/game-tools.ts`, group `game`):
+  `game_get_godot_version`, `game_get_project_info`, `game_read_scene`,
+  `game_read_project_settings`, `game_list_project_files`, `game_read_file`. All
+  LOW risk. They parse Godot project files directly, so the file reads work even
+  without a Godot binary installed; the engine probe degrades to
+  `available: false` instead of failing. Wired through config
+  (`adapters.godot` + `GodotConfig`), `risk.ts`, the frozen `schema-lock.ts`,
+  and `index.ts` (`game` added to the `full` preset + a new `godot` preset).
+  Covered by `tests/integration/game-ops.test.ts` (8 tests). Verification:
+  typecheck, lint, `npm test` (29 files, 239 tests), and build all green.
+- **Step 2 - headless edit tier (~35 tools)** - next.
+
 ## In progress (1.4.x - CLI policy override)
 
 - **`--policy <mode>` flag** (alias `--policy-mode`): set the policy mode at

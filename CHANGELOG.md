@@ -8,6 +8,26 @@ semantic versioning.
 
 ### Added
 
+- **Godot integration Step 1 - headless read tier (`game_*` tools).** A new
+  `game` tool group with six LOW-risk, read-only tools backed by `GodotCli`
+  (`src/adapters/godot/cli.ts`), the headless-CLI + file-parsing channel:
+  - `game_get_godot_version` - probe `godot --headless --version`; reports
+    `available: false` (not an error) when no binary is found.
+  - `game_get_project_info` - parse `project.godot` (name, config version, main
+    scene).
+  - `game_read_scene` - parse a `.tscn` into its node tree + external resource
+    references.
+  - `game_read_project_settings` - raw `project.godot` plus its section list.
+  - `game_list_project_files` - recursive `res://` listing, skipping
+    `.git`/`.godot`/`.import` caches, with a coarse kind classification.
+  - `game_read_file` - capped, project-root-guarded UTF-8 file read.
+
+  These parse project files directly, so they work with the editor closed and
+  even without Godot installed. New `adapters.godot` config block (`enabled`,
+  `godotPath`, `editorPort`, `runtimePort`); the surface is risk-classified,
+  added to the frozen schema lock, and registered with `game` in the `full`
+  preset plus a new `godot` group preset. Covered by
+  `tests/integration/game-ops.test.ts` (8 tests).
 - **`approval_approve` / `approval_deny` tools** to resolve a pending approval
   request directly over the MCP tool channel. `approval_approve` takes an `id`
   and an optional `scope` (`once` | `session`); `approval_deny` takes an `id`.

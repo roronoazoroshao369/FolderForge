@@ -118,6 +118,28 @@ export interface AdaptersConfig {
   serena?: AdapterDef;
   playwright?: AdapterDef;
   desktopCommander?: AdapterDef;
+  godot?: GodotConfig;
+}
+
+/**
+ * Godot game-engine adapter configuration (the `game_*` tool group).
+ *
+ * Unlike the child-MCP adapters, Godot is not an MCP server: FolderForge talks
+ * to it over three channels - a headless CLI runner (`godot --headless`), a
+ * WebSocket editor addon, and a TCP runtime autoload bridge. Step 1 only uses
+ * the CLI/file-read tier, so only `godotPath` is required; `editorPort` /
+ * `runtimePort` are reserved for the later runtime/editor tiers. A missing
+ * `godot` binary degrades gracefully: file-based reads still work (they parse
+ * project files directly) and engine-only ops return a clear, actionable error.
+ */
+export interface GodotConfig {
+  enabled: boolean;
+  /** Path to the Godot 4.x binary, or a bare name resolved on PATH. */
+  godotPath: string;
+  /** WebSocket port for the editor addon (EDIT channel; later tiers). */
+  editorPort: number;
+  /** TCP port for the runtime autoload bridge (RUN channel; later tiers). */
+  runtimePort: number;
 }
 
 /**

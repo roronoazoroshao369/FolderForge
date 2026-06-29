@@ -68,6 +68,14 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   approval_approve: 'LOW',
   approval_deny: 'LOW',
 
+  // game (Godot) - read tier (Step 1). All file/engine introspection only.
+  game_get_godot_version: 'LOW',
+  game_get_project_info: 'LOW',
+  game_read_scene: 'LOW',
+  game_read_project_settings: 'LOW',
+  game_list_project_files: 'LOW',
+  game_read_file: 'LOW',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',

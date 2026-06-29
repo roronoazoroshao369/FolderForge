@@ -171,6 +171,14 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'approval_approve', mutates: true, risk: 'LOW' },
   { name: 'approval_deny', mutates: true, risk: 'LOW' },
   { name: 'approval_request', mutates: false, risk: 'MEDIUM' },
+
+  // --- game (Godot) - read tier (Step 1) ---
+  { name: 'game_get_godot_version', mutates: false, risk: 'LOW' },
+  { name: 'game_get_project_info', mutates: false, risk: 'LOW' },
+  { name: 'game_read_scene', mutates: false, risk: 'LOW' },
+  { name: 'game_read_project_settings', mutates: false, risk: 'LOW' },
+  { name: 'game_list_project_files', mutates: false, risk: 'LOW' },
+  { name: 'game_read_file', mutates: false, risk: 'LOW' },
 ] as const;
 
 /** Set of frozen tool names for O(1) membership checks. */
