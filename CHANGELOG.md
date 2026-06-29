@@ -8,6 +8,25 @@ semantic versioning.
 
 ### Added
 
+- **Godot bridge addon shipped (`addons/folderforge_bridge/`, wiring point #8).**
+  The RUN-channel GDScript addon - the last unbuilt architectural piece of the
+  1.5 Godot integration - is now in the tree: an `EditorPlugin` (`plugin.gd`)
+  that registers a `FolderForgeBridge` autoload, and a runtime autoload
+  (`runtime_bridge.gd`) that runs a loopback-only (`127.0.0.1:9090`)
+  line-delimited JSON/TCP server inside the live game. It implements the full
+  RUN-channel op set the TS adapter (`src/adapters/godot/runtime.ts`) speaks -
+  liveness/`ping`, scene-tree/UI/node inspection, performance, logs/errors,
+  `eval`, property/method/signal/group control, node spawn/remove/reparent,
+  scene instantiate/change, screenshots, input injection, animation/audio,
+  window/world settings, and `locale`. Port is overridable via the
+  `FOLDERFORGE_RUNTIME_PORT` env var or the `folderforge/runtime_port` project
+  setting. Every op is wrapped so a bad path or failed call returns
+  `{ok:false,error}` instead of crashing the game; `eval` maps to the
+  CRITICAL/approval-gated `game_eval` tool. Includes an install/protocol/security
+  `README.md`. Requires Godot 4.2+. Note: this is GDScript, so it is validated
+  by the TS adapter's fake-bridge integration tests; an end-to-end smoke test
+  against a real Godot engine is still pending (no engine in this environment).
+
 - **Godot integration Step 5d - remaining editor/scene helpers (`game_*`
   tools).** 7 new tools bring the surface to **149/149 - full parity with the
   149-tool reference (`tugcantopaloglu/godot-mcp`) reached.** All risk-classified,

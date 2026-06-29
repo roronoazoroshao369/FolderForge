@@ -240,7 +240,7 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 | 5 | `src/policy/risk.ts` | Risk band for all 149 `game_*` tools |
 | 6 | `src/tools/schema-lock.ts` | Declare all 149 tools (surface is frozen + test-guarded) |
 | 7 | `src/core/config.ts` (+types) | `adapters.godot.enabled`, `editorPort`, `runtimePort`, `godotPath` |
-| 8 | `addons/folderforge_bridge/` | **New** - GDScript addon (editor plugin + runtime autoload) users copy in |
+| 8 | `addons/folderforge_bridge/` | **Done** - GDScript addon (editor plugin + runtime autoload TCP :9090) users copy in |
 
 ## Roadmap to 149
 
@@ -467,12 +467,15 @@ The plan is complete, so these are proposals based on the codebase state
    addon: confirm ports (6550/9090), the `folderforge_bridge` addon name, and
    whether `game_eval`/`game_call_method` stay CRITICAL in `danger`. These are
    user-facing API/contract choices, best locked before 1.5.0 ships.
-3. **Ship the GDScript addon** (`addons/folderforge_bridge/`, wiring point #8).
-   It is the one architectural piece still marked **New** and unbuilt - every
-   RUN-channel tool is currently only validated against the fake bridge, so the
-   real editor plugin + runtime autoload is needed for true end-to-end use.
-   Risk/blocker: requires a real Godot 4.4+ install to test, which this offline
-   sandbox does not have.
+3. **Ship the GDScript addon** (`addons/folderforge_bridge/`, wiring point #8) -
+   **Done.** The editor plugin (`plugin.gd`, registers the `FolderForgeBridge`
+   autoload), the runtime autoload (`runtime_bridge.gd`, loopback JSON/TCP server
+   on :9090 implementing the full RUN-channel op set), `plugin.cfg`, and an
+   install/protocol/security `README.md` are all in the tree. The only remaining
+   gap is an end-to-end smoke test against a real Godot 4.2+ engine (see #4); the
+   addon's protocol is otherwise validated by the TS adapter's fake-bridge
+   integration suite. Blocker for the smoke test: no Godot binary in this offline
+   sandbox.
 4. **End-to-end smoke test with a real Godot binary** once the addon exists -
    the only coverage gap is that no test has ever talked to a live engine.
 5. Revisit `game_export_mesh_library` for engine-backed baking (see context).
