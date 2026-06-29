@@ -8,6 +8,23 @@ semantic versioning.
 
 ### Added
 
+- **Godot integration Step 3 - runtime bridge + runtime read tier (`game_*`
+  tools).** A new RUN channel (`GodotRuntime`, `src/adapters/godot/runtime.ts`)
+  talks to a GDScript runtime-bridge autoload inside the *live game* over a
+  line-delimited JSON TCP protocol (default :9090). Twelve `game_*` tools:
+  - `game_runtime_status` (LOW) - probe whether a live game is reachable;
+    returns `running: true/false` and never fails when the game is stopped.
+  - `game_get_scene_tree`, `game_get_node_info`, `game_get_ui`,
+    `game_get_performance`, `game_get_nodes_in_group`,
+    `game_find_nodes_by_class`, `game_get_errors`, `game_get_logs` (LOW) -
+    read-only introspection of the running game.
+  - `game_pause` / `game_wait` (MEDIUM) - transiently perturb the live game.
+  - `game_eval` (CRITICAL) - run arbitrary GDScript in the live process;
+    approval-gated even in danger mode (Step 0).
+
+  When no game is running, every tool returns a structured, actionable error.
+  The surface is risk-classified, added to the frozen schema lock, and covered by
+  `tests/integration/game-ops.test.ts` (Step 3 suite drives a fake TCP bridge).
 - **Godot integration Step 2 - headless edit tier (`game_*` tools).** Mutating
   `game_*` tools backed by `GodotCli`, working directly on project files with the
   editor closed and project-root-guarded paths:

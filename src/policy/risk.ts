@@ -93,6 +93,23 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   game_delete_file: 'CRITICAL',
   game_create_script: 'CRITICAL',
 
+  // game (Godot) - runtime read tier (Step 3). RUN channel over the TCP bridge.
+  // Read-only introspection of the live game is LOW; pause/wait transiently
+  // perturb the running process (MEDIUM); eval runs arbitrary GDScript in the
+  // live process (CRITICAL, approval-gated).
+  game_runtime_status: 'LOW',
+  game_get_scene_tree: 'LOW',
+  game_get_node_info: 'LOW',
+  game_get_ui: 'LOW',
+  game_get_performance: 'LOW',
+  game_get_nodes_in_group: 'LOW',
+  game_find_nodes_by_class: 'LOW',
+  game_get_errors: 'LOW',
+  game_get_logs: 'LOW',
+  game_pause: 'MEDIUM',
+  game_wait: 'MEDIUM',
+  game_eval: 'CRITICAL',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',

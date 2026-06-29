@@ -276,9 +276,11 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 
 ## Status
 
-**Updated:** 2026-06-29 - **Phase:** Step 2 complete (headless edit tier
-shipped: mutating `game_*` tools for scenes, scripts, resources, project
-settings, and file I/O, wired + tested); runtime bridge (Step 3) is next.
+**Updated:** 2026-06-29 - **Phase:** Step 3 complete (runtime bridge + runtime
+read tier shipped: `GodotRuntime` RUN-channel adapter and twelve live-game
+`game_*` tools - scene-tree/node/UI inspection, performance, groups/class
+lookups, errors/logs, pause/wait, and approval-gated eval, wired + tested);
+runtime mutation + input (Step 4) is next.
 
 | Item | Status |
 | --- | --- |
@@ -290,7 +292,7 @@ settings, and file I/O, wired + tested); runtime bridge (Step 3) is next.
 | Step 0 - approval_approve / approval_deny | Done |
 | Step 1 - adapter + headless read tier | Done |
 | Step 2 - headless edit tier | Done |
-| Step 3 - runtime bridge + runtime reads | Not started |
+| Step 3 - runtime bridge + runtime reads | Done |
 | Step 4 - runtime mutation + input | Not started |
 | Step 5 - advanced runtime + rendering | Not started |
 
@@ -310,6 +312,36 @@ failing.
 | `game_read_project_settings` | LOW | CLI | Raw `project.godot` + section list |
 | `game_list_project_files` | LOW | CLI | Recursive `res://` listing, skips `.git`/`.godot`/`.import` |
 | `game_read_file` | LOW | CLI | Capped UTF-8 read, project-root-guarded |
+
+### Step 3 - delivered surface (12 tools)
+
+`GodotRuntime` (`src/adapters/godot/runtime.ts`) is the RUN channel: a stateless,
+one-connection-per-call client speaking line-delimited JSON to the runtime-bridge
+GDScript autoload inside the live game (TCP :9090). "Is the game running?" is a
+normal, recoverable state - a refused/closed connection returns a structured,
+actionable error instead of throwing, and `game_runtime_status` never fails.
+
+| Tool | Risk | Channel | Notes |
+| --- | --- | --- | --- |
+| `game_runtime_status` | LOW | RUN | `running: true/false` + port; never throws |
+| `game_get_scene_tree` | LOW | RUN | Live scene-tree snapshot, optional `maxDepth` |
+| `game_get_node_info` | LOW | RUN | Inspect a node by NodePath |
+| `game_get_ui` | LOW | RUN | Live Control/UI tree snapshot |
+| `game_get_performance` | LOW | RUN | fps, frame time, memory, object/node counts |
+| `game_get_nodes_in_group` | LOW | RUN | Node paths currently in a SceneTree group |
+| `game_find_nodes_by_class` | LOW | RUN | Node paths matching a class name |
+| `game_get_errors` | LOW | RUN | Drain the captured engine error buffer |
+| `game_get_logs` | LOW | RUN | Tail the engine log, optional last `lines` |
+| `game_pause` | MEDIUM | RUN | Pause/resume (transient, reversible) |
+| `game_wait` | MEDIUM | RUN | Advance/idle for N seconds |
+| `game_eval` | CRITICAL | RUN | Arbitrary GDScript in the live process; approval-gated |
+
+Wiring done: risk bands in `src/policy/risk.ts`, frozen surface in
+`src/tools/schema-lock.ts`, tools registered in `src/tools/game-tools.ts` (group
+`game`). Covered by `tests/integration/game-ops.test.ts` (Step 3 suite drives the
+tools against a fake TCP bridge: transport, framing, "no game running", and the
+approval gate on `game_eval`). Verification: `npm run typecheck`, `npm run lint`,
+`npm test` (29 files, 252 tests), and `npm run build` all green.
 
 Wiring done: `adapters.godot` config (`enabled`, `godotPath`, `editorPort`,
 `runtimePort`) in `src/core/config.ts` + `GodotConfig` in `src/core/types.ts`;

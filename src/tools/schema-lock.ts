@@ -193,6 +193,21 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_create_script', mutates: true, risk: 'CRITICAL' },
   { name: 'game_create_resource', mutates: true, risk: 'HIGH' },
   { name: 'game_modify_project_settings', mutates: true, risk: 'HIGH' },
+
+  // --- game (Godot) - runtime read tier (Step 3) ---
+  { name: 'game_runtime_status', mutates: false, risk: 'LOW' },
+  { name: 'game_get_scene_tree', mutates: false, risk: 'LOW' },
+  { name: 'game_get_node_info', mutates: false, risk: 'LOW' },
+  { name: 'game_get_ui', mutates: false, risk: 'LOW' },
+  { name: 'game_get_performance', mutates: false, risk: 'LOW' },
+  { name: 'game_get_nodes_in_group', mutates: false, risk: 'LOW' },
+  { name: 'game_find_nodes_by_class', mutates: false, risk: 'LOW' },
+  { name: 'game_get_errors', mutates: false, risk: 'LOW' },
+  { name: 'game_get_logs', mutates: false, risk: 'LOW' },
+  { name: 'game_pause', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_wait', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_eval', mutates: true, risk: 'CRITICAL' },
+
   { name: 'game_set_main_scene', mutates: true, risk: 'HIGH' },
 ] as const;
 

@@ -1,6 +1,7 @@
 import { defineTool } from './registry.js';
 import type { ToolDefinition, ToolContext } from '../core/types.js';
 import { GodotCli } from '../adapters/godot/cli.js';
+import { GodotRuntime } from '../adapters/godot/runtime.js';
 
 /**
  * Godot `game_*` tools - Step 1: adapter + headless read tier.
@@ -24,6 +25,17 @@ function cli(ctx: ToolContext): GodotCli {
     runtimePort: 9090,
   };
   return new GodotCli(godot);
+}
+
+/** Build the runtime-bridge client (RUN channel) from the configured port. */
+function runtime(ctx: ToolContext): GodotRuntime {
+  const godot = ctx.container.config.adapters?.godot ?? {
+    enabled: false,
+    godotPath: 'godot',
+    editorPort: 6550,
+    runtimePort: 9090,
+  };
+  return new GodotRuntime(godot);
 }
 
 /** Resolve the Godot project root: explicit arg, else the active workspace. */
@@ -450,6 +462,176 @@ export function gameTools(): ToolDefinition[] {
         const scene = String(args.scenePath ?? '');
         if (!scene) return { ok: false, error: 'scenePath is required.' };
         const res = cli(ctx).setMainScene(projectRoot(ctx, args), scene);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    // -----------------------------------------------------------------------
+    // Step 3 - runtime read tier (RUN channel). These talk to the live game
+    // over the TCP runtime bridge (GodotRuntime). They are read-only
+    // introspection (LOW) except `game_pause` / `game_wait`, which transiently
+    // perturb the running game (MEDIUM), and `game_eval`, which runs arbitrary
+    // GDScript in the live process (CRITICAL, approval-gated). Risk bands live
+    // in src/policy/risk.ts and are frozen in src/tools/schema-lock.ts. When no
+    // game is running, each tool returns a structured, actionable error.
+    // -----------------------------------------------------------------------
+
+    gameTool(
+      'game_runtime_status',
+      'Check whether a live Godot game is reachable on the runtime bridge (RUN channel). Returns running: true/false without failing when the game is not started.',
+      false,
+      {},
+      async (_args, ctx) => {
+        const running = await runtime(ctx).isRunning();
+        return { ok: true, data: { running, port: ctx.container.config.adapters?.godot?.runtimePort ?? 9090 } };
+      }
+    ),
+
+    gameTool(
+      'game_get_scene_tree',
+      'Snapshot the live scene tree from the running game (optionally bounded by depth). Requires a running game with the runtime bridge enabled.',
+      false,
+      {
+        maxDepth: { type: 'number', description: 'Optional maximum tree depth to return.' },
+      },
+      async (args, ctx) => {
+        const depth = typeof args.maxDepth === 'number' ? args.maxDepth : undefined;
+        const res = await runtime(ctx).getSceneTree(depth);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_get_node_info',
+      'Inspect a single live node (class, properties, children) by NodePath in the running game.',
+      false,
+      {
+        path: { type: 'string', description: 'NodePath of the node, e.g. /root/Main/Player.' },
+      },
+      async (args, ctx) => {
+        const path = String(args.path ?? '');
+        if (!path) return { ok: false, error: 'path is required.' };
+        const res = await runtime(ctx).getNodeInfo(path);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_get_ui',
+      'Snapshot the live Control/UI tree of the running game.',
+      false,
+      {},
+      async (_args, ctx) => {
+        const res = await runtime(ctx).getUi();
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_get_performance',
+      'Read live performance metrics (fps, frame time, memory, object/node counts) from the running game.',
+      false,
+      {},
+      async (_args, ctx) => {
+        const res = await runtime(ctx).performance();
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_get_nodes_in_group',
+      'List the live node paths currently in a SceneTree group.',
+      false,
+      {
+        group: { type: 'string', description: 'Group name to query.' },
+      },
+      async (args, ctx) => {
+        const group = String(args.group ?? '');
+        if (!group) return { ok: false, error: 'group is required.' };
+        const res = await runtime(ctx).getNodesInGroup(group);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_find_nodes_by_class',
+      'Find live node paths whose class matches the given className in the running game.',
+      false,
+      {
+        className: { type: 'string', description: 'Godot class name to match, e.g. Sprite2D.' },
+      },
+      async (args, ctx) => {
+        const className = String(args.className ?? '');
+        if (!className) return { ok: false, error: 'className is required.' };
+        const res = await runtime(ctx).findNodesByClass(className);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_get_errors',
+      'Drain the captured engine error buffer from the running game.',
+      false,
+      {},
+      async (_args, ctx) => {
+        const res = await runtime(ctx).getErrors();
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_get_logs',
+      'Tail the captured engine log from the running game (optionally the last N lines).',
+      false,
+      {
+        lines: { type: 'number', description: 'Optional number of trailing log lines to return.' },
+      },
+      async (args, ctx) => {
+        const lines = typeof args.lines === 'number' ? args.lines : undefined;
+        const res = await runtime(ctx).getLogs(lines);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_pause',
+      'Pause or resume the running game (transient, reversible). MEDIUM: perturbs the live process.',
+      true,
+      {
+        paused: { type: 'boolean', description: 'true to pause, false to resume.' },
+      },
+      async (args, ctx) => {
+        const res = await runtime(ctx).pause(args.paused === true);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_wait',
+      'Ask the running game to advance/idle for the given number of seconds and acknowledge. MEDIUM: perturbs timing.',
+      true,
+      {
+        seconds: { type: 'number', description: 'Seconds to wait/advance.' },
+      },
+      async (args, ctx) => {
+        const seconds = typeof args.seconds === 'number' ? args.seconds : 0;
+        if (seconds <= 0) return { ok: false, error: 'seconds must be a positive number.' };
+        const res = await runtime(ctx).wait(seconds);
+        return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
+      }
+    ),
+
+    gameTool(
+      'game_eval',
+      'Evaluate an arbitrary GDScript expression in the running game. CRITICAL: runs code in the live process, so it is gated by the approval queue.',
+      true,
+      {
+        code: { type: 'string', description: 'GDScript expression/statement to evaluate.' },
+      },
+      async (args, ctx) => {
+        const code = String(args.code ?? '');
+        if (!code) return { ok: false, error: 'code is required.' };
+        const res = await runtime(ctx).evaluate(code);
         return res.ok ? { ok: true, data: res.data } : { ok: false, error: res.error ?? 'Godot operation failed' };
       }
     ),

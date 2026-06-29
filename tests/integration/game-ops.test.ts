@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer, type Server, type Socket } from 'node:net';
 import { loadConfig } from '../../src/core/config.js';
 import { Container } from '../../src/core/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
@@ -407,5 +408,187 @@ describe('game tools integration (Godot Step 2 - edit tier)', () => {
     });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/escape/i);
+  });
+});
+
+/**
+ * Godot integration - Step 3 (runtime read tier, RUN channel).
+ *
+ * Exercises the runtime `game_*` tools end-to-end against a *fake* TCP runtime
+ * bridge: a tiny line-delimited-JSON echo server that stands in for the GDScript
+ * autoload running inside a live game. This lets us validate the transport,
+ * request framing, response routing, and graceful "no game running" handling
+ * without launching Godot.
+ */
+describe('game tools integration (Godot Step 3 - runtime read tier)', () => {
+  let server: Server | null = null;
+  let port = 0;
+  const sockets = new Set<Socket>();
+
+  /** Spin up a fake runtime bridge that answers ops from `handlers`. */
+  async function startBridge(
+    handlers: Record<string, (params: Record<string, unknown>) => unknown>
+  ): Promise<number> {
+    server = createServer((socket) => {
+      sockets.add(socket);
+      socket.setEncoding('utf8');
+      let buffer = '';
+      socket.on('data', (chunk: string) => {
+        buffer += chunk;
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          const req = JSON.parse(line) as { id: number; op: string; params: Record<string, unknown> };
+          const handler = handlers[req.op];
+          if (!handler) {
+            socket.write(`${JSON.stringify({ id: req.id, ok: false, error: `unknown op: ${req.op}` })}\n`);
+            continue;
+          }
+          const result = handler(req.params ?? {});
+          socket.write(`${JSON.stringify({ id: req.id, ok: true, data: result })}\n`);
+        }
+      });
+      socket.on('close', () => sockets.delete(socket));
+      socket.on('error', () => sockets.delete(socket));
+    });
+    await new Promise<void>((res) => server!.listen(0, '127.0.0.1', res));
+    const addr = server!.address();
+    return typeof addr === 'object' && addr ? addr.port : 0;
+  }
+
+  /** Build a registry whose Godot runtimePort points at the fake bridge. */
+  function runtimeSetup(runtimePort: number, mode: PolicyMode = 'dev') {
+    const config = loadConfig({ projectRoot: tmpdir() });
+    config.policy.defaultMode = mode;
+    config.adapters = {
+      ...config.adapters,
+      godot: { enabled: true, godotPath: 'godot', editorPort: 6550, runtimePort },
+    };
+    const container = new Container(config);
+    container.policy.setMode(mode);
+    const registry = buildRegistry(container);
+    return { container, registry };
+  }
+
+  afterEach(async () => {
+    for (const s of sockets) s.destroy();
+    sockets.clear();
+    if (server) {
+      await new Promise<void>((res) => server!.close(() => res()));
+      server = null;
+    }
+    port = 0;
+  });
+
+  it('reports running:false when no game is reachable', async () => {
+    const { registry } = runtimeSetup(59999);
+    const res = data<{ running: boolean; port: number }>(
+      await registry.call('game_runtime_status', {})
+    );
+    expect(res.running).toBe(false);
+    expect(res.port).toBe(59999);
+  });
+
+  it('returns a structured "no game running" error for a runtime read', async () => {
+    const { registry } = runtimeSetup(59999);
+    const res = await registry.call('game_get_scene_tree', {});
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/no running godot game|connection closed/i);
+  });
+
+  it('reports running:true and reads the live scene tree over the bridge', async () => {
+    port = await startBridge({
+      ping: () => ({ pong: true }),
+      get_scene_tree: (params) => ({ root: 'Main', maxDepth: params.maxDepth ?? null, children: ['Player'] }),
+    });
+    const { registry } = runtimeSetup(port);
+
+    const status = data<{ running: boolean }>(await registry.call('game_runtime_status', {}));
+    expect(status.running).toBe(true);
+
+    const tree = data<{ root: string; children: string[]; maxDepth: number | null }>(
+      await registry.call('game_get_scene_tree', { maxDepth: 3 })
+    );
+    expect(tree.root).toBe('Main');
+    expect(tree.children).toContain('Player');
+    expect(tree.maxDepth).toBe(3);
+  });
+
+  it('inspects a node, performance, groups, and class lookups', async () => {
+    port = await startBridge({
+      get_node_info: (p) => ({ path: p.path, class: 'CharacterBody2D' }),
+      performance: () => ({ fps: 60, memory: 1234 }),
+      get_nodes_in_group: (p) => ({ group: p.group, nodes: ['/root/Main/Enemy'] }),
+      find_nodes_by_class: (p) => ({ className: p.className, nodes: ['/root/Main/Sprite'] }),
+      get_ui: () => ({ controls: ['Button'] }),
+      get_errors: () => ({ errors: [] }),
+      get_logs: (p) => ({ lines: p.lines ?? null, log: 'ready' }),
+    });
+    const { registry } = runtimeSetup(port);
+
+    const node = data<{ path: string; class: string }>(
+      await registry.call('game_get_node_info', { path: '/root/Main/Player' })
+    );
+    expect(node.path).toBe('/root/Main/Player');
+    expect(node.class).toBe('CharacterBody2D');
+
+    const perf = data<{ fps: number }>(await registry.call('game_get_performance', {}));
+    expect(perf.fps).toBe(60);
+
+    const group = data<{ nodes: string[] }>(
+      await registry.call('game_get_nodes_in_group', { group: 'enemies' })
+    );
+    expect(group.nodes).toContain('/root/Main/Enemy');
+
+    const byClass = data<{ nodes: string[] }>(
+      await registry.call('game_find_nodes_by_class', { className: 'Sprite2D' })
+    );
+    expect(byClass.nodes).toContain('/root/Main/Sprite');
+
+    const ui = data<{ controls: string[] }>(await registry.call('game_get_ui', {}));
+    expect(ui.controls).toContain('Button');
+
+    const logs = data<{ log: string }>(await registry.call('game_get_logs', { lines: 10 }));
+    expect(logs.log).toBe('ready');
+  });
+
+  it('pauses the game and runs eval only with a CRITICAL approval', async () => {
+    port = await startBridge({
+      pause: (p) => ({ paused: p.paused }),
+      wait: (p) => ({ waited: p.seconds }),
+      eval: (p) => ({ result: `evaluated:${String(p.code)}` }),
+    });
+    const { container, registry } = runtimeSetup(port, 'danger');
+
+    const paused = data<{ paused: boolean }>(
+      await registry.call('game_pause', { paused: true })
+    );
+    expect(paused.paused).toBe(true);
+
+    const waited = data<{ waited: number }>(await registry.call('game_wait', { seconds: 1 }));
+    expect(waited.waited).toBe(1);
+
+    // game_eval is CRITICAL: pre-grant a session approval so it runs.
+    container.policy.approvals.approve(
+      container.policy.approvals.create('game_eval', {}, 'CRITICAL', 'test').id,
+      'session'
+    );
+    const evaled = data<{ result: string }>(
+      await registry.call('game_eval', { code: '1 + 1' })
+    );
+    expect(evaled.result).toBe('evaluated:1 + 1');
+  });
+
+  it('validates required arguments before touching the bridge', async () => {
+    const { registry } = runtimeSetup(59999);
+    const noPath = await registry.call('game_get_node_info', {});
+    expect(noPath.ok).toBe(false);
+    expect(noPath.error).toMatch(/path is required/i);
+
+    const noGroup = await registry.call('game_get_nodes_in_group', {});
+    expect(noGroup.ok).toBe(false);
+    expect(noGroup.error).toMatch(/group is required/i);
   });
 });
