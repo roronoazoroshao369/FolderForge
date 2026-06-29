@@ -168,6 +168,8 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   // a deliberate, separate change (see docs/roadmap.md post-1.0 notes).
   { name: 'audit_export', mutates: false, risk: 'MEDIUM' },
   { name: 'approval_status', mutates: false, risk: 'LOW' },
+  { name: 'approval_approve', mutates: true, risk: 'LOW' },
+  { name: 'approval_deny', mutates: true, risk: 'LOW' },
   { name: 'approval_request', mutates: false, risk: 'MEDIUM' },
 ] as const;
 

@@ -100,6 +100,58 @@ export function securityTools(): ToolDefinition[] {
       },
     }),
     defineTool({
+      name: 'approval_approve',
+      description:
+        'Approve a pending approval request by id. Use scope="session" to allow ' +
+        'the same tool for the rest of this session, or "once" (default) for a ' +
+        'single call. This unblocks HIGH/CRITICAL tool calls over the MCP channel ' +
+        'when the dashboard is disabled and the client cannot elicit.',
+      group: 'security',
+      mutates: true,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Approval request id (e.g. appr_xxxxxxxx).' },
+          scope: { type: 'string', enum: ['once', 'session'], description: 'Approval scope (default: once).' },
+        },
+        required: ['id'],
+      },
+      handler: async (args, ctx) => {
+        const id = String(args.id);
+        const scope = args.scope === 'session' ? 'session' : 'once';
+        const existing = ctx.container.policy.approvals.get(id);
+        if (!existing) return { ok: false, error: `Approval not found: ${id}` };
+        if (existing.state !== 'pending') {
+          return { ok: false, error: `Approval ${id} is already ${existing.state}.` };
+        }
+        const req = ctx.container.policy.approvals.approve(id, scope);
+        ctx.container.audit.record({ type: 'approval_resolved', summary: `approve ${id} (${scope})` });
+        return { ok: true, data: req };
+      },
+    }),
+    defineTool({
+      name: 'approval_deny',
+      description: 'Deny a pending approval request by id, blocking the gated tool call.',
+      group: 'security',
+      mutates: true,
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Approval request id (e.g. appr_xxxxxxxx).' } },
+        required: ['id'],
+      },
+      handler: async (args, ctx) => {
+        const id = String(args.id);
+        const existing = ctx.container.policy.approvals.get(id);
+        if (!existing) return { ok: false, error: `Approval not found: ${id}` };
+        if (existing.state !== 'pending') {
+          return { ok: false, error: `Approval ${id} is already ${existing.state}.` };
+        }
+        const req = ctx.container.policy.approvals.deny(id);
+        ctx.container.audit.record({ type: 'approval_resolved', summary: `deny ${id}` });
+        return { ok: true, data: req };
+      },
+    }),
+    defineTool({
       name: 'approval_request',
       description: 'Create a manual approval request for a tool action.',
       group: 'security',

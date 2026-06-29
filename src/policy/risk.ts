@@ -65,6 +65,8 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   db_explain: 'LOW',
   secret_scan: 'LOW',
   approval_status: 'LOW',
+  approval_approve: 'LOW',
+  approval_deny: 'LOW',
 
   // MEDIUM
   file_write: 'MEDIUM',

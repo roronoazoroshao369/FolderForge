@@ -111,7 +111,11 @@ without executing the tool or creating an approval request. `audit_recent`,
 
 ### Approvals
 `approval_status`, `approval_request` - inspect pending approval requests created
-by the engine, or raise one explicitly.
+by the engine, or raise one explicitly. `approval_approve` (`id`, optional
+`scope: once|session`), `approval_deny` (`id`) - resolve a pending request
+directly over the MCP tool channel. This unblocks HIGH/CRITICAL calls when the
+dashboard is disabled (`--no-dashboard`) and the client cannot elicit;
+`scope: "session"` allows the same tool for the rest of the run.
 
 #### Interactive approval via elicitation (1.3.3+)
 

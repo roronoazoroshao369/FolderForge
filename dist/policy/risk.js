@@ -61,6 +61,8 @@ export const TOOL_RISK = {
     db_explain: 'LOW',
     secret_scan: 'LOW',
     approval_status: 'LOW',
+    approval_approve: 'LOW',
+    approval_deny: 'LOW',
     // MEDIUM
     file_write: 'MEDIUM',
     file_patch: 'MEDIUM',

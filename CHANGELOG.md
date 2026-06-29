@@ -8,6 +8,14 @@ semantic versioning.
 
 ### Added
 
+- **`approval_approve` / `approval_deny` tools** to resolve a pending approval
+  request directly over the MCP tool channel. `approval_approve` takes an `id`
+  and an optional `scope` (`once` | `session`); `approval_deny` takes an `id`.
+  This unblocks HIGH/CRITICAL tool calls when the dashboard is disabled
+  (`--no-dashboard`) and the client cannot elicit - the prerequisite (Godot
+  integration Step 0) before any CRITICAL `game_*` tool can ship. Both are LOW
+  risk, recorded in the schema lock and audit log, and covered by
+  `tests/integration/approval-ops.test.ts`.
 - **`--policy <mode>` CLI flag** (alias `--policy-mode`) to set the policy mode at
   startup: `readonly` | `safe` | `dev` | `danger`. The CLI value wins over the
   config file's `policy.defaultMode`. Invalid values are ignored with a warning

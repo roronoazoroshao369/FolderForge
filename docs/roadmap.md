@@ -181,6 +181,42 @@ Verification status: `npm run typecheck`, `npm run lint`, `npm run build`, and
   Wired in `src/main.ts` and documented in the README CLI table. Not yet
   version-tagged; tests/build green.
 
+## Planned (1.5 - Godot game engine integration)
+
+A new `game` tool group integrating the Godot 4.x engine, covering both
+edit-time and runtime control, routed through the existing policy / approval /
+audit pipeline. Full design, the complete tool map, wiring points, and the
+step-by-step delivery plan live in `docs/godot-mcp.md`.
+
+- **Coverage target: 149/149.** Full parity with the most complete open-source
+  Godot MCP today (`tugcantopaloglu/godot-mcp`, 149 tools across 26 families).
+  Every reference tool maps 1:1 to a FolderForge `game_*` equivalent so an agent
+  can vibe-code a whole game; FolderForge then exceeds the baseline by adding the
+  governance layer it lacks.
+- **Differentiator:** governance-first - destructive/runtime-mutating ops
+  (`game_eval`, `game_call_method`, `game_delete_file`, networking,
+  `game_create_project`, runtime script attach) are CRITICAL and gated through
+  the approval queue; HIGH ops (scene/project/node edits) are approval-gated
+  outside `dev`/`danger`; every engine op is audited. No other Godot MCP offers
+  this.
+- **Architecture:** TS adapter (`src/adapters/godot/`) with three channels - a
+  headless-CLI runner (`godot --headless`) for editor-less edits, a WebSocket
+  client to a GDScript editor addon (`addons/folderforge_bridge/`), and a TCP
+  autoload bridge for the running game.
+- **Delivery (sliced to 149):**
+  - Step 0 - `approval_approve` / `approval_deny` tools (unblock CRITICAL approval
+    over the MCP channel when `--no-dashboard` and no elicitation). **Done** -
+    LOW-risk tools in `src/tools/security-tools.ts`, registered in `risk.ts` +
+    `schema-lock.ts`, covered by `tests/integration/approval-ops.test.ts`.
+  - Step 1 - adapter + headless read tier (~25 tools). **Next.**
+  - Step 2 - headless edit tier (~35 tools).
+  - Step 3 - runtime bridge + runtime read tier (~20 tools).
+  - Step 4 - runtime mutation + input tier (~35 tools).
+  - Step 5 - advanced runtime + rendering tier (~34 tools).
+- **Status:** planning complete; the full 149-tool surface is mapped to risk
+  bands + channels; no code started. See `docs/godot-mcp.md` for the per-family
+  tool map, live status table, and open decisions.
+
 ## Next (post-1.0 ideas)
 
 - Distributed/shared rate limiting for multi-instance deployments.
