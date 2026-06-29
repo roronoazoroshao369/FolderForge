@@ -152,6 +152,27 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   game_audio_bus_layout: 'MEDIUM',
   game_audio_spatial: 'MEDIUM',
 
+  // game (Godot) - runtime system/window + UI controls tier (Step 4 group 3).
+  // RUN channel. Family 19 (system/window), 25 (UI controls). os_info is a pure
+  // read (LOW); time_scale transiently perturbs the live game (MEDIUM); window/
+  // process_mode/world_settings mutate live engine/node state (HIGH); UI control
+  // interactions transiently drive the live UI (MEDIUM); game_script attaches
+  // arbitrary GDScript at runtime (CRITICAL, approval-gated even in danger).
+  game_os_info: 'LOW',
+  game_time_scale: 'MEDIUM',
+  game_window: 'HIGH',
+  game_process_mode: 'HIGH',
+  game_world_settings: 'HIGH',
+  game_script: 'CRITICAL',
+  game_ui_control: 'MEDIUM',
+  game_ui_text: 'MEDIUM',
+  game_ui_popup: 'MEDIUM',
+  game_ui_tree: 'MEDIUM',
+  game_ui_item_list: 'MEDIUM',
+  game_ui_tabs: 'MEDIUM',
+  game_ui_menu: 'MEDIUM',
+  game_ui_range: 'MEDIUM',
+
   // MEDIUM
   file_write: 'MEDIUM',
   file_patch: 'MEDIUM',

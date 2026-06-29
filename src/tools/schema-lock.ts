@@ -246,6 +246,22 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_audio_effect', mutates: true, risk: 'MEDIUM' },
   { name: 'game_audio_bus_layout', mutates: true, risk: 'MEDIUM' },
   { name: 'game_audio_spatial', mutates: true, risk: 'MEDIUM' },
+  // Family 19: system & window
+  { name: 'game_os_info', mutates: false, risk: 'LOW' },
+  { name: 'game_time_scale', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_window', mutates: true, risk: 'HIGH' },
+  { name: 'game_process_mode', mutates: true, risk: 'HIGH' },
+  { name: 'game_world_settings', mutates: true, risk: 'HIGH' },
+  { name: 'game_script', mutates: true, risk: 'CRITICAL' },
+  // Family 25: UI controls
+  { name: 'game_ui_control', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_ui_text', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_ui_popup', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_ui_tree', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_ui_item_list', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_ui_tabs', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_ui_menu', mutates: true, risk: 'MEDIUM' },
+  { name: 'game_ui_range', mutates: true, risk: 'MEDIUM' },
 
   { name: 'game_set_main_scene', mutates: true, risk: 'HIGH' },
 ] as const;

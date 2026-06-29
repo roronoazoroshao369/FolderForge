@@ -1039,5 +1039,161 @@ export function gameTools(): ToolDefinition[] {
       'audio_spatial',
       ['path']
     ),
+
+    // --- Family 19: system & window ---
+    runtimeTool(
+      'game_os_info',
+      'Read OS/platform info from the running game (name, version, locale, model). Read-only.',
+      false,
+      {},
+      'os_info'
+    ),
+    runtimeTool(
+      'game_time_scale',
+      'Set the engine time scale of the running game (slow-motion / fast-forward). Transient.',
+      true,
+      { scale: { type: 'number', description: 'Time scale multiplier; 1 = normal, 0.5 = half speed.' } },
+      'time_scale',
+      ['scale']
+    ),
+    runtimeTool(
+      'game_window',
+      'Configure the running game window (size, mode, position, title).',
+      true,
+      {
+        property: { type: 'string', description: 'Window property, e.g. size, mode, position, title.' },
+        value: { description: 'Value to assign to the property.' },
+      },
+      'window',
+      ['property', 'value']
+    ),
+    runtimeTool(
+      'game_process_mode',
+      'Set the process mode of a live node (inherit | pausable | when_paused | always | disabled).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the node.' },
+        mode: { type: 'string', description: 'Process mode: inherit | pausable | when_paused | always | disabled.' },
+      },
+      'process_mode',
+      ['path', 'mode']
+    ),
+    runtimeTool(
+      'game_world_settings',
+      'Configure live world settings (gravity, default environment, physics ticks).',
+      true,
+      {
+        property: { type: 'string', description: 'World/physics setting, e.g. gravity, physics_ticks_per_second.' },
+        value: { description: 'Value to assign.' },
+      },
+      'world_settings',
+      ['property', 'value']
+    ),
+    runtimeTool(
+      'game_script',
+      'Attach or replace a GDScript on a live node at runtime (arbitrary code execution). CRITICAL: approval-gated even in danger mode.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the target node.' },
+        source: { type: 'string', description: 'GDScript source to attach.' },
+      },
+      'script',
+      ['path', 'source']
+    ),
+
+    // --- Family 25: UI controls ---
+    runtimeTool(
+      'game_ui_control',
+      'Interact with a live Control node (focus, set value, toggle, press).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Control node.' },
+        action: { type: 'string', description: 'Action: focus | press | toggle | set_value.' },
+        value: { description: 'Value for set_value actions.' },
+      },
+      'ui_control',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_ui_text',
+      'Set or read text on a live Label / LineEdit / TextEdit node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the text node.' },
+        text: { type: 'string', description: 'Text to set (omit to read current text).' },
+      },
+      'ui_text',
+      ['path']
+    ),
+    runtimeTool(
+      'game_ui_popup',
+      'Show, hide, or position a live Popup / Window node.',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the popup node.' },
+        action: { type: 'string', description: 'Action: show | hide | popup_centered.' },
+      },
+      'ui_popup',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_ui_tree',
+      'Manipulate a live Tree control (add/remove/select items, expand).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Tree node.' },
+        action: { type: 'string', description: 'Action: select | expand | collapse | clear.' },
+        item: { description: 'Target item path/index for the action.' },
+      },
+      'ui_tree',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_ui_item_list',
+      'Manipulate a live ItemList control (add/remove/select items).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the ItemList node.' },
+        action: { type: 'string', description: 'Action: add | remove | select | clear.' },
+        item: { description: 'Item text or index for the action.' },
+      },
+      'ui_item_list',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_ui_tabs',
+      'Control a live TabContainer / TabBar (switch, add, remove tabs).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the tab node.' },
+        action: { type: 'string', description: 'Action: select | add | remove.' },
+        tab: { description: 'Tab index or title for the action.' },
+      },
+      'ui_tabs',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_ui_menu',
+      'Interact with a live MenuButton / PopupMenu (open, select an item).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the menu node.' },
+        action: { type: 'string', description: 'Action: open | select.' },
+        item: { description: 'Menu item index or id for select.' },
+      },
+      'ui_menu',
+      ['path', 'action']
+    ),
+    runtimeTool(
+      'game_ui_range',
+      'Set the value of a live Range control (Slider, ProgressBar, SpinBox).',
+      true,
+      {
+        path: { type: 'string', description: 'NodePath of the Range node.' },
+        value: { type: 'number', description: 'Value to assign within the control range.' },
+      },
+      'ui_range',
+      ['path', 'value']
+    ),
   ];
 }

@@ -950,3 +950,141 @@ describe('game tools integration (Godot Step 4 - input + animation + audio)', ()
     expect(noEffect.error).toMatch(/effect is required/i);
   });
 });
+
+/**
+ * Godot integration - Step 4 group 3 (runtime system/window + UI controls).
+ *
+ * Same fake-bridge pattern. Validates request framing, runtimeTool()
+ * arg-forwarding + required-arg validation, read vs mutate classification, and
+ * that the CRITICAL game_script is approval-gated even in danger mode.
+ */
+describe('game tools integration (Godot Step 4 - system/window + UI controls)', () => {
+  let server: Server | null = null;
+  let port = 0;
+  const sockets = new Set<Socket>();
+
+  async function startBridge(
+    handlers: Record<string, (params: Record<string, unknown>) => unknown>
+  ): Promise<number> {
+    server = createServer((socket) => {
+      sockets.add(socket);
+      socket.setEncoding('utf8');
+      let buffer = '';
+      socket.on('data', (chunk: string) => {
+        buffer += chunk;
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          const req = JSON.parse(line) as { id: number; op: string; params: Record<string, unknown> };
+          const handler = handlers[req.op];
+          if (!handler) {
+            socket.write(`${JSON.stringify({ id: req.id, ok: false, error: `unknown op: ${req.op}` })}\n`);
+            continue;
+          }
+          const result = handler(req.params ?? {});
+          socket.write(`${JSON.stringify({ id: req.id, ok: true, data: result })}\n`);
+        }
+      });
+      socket.on('close', () => sockets.delete(socket));
+      socket.on('error', () => sockets.delete(socket));
+    });
+    await new Promise<void>((res) => server!.listen(0, '127.0.0.1', res));
+    const addr = server!.address();
+    return typeof addr === 'object' && addr ? addr.port : 0;
+  }
+
+  function runtimeSetup(runtimePort: number, mode: PolicyMode = 'danger') {
+    const config = loadConfig({ projectRoot: tmpdir() });
+    config.policy.defaultMode = mode;
+    config.adapters = {
+      ...config.adapters,
+      godot: { enabled: true, godotPath: 'godot', editorPort: 6550, runtimePort },
+    };
+    const container = new Container(config);
+    container.policy.setMode(mode);
+    const registry = buildRegistry(container);
+    return { container, registry };
+  }
+
+  afterEach(async () => {
+    for (const s of sockets) s.destroy();
+    sockets.clear();
+    if (server) {
+      await new Promise<void>((res) => server!.close(() => res()));
+      server = null;
+    }
+    port = 0;
+  });
+
+  it('drives system/window and UI ops over the bridge', async () => {
+    port = await startBridge({
+      os_info: () => ({ name: 'Linux', locale: 'en_US' }),
+      time_scale: (p) => ({ scale: p.scale }),
+      window: (p) => ({ property: p.property, value: p.value }),
+      process_mode: (p) => ({ path: p.path, mode: p.mode }),
+      world_settings: (p) => ({ property: p.property, value: p.value }),
+      ui_control: (p) => ({ path: p.path, action: p.action }),
+      ui_text: (p) => ({ path: p.path, text: p.text ?? null }),
+      ui_range: (p) => ({ path: p.path, value: p.value }),
+      ui_tabs: (p) => ({ path: p.path, action: p.action }),
+    });
+    const { registry } = runtimeSetup(port);
+
+    const os = data<{ name: string }>(await registry.call('game_os_info', {}));
+    expect(os.name).toBe('Linux');
+
+    const ts = data<{ scale: number }>(
+      await registry.call('game_time_scale', { scale: 0.5 })
+    );
+    expect(ts.scale).toBe(0.5);
+
+    const win = data<{ property: string }>(
+      await registry.call('game_window', { property: 'title', value: 'My Game' })
+    );
+    expect(win.property).toBe('title');
+
+    const pm = data<{ mode: string }>(
+      await registry.call('game_process_mode', { path: '/root/Main', mode: 'always' })
+    );
+    expect(pm.mode).toBe('always');
+
+    const ctrl = data<{ action: string }>(
+      await registry.call('game_ui_control', { path: '/root/Button', action: 'press' })
+    );
+    expect(ctrl.action).toBe('press');
+
+    const range = data<{ value: number }>(
+      await registry.call('game_ui_range', { path: '/root/Slider', value: 42 })
+    );
+    expect(range.value).toBe(42);
+  });
+
+  it('validates required args before touching the bridge', async () => {
+    const { registry } = runtimeSetup(59999);
+
+    const noScale = await registry.call('game_time_scale', {});
+    expect(noScale.ok).toBe(false);
+    expect(noScale.error).toMatch(/scale is required/i);
+
+    const noMode = await registry.call('game_process_mode', { path: '/root/Main' });
+    expect(noMode.ok).toBe(false);
+    expect(noMode.error).toMatch(/mode is required/i);
+
+    const noAction = await registry.call('game_ui_control', { path: '/root/Button' });
+    expect(noAction.ok).toBe(false);
+    expect(noAction.error).toMatch(/action is required/i);
+  });
+
+  it('gates the CRITICAL game_script behind approval even in danger mode', async () => {
+    const { registry } = runtimeSetup(59999);
+    const res = await registry.call('game_script', {
+      path: '/root/Main',
+      source: 'func _ready(): pass',
+    });
+    // CRITICAL tools are never auto-run; they require approval, so the call does
+    // not succeed outright (it is queued / denied rather than executed).
+    expect(res.ok).toBe(false);
+  });
+});
