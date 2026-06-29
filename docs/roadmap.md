@@ -157,6 +157,30 @@ Closes the UX gap where AI clients got stuck on high-risk tool calls (e.g.
   scope, content-block mapping (text+resource), and resource_link blocks.
   All 225 tests pass.
 
+## Done (1.4 - zero-config + ergonomics)
+
+- **1.4.0 - Zero-config first run.** When no config is found in any discovery
+  location, FolderForge writes a complete, batteries-included `folderforge.yaml`
+  next to the project and loads it immediately (`policy.defaultMode: dev`,
+  `tools.preset: vibe-lite`, `adapters.playwright.enabled: true`). Existing
+  config files are never overwritten; `--config <file>` skips auto-generation; a
+  failed write is non-fatal and falls back to built-in defaults.
+- **1.4.1 - Config-file handling** writes the auto-generated `config.yaml` on
+  first run (refinement of the 1.4.0 behavior).
+- **1.4.2 - Playwright adapter pin.** The Playwright child-MCP adapter is pinned
+  to `@playwright/mcp@0.0.41` for reproducible browser-automation installs.
+
+Verification status: `npm run typecheck`, `npm run lint`, `npm run build`, and
+`npm test` (27 files, 225 tests) all green at 1.4.2.
+
+## In progress (1.4.x - CLI policy override)
+
+- **`--policy <mode>` flag** (alias `--policy-mode`): set the policy mode at
+  startup (`readonly` | `safe` | `dev` | `danger`); the CLI value wins over the
+  config file's `policy.defaultMode`. Invalid values are ignored with a warning.
+  Wired in `src/main.ts` and documented in the README CLI table. Not yet
+  version-tagged; tests/build green.
+
 ## Next (post-1.0 ideas)
 
 - Distributed/shared rate limiting for multi-instance deployments.

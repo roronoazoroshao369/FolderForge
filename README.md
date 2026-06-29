@@ -278,6 +278,7 @@ curl -sS -X POST http://127.0.0.1:17331/mcp \
 | `--tools-groups <csv>` | Limit advertised tools to these groups |
 | `--tools-enable <csv>` | Always-keep tool names |
 | `--tools-disable <csv>` | Drop these tool names |
+| `--policy <mode>` | Policy mode at startup: `readonly` \| `safe` \| `dev` \| `danger` (CLI wins over config) |
 | `-v, --version` | Print version and exit |
 | `-h, --help` | Show help |
 

@@ -74,6 +74,13 @@ function parseArgs(argv) {
                     args.toolsDisable = v.split(',').map((s) => s.trim()).filter(Boolean);
                 break;
             }
+            case '--policy':
+            case '--policy-mode': {
+                const v = next();
+                if (v !== undefined)
+                    args.policyMode = v;
+                break;
+            }
             case '--token': {
                 const v = next();
                 if (v !== undefined)
@@ -130,6 +137,7 @@ function printHelp() {
         '      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)',
         '      --tools-enable <csv> Always-keep tool names (added back on top of the filter)',
         '      --tools-disable <csv> Drop these tool names from the advertised list',
+        '      --policy <mode>      Policy mode at startup (readonly|safe|dev|danger)',
         '  -v, --version            Print version and exit',
         '  -h, --help               Show this help',
         '',
@@ -159,6 +167,16 @@ async function main() {
         config.server.http.port = args.port;
     if (args.dashboardPort !== undefined)
         config.server.dashboard.port = args.dashboardPort;
+    // CLI override for the policy mode (CLI wins over the config file).
+    if (args.policyMode !== undefined) {
+        const validModes = ['readonly', 'safe', 'dev', 'danger'];
+        if (validModes.includes(args.policyMode)) {
+            config.policy.defaultMode = args.policyMode;
+        }
+        else {
+            logger.warn({ policyMode: args.policyMode, validModes }, 'Invalid --policy value ignored; using configured policy mode');
+        }
+    }
     // CLI auth overrides for the HTTP transport.
     if (args.token !== undefined)
         config.server.http.token = args.token;

@@ -24,6 +24,7 @@ interface CliArgs {
   toolsGroups?: string[];
   toolsEnable?: string[];
   toolsDisable?: string[];
+  policyMode?: string;
   token?: string;
   apiKeys?: string[];
   requireAuth?: boolean;
@@ -87,6 +88,12 @@ function parseArgs(argv: string[]): CliArgs {
         if (v !== undefined) args.toolsDisable = v.split(',').map((s) => s.trim()).filter(Boolean);
         break;
       }
+      case '--policy':
+      case '--policy-mode': {
+        const v = next();
+        if (v !== undefined) args.policyMode = v;
+        break;
+      }
       case '--token': {
         const v = next();
         if (v !== undefined) args.token = v;
@@ -144,6 +151,7 @@ function printHelp(): void {
       '      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)',
       '      --tools-enable <csv> Always-keep tool names (added back on top of the filter)',
       '      --tools-disable <csv> Drop these tool names from the advertised list',
+      '      --policy <mode>      Policy mode at startup (readonly|safe|dev|danger)',
       '  -v, --version            Print version and exit',
       '  -h, --help               Show this help',
       '',
@@ -173,6 +181,18 @@ async function main(): Promise<void> {
   if (args.host !== undefined) config.server.http.host = args.host;
   if (args.port !== undefined) config.server.http.port = args.port;
   if (args.dashboardPort !== undefined) config.server.dashboard.port = args.dashboardPort;
+  // CLI override for the policy mode (CLI wins over the config file).
+  if (args.policyMode !== undefined) {
+    const validModes = ['readonly', 'safe', 'dev', 'danger'];
+    if (validModes.includes(args.policyMode)) {
+      config.policy.defaultMode = args.policyMode as typeof config.policy.defaultMode;
+    } else {
+      logger.warn(
+        { policyMode: args.policyMode, validModes },
+        'Invalid --policy value ignored; using configured policy mode'
+      );
+    }
+  }
   // CLI auth overrides for the HTTP transport.
   if (args.token !== undefined) config.server.http.token = args.token;
   if (args.apiKeys && args.apiKeys.length > 0) {
