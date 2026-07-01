@@ -1,8 +1,20 @@
 # MCP Facade (MCP-in-MCP gateway for large child servers)
 
-Design doc. **No code yet** — this defines the problem, the options, the chosen
-approach, and a step-by-step delivery plan. Written to match how `docs/roadmap.md`
-and `docs/godot-mcp.md` split work into small, reviewable steps.
+**Status: IMPLEMENTED (Option B).** Steps 0-8 landed. The facade ships behind the
+opt-in `facade: true` adapter flag; see `docs/adapters.md` for usage and
+`tests/integration/facade.test.ts` for the governance guarantees. This doc is
+retained as the design record (problem, options, decisions, delivery plan).
+
+**Implementation note (Step 6 deviation).** The facade's `<adapter>__list_tools`
+/ `<adapter>__call_tool` names are *per-adapter and discovered at wiring time*,
+so - like every other `<adapter>__<tool>` name - they contain `__` and are
+excluded from `FROZEN_TOOLS` by the existing "adapter tools are dynamic, not
+frozen" rule (`tests/unit/schema-lock.test.ts` filters `name.includes('__')`).
+Freezing them would require a static per-adapter enumeration the schema-lock
+deliberately avoids. Their contract is instead pinned in code: `list_tools` is
+`LOW`/`mutates:false`, `call_tool` is the `MEDIUM`/`mutates:true` envelope, and
+the effective sub-op risk is resolved per call via
+`src/adapters/child-mcp/risk-map.ts`.
 
 ## Problem
 
@@ -228,36 +240,36 @@ namespaced tools; unflagged adapters are unchanged.
    dynamic surfacing via `tools/list_changed` is revisited as a separate
    enhancement (see Future work).
 
-## Delivery plan (small steps, no code until approved)
+## Delivery plan (small steps) - COMPLETE
 
 Steps are sequenced so each is independently reviewable and CI-green.
 
-- **Step 0 — Config surface.** Add `facade?: boolean` to `AdapterDef`
+- **[x] Step 0 — Config surface.** Add `facade?: boolean` to `AdapterDef`
   (`src/core/types.ts`) + default in `src/core/config.ts`. Doc the flag in
   `docs/adapters.md`. No behavior change yet.
-- **Step 1 — Child schema pass-through.** Extend `StdioChildClient.listTools()`
+- **[x] Step 1 — Child schema pass-through.** Extend `StdioChildClient.listTools()`
   to also return `inputSchema` (already available from the child; today's wrapper
   reads it, the client type just omits it). Pure plumbing.
-- **Step 2 — Sub-tool catalog cache.** In the child-MCP layer, cache each
+- **[x] Step 2 — Sub-tool catalog cache.** In the child-MCP layer, cache each
   flagged adapter's discovered sub-tools (name, description, inputSchema) keyed
   by adapter, refreshable. Feeds both `list_tools` and risk resolution.
-- **Step 3 — Per-adapter risk map.** Introduce a risk-map lookup (default
+- **[x] Step 3 — Per-adapter risk map.** Introduce a risk-map lookup (default
   `MEDIUM`/`mutates:true`); wire the Godot bands from `docs/godot-mcp.md`.
-- **Step 4 — Facade tool builder.** In `adapter-tools.ts`, when `facade:true`,
+- **[x] Step 4 — Facade tool builder.** In `adapter-tools.ts`, when `facade:true`,
   emit `<adapter>__list_tools` + `<adapter>__call_tool` instead of N tools.
   `list_tools` handler = filtered/paginated catalog read (LOW). `call_tool`
   handler = resolve sub-op risk, then **re-enter the governance pipeline** keyed
   per sub-op before forwarding to `client.callTool`.
-- **Step 5 — Governance re-entry.** Factor the risk-resolve + policy/approval/
+- **[x] Step 5 — Governance re-entry.** Factor the risk-resolve + policy/approval/
   rate-limit/audit invocation so `call_tool` uses the identical path as
   `ToolRegistry.call`, keyed on the sub-op identity (decision #1). Add audit
   detail carrying the real sub-tool name.
-- **Step 6 — Schema-lock.** Add the two facade tools to `FROZEN_TOOLS`; update
+- **[x] Step 6 (see deviation note above) — Schema-lock.** Add the two facade tools to `FROZEN_TOOLS`; update
   `tests/unit/schema-lock.test.ts` expectations and `docs/tools.md`.
-- **Step 7 — Tests.** Extend the fake-stdio-MCP integration test (0.2) with a
+- **[x] Step 7 — Tests.** Extend the fake-stdio-MCP integration test (0.2) with a
   100+-tool child: assert only 2 tools advertised, `list_tools` filters, and a
   CRITICAL sub-op is approval-gated (governance not bypassed).
-- **Step 8 — Docs.** New section in `docs/adapters.md` + this file's "chosen"
+- **[x] Step 8 — Docs.** New section in `docs/adapters.md` + this file's "chosen"
   status; note the `list_changed` and semantic-ranking follow-ups as future work.
 
 ### Future work (explicitly out of scope for v1)

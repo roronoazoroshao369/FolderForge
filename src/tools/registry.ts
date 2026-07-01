@@ -123,14 +123,6 @@ export class ToolRegistry {
       return { ok: false, error: `Unknown tool: ${name}` };
     }
     const args = rawArgs ?? {};
-    const started = Date.now();
-
-    // P6 - cancellation: if the client already cancelled before we start (or
-    // cancels during the synchronous policy/rate-limit checks below), refuse
-    // early instead of doing work the caller no longer wants.
-    if (control?.signal?.aborted) {
-      return { ok: false, error: 'Tool call cancelled before execution.' };
-    }
 
     // Determine per-call risk (shell can be re-classified by the handler later,
     // but we evaluate the base risk here too).
@@ -140,6 +132,64 @@ export class ToolRegistry {
       risk = cls.risk;
     }
 
+    return this.runPipeline(
+      { name, risk, mutates: tool.mutates, handler: tool.handler },
+      args,
+      control
+    );
+  }
+
+  /**
+   * Run an ad-hoc tool through the identical governance pipeline as {@link call},
+   * keyed on a caller-supplied identity/risk/mutation classification.
+   *
+   * This is the governance re-entry point for facade sub-ops (see
+   * docs/mcp-facade.md, Step 5). A facade `<adapter>__call_tool` handler must NOT
+   * forward straight to the child; instead it resolves the sub-op's own
+   * risk/mutates and calls this method with a synthetic name
+   * (`<adapter>__call_tool:<subtool>`) so policy mode, approval/elicitation,
+   * rate-limit, and audit all fire per sub-op and the audit trail records the
+   * real sub-tool - never a single bland dispatcher line.
+   */
+  async callDynamic(
+    descriptor: {
+      name: string;
+      risk: RiskLevel;
+      mutates: boolean;
+      handler: ToolDefinition['handler'];
+    },
+    rawArgs: Record<string, unknown>,
+    control?: ToolCallControl
+  ): Promise<ToolResult> {
+    return this.runPipeline(descriptor, rawArgs ?? {}, control);
+  }
+
+  /**
+   * The shared governance pipeline: cancellation check -> audit -> policy
+   * evaluate -> approval/elicitation -> rate-limit -> handler -> audit result.
+   * Both native `call` and facade `callDynamic` funnel through here so there is
+   * exactly one governance path and a facade can never bypass it.
+   */
+  private async runPipeline(
+    descriptor: {
+      name: string;
+      risk: RiskLevel;
+      mutates: boolean;
+      handler: ToolDefinition['handler'];
+    },
+    args: Record<string, unknown>,
+    control?: ToolCallControl
+  ): Promise<ToolResult> {
+    const { name, risk, mutates } = descriptor;
+    const started = Date.now();
+
+    // P6 - cancellation: if the client already cancelled before we start (or
+    // cancels during the synchronous policy/rate-limit checks below), refuse
+    // early instead of doing work the caller no longer wants.
+    if (control?.signal?.aborted) {
+      return { ok: false, error: 'Tool call cancelled before execution.' };
+    }
+
     this.container.audit.record({
       type: 'tool_call',
       tool: name,
@@ -147,7 +197,7 @@ export class ToolRegistry {
       summary: summarizeArgs(name, args),
     });
 
-    const decision = this.container.policy.evaluate(name, risk, tool.mutates, args);
+    const decision = this.container.policy.evaluate(name, risk, mutates, args);
     if (decision.kind === 'deny') {
       this.container.audit.record({ type: 'policy_deny', tool: name, risk, summary: decision.reason });
       return { ok: false, error: `Denied: ${decision.reason}` };
@@ -260,7 +310,7 @@ export class ToolRegistry {
     }
 
     try {
-      const result = await tool.handler(args, {
+      const result = await descriptor.handler(args, {
         config: this.container.config,
         projectRoot: this.container.projectRoot(),
         ...(control !== undefined ? { control } : {}),

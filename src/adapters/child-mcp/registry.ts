@@ -4,11 +4,20 @@ import { logger } from '../../core/logger.js';
 
 export type AdapterName = 'serena' | 'playwright' | 'desktopCommander';
 
+/** A discovered child sub-tool descriptor, cached for facade adapters. */
+export interface SubToolDescriptor {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
+
 interface AdapterEntry {
   name: AdapterName;
   def: AdapterDef;
   client: StdioChildClient | null;
   lazyStarted: boolean;
+  /** Cached sub-tool catalog (facade adapters). Null until first discovery. */
+  catalog: SubToolDescriptor[] | null;
 }
 
 /**
@@ -26,13 +35,18 @@ export class ChildMcpRegistry {
     ];
     for (const [name, def] of map) {
       if (def) {
-        this.entries.set(name, { name, def, client: null, lazyStarted: false });
+        this.entries.set(name, { name, def, client: null, lazyStarted: false, catalog: null });
       }
     }
   }
 
   isEnabled(name: AdapterName): boolean {
     return this.entries.get(name)?.def.enabled ?? false;
+  }
+
+  /** True when the adapter is configured to run behind the two-tool facade. */
+  isFacade(name: AdapterName): boolean {
+    return this.entries.get(name)?.def.facade ?? false;
   }
 
   async ensure(name: AdapterName): Promise<StdioChildClient> {
@@ -48,6 +62,25 @@ export class ChildMcpRegistry {
       entry.lazyStarted = true;
     }
     return entry.client;
+  }
+
+  /**
+   * Return the discovered sub-tool catalog for a facade adapter, spawning the
+   * child and running `tools/list` on first call. The result is cached; pass
+   * `refresh: true` to re-discover (e.g. after the child's tools change).
+   */
+  async catalog(name: AdapterName, refresh = false): Promise<SubToolDescriptor[]> {
+    const entry = this.entries.get(name);
+    if (!entry) throw new Error(`Adapter not configured: ${name}`);
+    if (!refresh && entry.catalog) return entry.catalog;
+    const client = await this.ensure(name);
+    const tools = await client.listTools();
+    entry.catalog = tools.map((t) => ({
+      name: t.name,
+      ...(t.description !== undefined ? { description: t.description } : {}),
+      ...(t.inputSchema !== undefined ? { inputSchema: t.inputSchema } : {}),
+    }));
+    return entry.catalog;
   }
 
   async health(name: AdapterName): Promise<{ enabled: boolean; ready: boolean; error?: string }> {

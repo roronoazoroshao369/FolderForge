@@ -61,6 +61,28 @@ The separator is the `NS_SEP` constant in `src/tools/adapter-tools.ts`. Proxied
 tools default to `MEDIUM` risk and `mutates: true`, so policy mode and the
 approval list still gate them.
 
+## Facade mode (large child servers)
+
+When a child MCP server exposes so many tools that flat namespacing would blow a
+client's tool cap (~50), set `facade: true`. The adapter then advertises exactly
+**two** tools instead of N:
+
+- `<adapter>__list_tools({ name_contains?, cursor?, limit? })` - a `LOW`,
+  read-only, paginated catalog. Each entry carries the sub-tool `name`,
+  `description`, `inputSchema`, resolved `risk`, and `mutates` flag so the agent
+  can pick one and read its exact arguments before calling.
+- `<adapter>__call_tool({ tool, args })` - dispatches one sub-op. It resolves the
+  sub-op's own risk/mutation from the per-adapter risk map
+  (`src/adapters/child-mcp/risk-map.ts`, default `MEDIUM`/`mutates:true`) and
+  **re-enters the governance pipeline** via `ToolRegistry.callDynamic`, keyed on
+  the synthetic identity `<adapter>__call_tool:<subtool>`.
+
+Governance is per sub-op, not per dispatcher: a `CRITICAL` sub-op stays denied in
+safe mode and approval-gated elsewhere even when reached through the facade, and
+the audit trail records the real sub-tool name. The catalog is cached on first
+`list_tools` and refreshable. See [`mcp-facade.md`](./mcp-facade.md) for the full
+design, options considered, and future work (semantic ranking, `list_changed`).
+
 ## Provided integrations
 
 | Adapter | Purpose | Tool prefix |
