@@ -119,12 +119,9 @@ before tagging 1.2.
 ## Housekeeping
 
 - Removed stale pre-rename artifacts from the working tree (legacy "vibemcp"
-  naming). The leftover approval log was renamed
-  `.trash/vibemcp-approvals.jsonl.removed` -> `.trash/legacy-approvals.removed`.
-  Both `.trash/` and `**/.vibemcp/` are already gitignored (never committed).
-- Still pending a manual delete (the empty fixture dir cannot be removed via the
-  filesystem tooling): run
-  `rm -rf .trash tests/fixtures/sample-ts-project/.vibemcp`.
+  naming). Both `.trash/` and `**/.vibemcp/` are gitignored (never committed) and
+  no longer present in the working tree; the previously pending manual delete
+  (`rm -rf .trash tests/fixtures/sample-ts-project/.vibemcp`) is done.
 
 ## Done (1.3.3 - Interactive approval UI via elicitation + embedded resources)
 
@@ -213,7 +210,7 @@ typecheck, lint, `npm test` (29 files, 279 tests), and build. See
   approval-gated even in danger mode. Wired through `risk.ts`, the frozen
   `schema-lock.ts`, and covered by `tests/integration/game-ops.test.ts`.
   Verification: typecheck, lint, `npm test` (29 files, 246 tests), and build all
-  green. Runtime bridge (Step 3) is next.
+  green.
 - **Step 1 - adapter + headless read tier** - **Done.** New `GodotCli`
   (`src/adapters/godot/cli.ts`) is the CLI/file-read channel; six read-only
   `game_*` tools route through it (`src/tools/game-tools.ts`, group `game`):
@@ -226,7 +223,6 @@ typecheck, lint, `npm test` (29 files, 279 tests), and build. See
   and `index.ts` (`game` added to the `full` preset + a new `godot` preset).
   Covered by `tests/integration/game-ops.test.ts` (8 tests). Verification:
   typecheck, lint, `npm test` (29 files, 239 tests), and build all green.
-- **Step 2 - headless edit tier (~35 tools)** - next.
 
 ## In progress (1.4.x - CLI policy override)
 
@@ -236,41 +232,45 @@ typecheck, lint, `npm test` (29 files, 279 tests), and build. See
   Wired in `src/main.ts` and documented in the README CLI table. Not yet
   version-tagged; tests/build green.
 
-## Planned (1.5 - Godot game engine integration)
+## Planned (1.6 - MCP facade for large child servers)
 
-A new `game` tool group integrating the Godot 4.x engine, covering both
-edit-time and runtime control, routed through the existing policy / approval /
-audit pipeline. Full design, the complete tool map, wiring points, and the
-step-by-step delivery plan live in `docs/godot-mcp.md`.
+A facade/gateway layer so a single child MCP server with 100+ tools (e.g. Godot,
+149 tools) is reachable in full while consuming only ~2 tool slots on the agent
+side - staying under the common ~50-tool client cap. Full design, option
+comparison, ecosystem survey, and the step-by-step delivery plan live in
+`docs/mcp-facade.md`.
 
-- **Coverage target: 149/149.** Full parity with the most complete open-source
-  Godot MCP today (`tugcantopaloglu/godot-mcp`, 149 tools across 26 families).
-  Every reference tool maps 1:1 to a FolderForge `game_*` equivalent so an agent
-  can vibe-code a whole game; FolderForge then exceeds the baseline by adding the
-  governance layer it lacks.
-- **Differentiator:** governance-first - destructive/runtime-mutating ops
-  (`game_eval`, `game_call_method`, `game_delete_file`, networking,
-  `game_create_project`, runtime script attach) are CRITICAL and gated through
-  the approval queue; HIGH ops (scene/project/node edits) are approval-gated
-  outside `dev`/`danger`; every engine op is audited. No other Godot MCP offers
-  this.
-- **Architecture:** TS adapter (`src/adapters/godot/`) with three channels - a
-  headless-CLI runner (`godot --headless`) for editor-less edits, a WebSocket
-  client to a GDScript editor addon (`addons/folderforge_bridge/`), and a TCP
-  autoload bridge for the running game.
-- **Delivery (sliced to 149):**
-  - Step 0 - `approval_approve` / `approval_deny` tools (unblock CRITICAL approval
-    over the MCP channel when `--no-dashboard` and no elicitation). **Done** -
-    LOW-risk tools in `src/tools/security-tools.ts`, registered in `risk.ts` +
-    `schema-lock.ts`, covered by `tests/integration/approval-ops.test.ts`.
-  - Step 1 - adapter + headless read tier (~25 tools). **Next.**
-  - Step 2 - headless edit tier (~35 tools).
-  - Step 3 - runtime bridge + runtime read tier (~20 tools).
-  - Step 4 - runtime mutation + input tier (~35 tools).
-  - Step 5 - advanced runtime + rendering tier (~34 tools).
-- **Status:** planning complete; the full 149-tool surface is mapped to risk
-  bands + channels; no code started. See `docs/godot-mcp.md` for the per-family
-  tool map, live status table, and open decisions.
+- **Approach: Option B (`list_tools` + `call_tool`), opt-in per adapter.** A
+  `facade: true` flag on the adapter def makes it emit a fixed
+  `<adapter>__list_tools` / `<adapter>__call_tool` pair instead of N namespaced
+  tools. `list_tools` returns paginated/filterable sub-tool descriptors (name,
+  description, live `inputSchema`, risk); `call_tool` runs one sub-op. Unflagged
+  adapters (Serena, Playwright) keep flat `<adapter>__<tool>` namespacing.
+- **Governance-first:** `call_tool` never calls the child directly. It resolves
+  the sub-op risk (per-adapter risk map; Godot uses the 149-tool bands from
+  `docs/godot-mcp.md`, default `MEDIUM`/`mutates:true`) and re-enters the full
+  policy / approval / elicitation / rate-limit / audit pipeline, keyed on the
+  synthetic identity `<adapter>__call_tool:<subtool>`. CRITICAL sub-ops
+  (`game_eval`) stay approval-gated; audit records the real sub-tool.
+- **Schema-lock:** the two facade tools are native and frozen in
+  `schema-lock.ts`; the fronted sub-tools stay dynamic/out-of-lock like today's
+  adapter tools.
+- **Confirmed decisions:** (1) sub-op key `<adapter>__call_tool:<subtool>`;
+  (2) Godot risk map = `docs/godot-mcp.md` bands + `MEDIUM` fallback;
+  (3) `list_tools` v1 = family + substring filter only (BM25/semantic deferred);
+  (4) `tools/list_changed` dynamic surfacing out of scope for v1.
+- **Delivery (9 slices, no code started):**
+  - Step 0 - config surface (`facade?: boolean` on `AdapterDef`).
+  - Step 1 - child schema pass-through (`listTools()` returns `inputSchema`).
+  - Step 2 - sub-tool catalog cache per flagged adapter.
+  - Step 3 - per-adapter risk map (Godot bands + `MEDIUM` fallback).
+  - Step 4 - facade tool builder (`list_tools` + `call_tool`).
+  - Step 5 - governance re-entry keyed per sub-op.
+  - Step 6 - schema-lock the two facade tools.
+  - Step 7 - integration tests (100+-tool fake child; CRITICAL sub-op gated).
+  - Step 8 - docs.
+- **Status:** design complete and approved; delivery not started. See
+  `docs/mcp-facade.md` for options, trade-offs, and the per-step plan.
 
 ## Next (post-1.0 ideas)
 
