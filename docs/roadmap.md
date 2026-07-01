@@ -261,7 +261,7 @@ comparison, ecosystem survey, and the step-by-step delivery plan live in
   (4) `tools/list_changed` dynamic surfacing out of scope for v1.
 - **Delivery (9 slices):**
   - Step 0 - config surface (`facade?: boolean` on `AdapterDef`). **Done.**
-  - Step 1 - child schema pass-through (`listTools()` returns `inputSchema`).
+  - Step 1 - child schema pass-through (`listTools()` returns `inputSchema`). **Done.**
   - Step 2 - sub-tool catalog cache per flagged adapter.
   - Step 3 - per-adapter risk map (Godot bands + `MEDIUM` fallback).
   - Step 4 - facade tool builder (`list_tools` + `call_tool`).

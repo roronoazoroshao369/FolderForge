@@ -37,7 +37,7 @@ export async function buildAdapterTools(container: Container): Promise<ToolDefin
     let childTools: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>;
     try {
       const client = await container.adapters.ensure(name);
-      childTools = (await client.listTools()) as typeof childTools;
+      childTools = await client.listTools();
     } catch (err) {
       logger.warn({ adapter: name, err: String(err) }, 'Skipping adapter; tool discovery failed');
       continue;

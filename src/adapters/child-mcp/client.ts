@@ -101,9 +101,11 @@ export class StdioChildClient {
     });
   }
 
-  async listTools(): Promise<Array<{ name: string; description?: string }>> {
+  async listTools(): Promise<
+    Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>
+  > {
     const res = (await this.request('tools/list', {})) as {
-      tools?: Array<{ name: string; description?: string }>;
+      tools?: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>;
     };
     return res.tools ?? [];
   }
