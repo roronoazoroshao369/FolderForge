@@ -112,6 +112,16 @@ export interface AdapterDef {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /**
+   * Facade mode. When true, this adapter is exposed through a two-tool facade
+   * (`<adapter>__list_tools` + `<adapter>__call_tool`) instead of re-exporting
+   * every child tool as a flat `<adapter>__<tool>` entry. Intended for large
+   * child MCP servers (100+ tools) that would otherwise blow the client tool
+   * cap. Sub-ops are still governed per call, keyed as
+   * `<adapter>__call_tool:<subtool>`. Defaults to false (flat namespacing).
+   * See docs/mcp-facade.md.
+   */
+  facade?: boolean;
 }
 
 export interface AdaptersConfig {

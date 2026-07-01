@@ -27,7 +27,13 @@ Each adapter (`AdapterDef`) has:
 
 - `enabled` - whether to spawn it on startup;
 - `command` / `args` - how to launch the child server;
-- `env` - optional extra environment (subject to secret redaction).
+- `env` - optional extra environment (subject to secret redaction);
+- `facade` - optional (default `false`). When `true`, the adapter is exposed
+  through a **two-tool facade** (`<adapter>__list_tools` +
+  `<adapter>__call_tool`) instead of re-exporting every child tool flatly.
+  Intended for large child servers (100+ tools) that would otherwise exceed a
+  client's tool cap. Sub-ops stay governed per call, keyed as
+  `<adapter>__call_tool:<subtool>`. See [`mcp-facade.md`](./mcp-facade.md).
 
 ## Lifecycle
 
