@@ -67,10 +67,14 @@ When a child MCP server exposes so many tools that flat namespacing would blow a
 client's tool cap (~50), set `facade: true`. The adapter then advertises exactly
 **two** tools instead of N:
 
-- `<adapter>__list_tools({ name_contains?, cursor?, limit? })` - a `LOW`,
+- `<adapter>__list_tools({ query?, name_contains?, cursor?, limit? })` - a `LOW`,
   read-only, paginated catalog. Each entry carries the sub-tool `name`,
   `description`, `inputSchema`, resolved `risk`, and `mutates` flag so the agent
-  can pick one and read its exact arguments before calling.
+  can pick one and read its exact arguments before calling. Pass a free-text
+  `query` to rank sub-tools by relevance (BM25 over name + description, name
+  weighted higher); ranked responses set `ranked: true` and add a `score` per
+  entry, and only matching sub-tools are returned. `name_contains` still does a
+  plain substring pre-filter and can be combined with `query`.
 - `<adapter>__call_tool({ tool, args })` - dispatches one sub-op. It resolves the
   sub-op's own risk/mutation from the per-adapter risk map
   (`src/adapters/child-mcp/risk-map.ts`, default `MEDIUM`/`mutates:true`) and
@@ -81,7 +85,7 @@ Governance is per sub-op, not per dispatcher: a `CRITICAL` sub-op stays denied i
 safe mode and approval-gated elsewhere even when reached through the facade, and
 the audit trail records the real sub-tool name. The catalog is cached on first
 `list_tools` and refreshable. See [`mcp-facade.md`](./mcp-facade.md) for the full
-design, options considered, and future work (semantic ranking, `list_changed`).
+design, options considered, and future work (`list_changed`).
 
 ## Provided integrations
 

@@ -234,8 +234,9 @@ namespaced tools; unflagged adapters are unchanged.
 2. **Risk map source for Godot — the 149-tool bands table in
    `docs/godot-mcp.md`** is the authoritative per-sub-op risk map, with
    `MEDIUM`/`mutates:true` as the fallback for any child tool not in the map.
-3. **`list_tools` ranking — family + substring filter only in v1.** BM25/semantic
-   ranking is deferred to a later step (see Future work).
+3. **`list_tools` ranking - substring in v1; BM25 relevance delivered post-v1.**
+   v1 shipped with substring filtering only; optional free-text `query` BM25
+   ranking was added afterwards (see Delivered enhancements).
 4. **`list_changed` path — out of scope for v1.** Option B needs no notification;
    dynamic surfacing via `tools/list_changed` is revisited as a separate
    enhancement (see Future work).
@@ -274,8 +275,18 @@ Steps are sequenced so each is independently reviewable and CI-green.
 
 ### Future work (explicitly out of scope for v1)
 
-- Semantic/BM25 ranking in `list_tools`.
 - Dynamic `tools/list_changed` "equip a family" surfacing (needs `listChanged`
   capability + client support).
 - Sharing the facade mechanism across adapters (Option C style folding) if a
   client can't drive the two-step flow.
+
+### Delivered enhancements (post-v1)
+
+- **Semantic/BM25 ranking in `list_tools`.** `list_tools` accepts an optional
+  free-text `query`. When set, the (substring-pre-filtered) catalog is ranked by
+  a dependency-free BM25 over each sub-tool's `name` + `description` (name field
+  boosted so a name hit outranks a description-only hit); non-matching sub-tools
+  are dropped, the response sets `ranked: true`, and each entry carries a
+  `score`. `name_contains` still works and can be combined with `query`.
+  Implemented in `src/adapters/child-mcp/rank.ts`; covered by
+  `tests/unit/facade-rank.test.ts` and `tests/integration/facade.test.ts`.

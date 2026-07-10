@@ -232,7 +232,7 @@ typecheck, lint, `npm test` (29 files, 279 tests), and build. See
   Wired in `src/main.ts` and documented in the README CLI table. Not yet
   version-tagged; tests/build green.
 
-## Planned (1.6 - MCP facade for large child servers)
+## Done (1.6 - MCP facade for large child servers)
 
 A facade/gateway layer so a single child MCP server with 100+ tools (e.g. Godot,
 149 tools) is reachable in full while consuming only ~2 tool slots on the agent
@@ -257,20 +257,32 @@ comparison, ecosystem survey, and the step-by-step delivery plan live in
   adapter tools.
 - **Confirmed decisions:** (1) sub-op key `<adapter>__call_tool:<subtool>`;
   (2) Godot risk map = `docs/godot-mcp.md` bands + `MEDIUM` fallback;
-  (3) `list_tools` v1 = family + substring filter only (BM25/semantic deferred);
+  (3) `list_tools` v1 = substring filtering; BM25 relevance ranking followed as a post-1.6 enhancement;
   (4) `tools/list_changed` dynamic surfacing out of scope for v1.
 - **Delivery (9 slices):**
   - Step 0 - config surface (`facade?: boolean` on `AdapterDef`). **Done.**
   - Step 1 - child schema pass-through (`listTools()` returns `inputSchema`). **Done.**
-  - Step 2 - sub-tool catalog cache per flagged adapter.
-  - Step 3 - per-adapter risk map (Godot bands + `MEDIUM` fallback).
-  - Step 4 - facade tool builder (`list_tools` + `call_tool`).
-  - Step 5 - governance re-entry keyed per sub-op.
-  - Step 6 - schema-lock the two facade tools.
-  - Step 7 - integration tests (100+-tool fake child; CRITICAL sub-op gated).
-  - Step 8 - docs.
-- **Status:** design complete and approved; delivery not started. See
-  `docs/mcp-facade.md` for options, trade-offs, and the per-step plan.
+  - Step 2 - sub-tool catalog cache per flagged adapter. **Done.**
+  - Step 3 - per-adapter risk map (Godot bands + `MEDIUM` fallback). **Done.**
+  - Step 4 - facade tool builder (`list_tools` + `call_tool`). **Done.**
+  - Step 5 - governance re-entry keyed per sub-op. **Done.**
+  - Step 6 - schema-lock review/contract handling for the two facade tools. **Done.**
+  - Step 7 - integration tests (100+-tool fake child; CRITICAL sub-op gated). **Done.**
+  - Step 8 - docs. **Done.**
+- **Status:** implementation complete. Steps 0-8 landed in the July 1, 2026
+  facade commits, with integration coverage confirming two-tool surfacing,
+  dispatch, per-sub-op governance, approval gating, and audit identity. See
+  `docs/mcp-facade.md` for the design record and implementation details.
+
+### Post-1.6 enhancement - BM25 relevance ranking
+
+- **Implemented in the current working tree; pending commit/release.** Facade
+  `list_tools` accepts an optional free-text `query`, ranks the substring-filtered
+  catalog with dependency-free BM25 over tool names and descriptions (with tool
+  names weighted higher), drops non-matching tools, returns a per-tool `score`,
+  and sets `ranked: true`. Existing unranked catalog order, substring filtering,
+  and pagination remain unchanged when `query` is omitted. Covered by unit and
+  integration tests; the full typecheck/test/build suite is green (294/294 tests).
 
 ## Next (post-1.0 ideas)
 

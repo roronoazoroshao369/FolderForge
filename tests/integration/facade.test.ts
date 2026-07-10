@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_LARGE = resolve(__dirname, '..', 'fixtures', 'fake-large-mcp-server.mjs');
 
 /**
- * Wire the `serena` adapter slot to a fake 121-tool child MCP server running in
+ * Wire the `serena` adapter slot to a fake 122-tool child MCP server running in
  * facade mode, then build + register tools. Returns the container and registry.
  */
 async function setupFacade(mode: 'dev' | 'safe' = 'dev') {
@@ -58,7 +58,7 @@ describe('facade adapter (MCP-in-MCP)', () => {
 
     const all = await registry.call('serena__list_tools', {});
     expect(all.ok).toBe(true);
-    expect((all.data as { total: number }).total).toBe(121);
+    expect((all.data as { total: number }).total).toBe(122);
 
     const filtered = await registry.call('serena__list_tools', { name_contains: 'op_01' });
     const data = filtered.data as { total: number; tools: Array<{ name: string }> };
@@ -101,6 +101,30 @@ describe('facade adapter (MCP-in-MCP)', () => {
     // The audit trail records the REAL sub-tool identity, not just the dispatcher.
     const recent = container.audit.recent(20) as Array<{ tool: string; risk: string }>;
     expect(recent.some((r) => r.tool === 'serena__call_tool:danger_eval')).toBe(true);
+  });
+
+  it('list_tools ranks by relevance when a query is given', async () => {
+    const { container, registry } = await setupFacade();
+    teardown = () => container.adapters.stopAll();
+
+    const res = await registry.call('serena__list_tools', { query: 'compile shader' });
+    expect(res.ok).toBe(true);
+    const data = res.data as {
+      ranked: boolean;
+      total: number;
+      tools: Array<{ name: string; score: number }>;
+    };
+    // Ranking mode is flagged and only relevant sub-tools come back, best first.
+    expect(data.ranked).toBe(true);
+    expect(data.tools[0].name).toBe('compile_shader');
+    expect(data.tools[0].score).toBeGreaterThan(0);
+    // The 120 generic op_* tools mention neither term, so they are filtered out.
+    expect(data.total).toBeLessThan(10);
+    expect(data.tools.every((t) => t.name !== 'op_000')).toBe(true);
+
+    // An unranked list (no query) still returns the whole catalog in order.
+    const plain = await registry.call('serena__list_tools', {});
+    expect((plain.data as { ranked: boolean }).ranked).toBe(false);
   });
 
   it('a low-risk sub-op runs even in safe mode', async () => {

@@ -2,6 +2,7 @@ import type { Container } from '../core/container.js';
 import type { ToolDefinition, ToolResult, RiskLevel } from '../core/types.js';
 import type { AdapterName, SubToolDescriptor } from '../adapters/child-mcp/registry.js';
 import { resolveSubOpRisk } from '../adapters/child-mcp/risk-map.js';
+import { bm25Rank } from '../adapters/child-mcp/rank.js';
 import { defineTool } from './registry.js';
 import { logger } from '../core/logger.js';
 
@@ -129,13 +130,21 @@ function buildFacadeTools(container: Container, name: AdapterName): ToolDefiniti
     inputSchema: {
       type: 'object',
       properties: {
+        query: {
+          type: 'string',
+          description:
+            'Free-text search. When set, sub-tools are ranked by relevance ' +
+            '(BM25 over name + description, name weighted higher) and only ' +
+            'matching tools are returned, best first. Combine with name_contains ' +
+            'to pre-filter. Omit to list in catalog order.',
+        },
         name_contains: {
           type: 'string',
           description: 'Case-insensitive substring filter on the sub-tool name.',
         },
         cursor: {
           type: 'number',
-          description: 'Zero-based offset into the (filtered) catalog for pagination.',
+          description: 'Zero-based offset into the (filtered/ranked) catalog for pagination.',
         },
         limit: {
           type: 'number',
@@ -154,20 +163,42 @@ function buildFacadeTools(container: Container, name: AdapterName): ToolDefiniti
         const filtered = filter
           ? catalog.filter((t) => t.name.toLowerCase().includes(filter))
           : catalog;
+
+        // When a free-text query is given, rank the (already substring-filtered)
+        // catalog by BM25 relevance and drop non-matching tools; otherwise keep
+        // catalog order. `scores` maps sub-tool name -> relevance for the page.
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        let ordered = filtered;
+        let scores: Map<string, number> | null = null;
+        if (query) {
+          const ranked = bm25Rank(
+            filtered.map((t) => ({
+              id: t.name,
+              name: t.name,
+              ...(t.description !== undefined ? { description: t.description } : {}),
+            })),
+            query
+          );
+          scores = new Map(ranked.map((r) => [r.id, r.score]));
+          const byName = new Map(filtered.map((t) => [t.name, t]));
+          ordered = ranked.map((r) => byName.get(r.id)!);
+        }
+
         const cursor = Number.isFinite(args.cursor as number) ? Math.max(0, Number(args.cursor)) : 0;
         const limit =
           Number.isFinite(args.limit as number) && Number(args.limit) > 0
             ? Number(args.limit)
             : LIST_TOOLS_PAGE;
-        const page = filtered.slice(cursor, cursor + limit);
-        const nextCursor = cursor + limit < filtered.length ? cursor + limit : null;
+        const page = ordered.slice(cursor, cursor + limit);
+        const nextCursor = cursor + limit < ordered.length ? cursor + limit : null;
         return {
           ok: true,
           data: {
             adapter: name,
-            total: filtered.length,
+            total: ordered.length,
             cursor,
             nextCursor,
+            ranked: scores !== null,
             tools: page.map((t) => {
               const cls = resolveSubOpRisk(name, t.name);
               return {
@@ -176,6 +207,7 @@ function buildFacadeTools(container: Container, name: AdapterName): ToolDefiniti
                 inputSchema: t.inputSchema ?? { type: 'object' },
                 risk: cls.risk,
                 mutates: cls.mutates,
+                ...(scores !== null ? { score: scores.get(t.name) ?? 0 } : {}),
               };
             }),
           },

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
  * Fake "large" MCP server over stdio for FolderForge facade integration tests.
- * Advertises 120 sub-tools so a flat adapter would blow the client tool cap,
+ * Advertises 122 sub-tools so a flat adapter would blow the client tool cap,
  * exercising the two-tool facade (`<adapter>__list_tools` + `__call_tool`).
  *
  * Tools:
  *   - op_000 .. op_119   generic ops; op_N returns { echoed: <args> }
  *   - danger_eval        a deliberately dangerous op used to assert governance
+ *   - compile_shader     a distinctively-named op used to assert query ranking
  *
  * Run: node fake-large-mcp-server.mjs   (communicates on stdin/stdout)
  */
@@ -32,6 +33,16 @@ TOOLS.push({
     type: 'object',
     properties: { code: { type: 'string' } },
     required: ['code'],
+  },
+});
+// A distinctively-named tool so facade `list_tools({ query })` ranking has an
+// unambiguous best match to assert on (no other op mentions "shader").
+TOOLS.push({
+  name: 'compile_shader',
+  description: 'Compile a GLSL shader program for the renderer.',
+  inputSchema: {
+    type: 'object',
+    properties: { source: { type: 'string' } },
   },
 });
 

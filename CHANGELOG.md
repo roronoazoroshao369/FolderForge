@@ -8,6 +8,10 @@ semantic versioning.
 
 ### Added
 
+- **MCP facade for large child servers.** Added opt-in two-tool `list_tools` / `call_tool` surfacing so 100+ child tools remain reachable without exceeding common client tool caps.
+- **Per-sub-tool governance for facade calls.** Each dispatched child operation re-enters policy, approval, rate-limit, and audit handling under its own synthetic identity.
+- **BM25 relevance ranking for facade discovery.** `list_tools` now accepts `query`, ranks tool names and descriptions, and returns `ranked: true` with per-tool scores.
+
 - **Godot bridge addon shipped (`addons/folderforge_bridge/`, wiring point #8).**
   The RUN-channel GDScript addon - the last unbuilt architectural piece of the
   1.5 Godot integration - is now in the tree: an `EditorPlugin` (`plugin.gd`)
