@@ -1,7 +1,26 @@
 import { realpathSync, existsSync } from 'node:fs';
-import { resolve, relative, isAbsolute, sep, dirname } from 'node:path';
+import { resolve, relative, isAbsolute, sep, dirname, basename } from 'node:path';
 import picomatchLite from './glob-match.js';
 import { PathEscapeError } from '../core/errors.js';
+function canonicalizePath(input) {
+    const abs = resolve(input);
+    let probe = abs;
+    const suffix = [];
+    while (!existsSync(probe)) {
+        const parent = dirname(probe);
+        if (parent === probe)
+            return abs;
+        suffix.unshift(basename(probe));
+        probe = parent;
+    }
+    try {
+        const real = realpathSync(probe);
+        return suffix.length > 0 ? resolve(real, ...suffix) : real;
+    }
+    catch {
+        return abs;
+    }
+}
 /**
  * PathPolicy enforces the workspace boundary:
  *  - every path must resolve inside an allowed directory
@@ -12,7 +31,7 @@ export class PathPolicy {
     allowed;
     deniedGlobs;
     constructor(allowedDirectories, deniedGlobs) {
-        this.allowed = allowedDirectories.map((d) => resolve(d));
+        this.allowed = allowedDirectories.map((d) => canonicalizePath(d));
         this.deniedGlobs = deniedGlobs;
     }
     /** Resolve a (possibly relative) path against the project root and validate it. */
@@ -24,8 +43,9 @@ export class PathPolicy {
         return abs;
     }
     isInsideAllowed(abs) {
+        const canonical = canonicalizePath(abs);
         return this.allowed.some((root) => {
-            const rel = relative(root, abs);
+            const rel = relative(root, canonical);
             return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
         });
     }
@@ -50,22 +70,9 @@ export class PathPolicy {
             throw new PathEscapeError(`Path touches a protected credential folder: ${abs}`);
         }
     }
-    /** Resolve symlinks on the nearest existing ancestor and re-check the boundary. */
+    /** Resolve aliases/symlinks on the nearest existing ancestor and re-check the boundary. */
     assertNoSymlinkEscape(abs) {
-        let probe = abs;
-        while (!existsSync(probe)) {
-            const parent = dirname(probe);
-            if (parent === probe)
-                return; // reached root, nothing exists yet
-            probe = parent;
-        }
-        let real;
-        try {
-            real = realpathSync(probe);
-        }
-        catch {
-            return;
-        }
+        const real = canonicalizePath(abs);
         if (!this.isInsideAllowed(real)) {
             throw new PathEscapeError(`Symlink escapes the workspace boundary: ${abs} -> ${real}`);
         }

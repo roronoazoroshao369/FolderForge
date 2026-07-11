@@ -63,8 +63,14 @@ been created.
   spaces and Unicode.
 - Added deterministic coverage for Windows junction escapes, managed-process stop
   wakeups, unusable/read-only runtime state, and Chromium-missing degradation.
-- Local verification: full source suite, build/clean, package smoke, stdio smoke,
-  HTTP smoke, and both audits. Cross-platform CI evidence is pending.
+- GitHub Actions run `29159746609` made the matrix observable: Ubuntu on Node
+  22/24 passed, while macOS and Windows on Node 22/24 failed during tests. The
+  failures exposed macOS path aliasing plus Windows doctor, temp-path, shell,
+  plugin-cleanup, and Git-timing assumptions.
+- The portability fixes now pass the complete local release gate: typecheck,
+  lint, 366/366 tests across 46 files, build, both zero-vulnerability audits,
+  package smoke, stdio smoke, and authenticated HTTP smoke. A fresh six-entry
+  Actions run remains the acceptance gate.
 
 ## Done (2.0 RC Milestone F — approval and plugin security hardening)
 
@@ -109,10 +115,10 @@ been created.
 
 ## Blocked (2.0 RC Milestone H — stable release verdict)
 
-- No `READY FOR 2.0 STABLE` verdict is issued while the six-entry GitHub Actions
-  matrix remains unobserved from this workspace. The workflow exists for Ubuntu,
-  macOS, and Windows on Node 22 and Node 24, but GitHub API access returns 404 for
-  workflow and check-run evidence.
+- No `READY FOR 2.0 STABLE` verdict is issued until the portability-fix commit
+  passes all six GitHub Actions jobs. Run `29159746609` provided the first
+  observable evidence and failed four non-Linux jobs; the corrected tree must now
+  prove Ubuntu, macOS, and Windows success on Node 22 and Node 24.
 - RC.2 registry publication and clean-install validation are complete.
 - A stable `2.0.0` version/tag and npm `latest` publish require observable CI
   success, a separate exact stable-version release gate, and an explicit final

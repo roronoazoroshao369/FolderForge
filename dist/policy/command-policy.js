@@ -1,5 +1,5 @@
 import { tmpdir } from 'node:os';
-import { relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 /**
  * Patterns that are always blocked (CRITICAL), regardless of policy mode.
  */
@@ -50,11 +50,21 @@ const MEDIUM_PATTERNS = [
  * No variables, globs, chaining, command substitutions, or relative paths are
  * accepted. Root/home/system paths never enter this branch.
  */
-function disposableTempRemoval(command) {
-    const match = /^rm\s+-rf?\s+(?:--\s+)?(["']?)(\/[^"'\s;&|`$*?{}\[\]]+)\1$/.exec(command.trim());
+function recursiveRemovalTarget(command) {
+    const match = /^rm\s+-rf?\s+(?:--\s+)?(?:"([^"]+)"|'([^']+)'|([^\s;&|`$*?{}\[\]]+))$/.exec(command.trim());
     if (!match)
         return null;
-    const target = resolve(match[2]);
+    const raw = match[1] ?? match[2] ?? match[3] ?? '';
+    // Quoting makes spaces literal, but expansion/chaining characters remain out
+    // of bounds for this narrowly-scoped cleanup analysis.
+    if (!raw || /[;&|`$*?{}\[\]\r\n]/.test(raw) || !isAbsolute(raw))
+        return null;
+    return resolve(raw);
+}
+function disposableTempRemoval(command) {
+    const target = recursiveRemovalTarget(command);
+    if (!target)
+        return null;
     const tempRoot = resolve(tmpdir());
     const rel = relative(tempRoot, target);
     if (!rel || rel.startsWith('..') || rel.includes('..'))
@@ -99,6 +109,14 @@ export class CommandPolicy {
         const disposableTarget = disposableTempRemoval(trimmed);
         if (disposableTarget) {
             return { risk: 'MEDIUM', matched: `disposable-temp:${disposableTarget}` };
+        }
+        const absoluteRemovalTarget = recursiveRemovalTarget(trimmed);
+        if (absoluteRemovalTarget) {
+            return {
+                risk: 'CRITICAL',
+                blockedReason: `Recursive deletion targets an absolute non-disposable path: ${absoluteRemovalTarget}`,
+                matched: 'absolute-recursive-removal',
+            };
         }
         for (const re of CRITICAL_PATTERNS) {
             if (re.test(trimmed)) {

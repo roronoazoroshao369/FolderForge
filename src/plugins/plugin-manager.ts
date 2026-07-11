@@ -21,6 +21,10 @@ const MAX_FILES = 2000;
 const MAX_BYTES = 50 * 1024 * 1024;
 const RESERVED_IDS = new Set(['serena', 'playwright', 'desktopCommander', 'folderforge']);
 
+function removeTree(path: string): void {
+  rmSync(path, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 });
+}
+
 export interface PluginManifest {
   schemaVersion: 1;
   id: string;
@@ -270,7 +274,7 @@ export class PluginManager {
       this.writeRegistry(registry);
       return installed;
     } catch (error) {
-      rmSync(destination, { recursive: true, force: true });
+      removeTree(destination);
       throw error;
     }
   }
@@ -310,12 +314,12 @@ export class PluginManager {
       };
       this.writeRegistry(nextRegistry);
       if (verify) await verify(updated);
-      rmSync(backup, { recursive: true, force: true });
+      removeTree(backup);
       return updated;
     } catch (error) {
-      rmSync(staging, { recursive: true, force: true });
+      removeTree(staging);
       if (oldMoved) {
-        rmSync(current.installDir, { recursive: true, force: true });
+        removeTree(current.installDir);
         if (existsSync(backup)) renameSync(backup, current.installDir);
         try { this.writeRegistry(originalRegistry); } catch { /* preserve update failure */ }
       }
@@ -334,7 +338,7 @@ export class PluginManager {
 
   uninstall(id: string): InstalledPlugin {
     const installed = this.require(id);
-    rmSync(installed.installDir, { recursive: true, force: true });
+    removeTree(installed.installDir);
     const registry = this.readRegistry();
     registry.plugins = registry.plugins.filter((plugin) => plugin.id !== id);
     this.writeRegistry(registry);

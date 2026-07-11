@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { defaultShell, quoteShellArg } from '../dist/core/shell.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -91,6 +92,8 @@ try {
   const port = await freePort();
   const configPath = join(project, 'folderforge-smoke.yaml');
   writeFileSync(join(project, 'README.md'), 'folderforge release smoke\n');
+  const failureScript = join(project, 'folderforge-fail-shell.cjs');
+  writeFileSync(failureScript, "console.log('wire-out'); console.error('wire-error'); process.exit(7);\n");
   writeFileSync(
     join(project, 'package.json'),
     JSON.stringify({ name: 'folderforge-http-smoke', version: '0.0.0', private: true }, null, 2)
@@ -232,7 +235,9 @@ try {
     {
       name: 'shell_exec',
       arguments: {
-        command: `node -e "console.log('wire-out'); console.error('wire-error'); process.exit(7)"`,
+        command: [process.execPath, failureScript]
+          .map((value) => quoteShellArg(defaultShell(), value))
+          .join(' '),
       },
     },
     5

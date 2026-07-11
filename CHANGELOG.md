@@ -4,6 +4,18 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Canonicalize allowed and requested filesystem paths so macOS `/var` to
+  `/private/var` aliases do not produce false workspace-escape failures while
+  real symlink/junction escapes remain blocked.
+- Make doctor npm probing, terminal failure fixtures, disposable temp-path
+  classification, plugin cleanup, and Git integration timing portable on Windows.
+- Use script-file execution for HTTP structured-error smoke and upgrade the CI
+  checkout action to its Node 24-compatible release.
+
 ## [2.0.0-rc.2] - published 2026-07-11 under npm `next`
 
 This release-candidate supersedes the internal RC.1 preparation and includes the

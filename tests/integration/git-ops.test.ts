@@ -313,7 +313,7 @@ describe('git tools integration (Q8)', () => {
       rmSync(remote, { recursive: true, force: true });
       rmSync(clone, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 
   it('cancels git_pull when the elicitation client declines (P8)', async () => {
     const { registry } = setup(repo);

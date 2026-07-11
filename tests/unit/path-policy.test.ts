@@ -69,6 +69,24 @@ describe('PathPolicy', () => {
     expect(policy.isInsideAllowed(resolve(root, '..', 'outside.ts'))).toBe(false);
   });
 
+  it('accepts an allowed root reached through a filesystem alias', () => {
+    const target = mkdtempSync(join(tmpdir(), 'ff canonical target-'));
+    const alias = join(dirname(target), `${target.split(/[\\/]/).at(-1)}-alias`);
+    try {
+      mkdirSync(join(target, 'src'), { recursive: true });
+      writeFileSync(join(target, 'src', 'alias.txt'), 'ok\n');
+      symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir');
+      const policy = new PathPolicy([alias], denied);
+      expect(policy.resolveSafe(join('src', 'alias.txt'), alias)).toBe(
+        resolve(alias, 'src', 'alias.txt')
+      );
+      expect(policy.resolveSafe(join('src', 'new.txt'), alias)).toBe(resolve(alias, 'src', 'new.txt'));
+    } finally {
+      rmSync(alias, { recursive: true, force: true });
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
   it('rejects symlink or Windows junction escapes from the workspace boundary', () => {
     const outside = mkdtempSync(join(tmpdir(), 'ff outside ü-'));
     writeFileSync(join(outside, 'target.txt'), 'leak\n');

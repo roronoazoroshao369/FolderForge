@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CommandPolicy } from '../../src/policy/command-policy.js';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const cfgBlocked = ['rm -rf /', 'git push --force', 'curl * | bash'];
 
@@ -34,9 +36,12 @@ describe('CommandPolicy.classify', () => {
   });
 
   it('allows only a standalone FolderForge disposable temp removal as MEDIUM', () => {
-    expect(policy.classify('rm -rf /tmp/ff-live-123').risk).toBe('MEDIUM');
-    expect(policy.classify('rm -rf -- /tmp/folderforge-test-abc').risk).toBe('MEDIUM');
-    expect(policy.classify('rm -rf /tmp/random-project').risk).toBe('CRITICAL');
+    const disposable = join(tmpdir(), 'ff-live-123');
+    const disposableLong = join(tmpdir(), 'folderforge-test-abc');
+    const random = join(tmpdir(), 'random-project');
+    expect(policy.classify(`rm -rf "${disposable}"`).risk).toBe('MEDIUM');
+    expect(policy.classify(`rm -rf -- "${disposableLong}"`).risk).toBe('MEDIUM');
+    expect(policy.classify(`rm -rf "${random}"`).risk).toBe('CRITICAL');
     expect(policy.classify('rm -rf /tmp/ff-live-123; echo unsafe').risk).toBe('CRITICAL');
     expect(policy.classify('rm -rf /').risk).toBe('CRITICAL');
     expect(policy.classify('rm -rf ~/.cache').risk).toBe('CRITICAL');

@@ -141,17 +141,19 @@ function runReadOnly(command: string, args: string[], cwd: string, env: NodeJS.P
   stderr: string;
   status: number | null;
 } {
+  const isWindowsScript = process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(command);
   const result = spawnSync(command, args, {
     cwd,
     env,
     encoding: 'utf8',
     timeout: 15_000,
     windowsHide: true,
+    ...(isWindowsScript ? { shell: env.ComSpec ?? env.COMSPEC ?? 'cmd.exe' } : {}),
   });
   return {
     ok: result.status === 0 && result.error === undefined,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr.trim(),
+    stdout: String(result.stdout ?? '').trim(),
+    stderr: String(result.stderr ?? result.error?.message ?? '').trim(),
     status: result.status,
   };
 }

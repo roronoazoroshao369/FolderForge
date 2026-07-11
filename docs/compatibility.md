@@ -26,9 +26,12 @@ registry query across all six jobs. The source suite also covers Windows junctio
 escape rejection, portable process termination/wakeup, read-only runtime-state
 diagnostics, and missing-browser degradation with Playwright enabled and disabled.
 
-The matrix is implemented and pushed. Local Node 22 gates pass; conclusions for
-macOS, Windows, and Node 24 remain pending until the private Actions run is
-observable.
+GitHub Actions run `29159746609` produced the first observable matrix evidence:
+Ubuntu passed on Node 22 and Node 24, while macOS and Windows failed during the
+test step. The corrected tree canonicalizes macOS filesystem aliases, makes
+Windows doctor/shell/temp/plugin cleanup behavior portable, and passes the full
+local release gate with 366 tests. A fresh six-entry run is required before the
+stable support contract is accepted.
 
 ## Shell behavior
 
