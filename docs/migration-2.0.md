@@ -1,9 +1,10 @@
 # Migrating to FolderForge 2.0
 
-This document covers the `2.0.0-rc.2` candidate committed and pushed on `main`,
-tagged as `v2.0.0-rc.2`, and published to npm under the `next` dist-tag. It has
-not been promoted to stable `latest` or released as a hosted artifact. Install it
-with `npm install @musashishao/folderforge@next`.
+This document covers the `2.0.0` stable candidate prepared from the validated
+RC.2 line. GitHub Actions run `29161853457` passed the complete supported matrix.
+The stable tag and npm `latest` publication have not yet been created. Until they
+exist, the published RC remains available with
+`npm install @musashishao/folderforge@next`.
 
 ## Runtime requirements
 

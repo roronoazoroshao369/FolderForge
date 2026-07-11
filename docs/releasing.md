@@ -40,11 +40,10 @@ on Ubuntu/Node 22. See `compatibility.md` for the support contract.
    publishing to npm, or creating a hosted release. Publish release candidates
    with `--tag next`; reserve `latest` for a stable verdict.
 
-The current candidate is `2.0.0-rc.2`. It is committed and pushed on `main`,
-tagged as `v2.0.0-rc.2`, and published to npm under the `next` dist-tag. A clean
-registry install passed CLI/help, no-postinstall, browser setup dry-run, doctor,
-stdio, and authenticated HTTP validation. Stable promotion remains blocked until
-the full GitHub Actions matrix is observable and successful.
+The current stable target is `2.0.0`. GitHub Actions run `29161853457` passed the
+full Ubuntu/macOS/Windows × Node 22/24 matrix, and the exact stable
+`npm run release:check` passed 369 tests, both audits, build, package, stdio, and
+HTTP gates. The stable tag and npm `latest` publication have not yet been created.
 
 ## Current trust limitations
 

@@ -2,15 +2,13 @@
 
 Release history and production-readiness roadmap for FolderForge.
 
-## Current release-candidate track
+## Current stable track
 
-The `2.0.0-rc.2` candidate is committed and pushed on `main`, tagged as
-`v2.0.0-rc.2`, and published to npm under the `next` dist-tag. Release gates
-require clean production and full dependency audits, typecheck, lint,
-unit/integration tests, build, `npm pack`, tarball installation, CLI/stdio smoke,
-authenticated HTTP MCP initialize/list/call/error-evidence smoke, and clean
-registry-install validation. No stable `latest` promotion or hosted release has
-been created.
+The `2.0.0` stable candidate is prepared from the published and registry-validated
+`2.0.0-rc.2` line. GitHub Actions run `29161853457` passed the complete
+Ubuntu/macOS/Windows × Node 22/24 matrix. Version and lock metadata now target
+`2.0.0`; no stable tag, npm `latest` promotion, or hosted release has been
+created yet.
 
 ## Done (2.0 RC Milestone B — doctor and preflight diagnostics)
 
@@ -48,7 +46,7 @@ been created.
   `no commit or push` statements from current-status documentation while keeping
   explicitly historical verification records intact.
 
-## In verification (2.0 RC Milestone E — compatibility matrix)
+## Done (2.0 RC Milestone E — compatibility matrix)
 
 - Added a six-entry CI matrix: Ubuntu, macOS, and Windows on Node 22 and Node 24.
 - Every entry runs typecheck, lint, tests, build, packed-tarball smoke, and
@@ -72,10 +70,10 @@ been created.
   package smoke on npm/CLI wrapper execution. The direct-Node fix invokes npm's
   JavaScript CLI and the installed FolderForge `dist/main.js` through
   `process.execPath` while still requiring npm to create the expected bin shim.
-- The corrected tree passes the complete local release gate: typecheck, lint,
+- The corrected tree passed the complete local release gate: typecheck, lint,
   369/369 tests across 46 files, build, both zero-vulnerability audits, 96-file
-  package smoke, stdio smoke, and authenticated HTTP smoke. A fresh six-entry
-  Actions run remains the acceptance gate.
+  package smoke, stdio smoke, and authenticated HTTP smoke. Final GitHub Actions
+  run `29161853457` passed all six matrix jobs, completing the compatibility gate.
 
 ## Done (2.0 RC Milestone F — approval and plugin security hardening)
 
@@ -118,17 +116,17 @@ been created.
   CLI/version/help, browser setup dry-run, doctor human/JSON, stdio MCP, and
   authenticated HTTP MCP success/error-evidence validation.
 
-## Blocked (2.0 RC Milestone H — stable release verdict)
+## Done (2.0 RC Milestone H — READY FOR 2.0 STABLE)
 
-- No `READY FOR 2.0 STABLE` verdict is issued until the direct-Node package-smoke
-  fix passes all six GitHub Actions jobs. Runs `29161066159` and `29161451454`
-  already prove tests on both Windows Node lines; the corrected tree must now
-  prove tarball pack/install, CLI, doctor, stdio, and HTTP gates without
-  regressing Ubuntu or macOS.
-- RC.2 registry publication and clean-install validation are complete.
-- A stable `2.0.0` version/tag and npm `latest` publish require observable CI
-  success, a separate exact stable-version release gate, and an explicit final
-  release decision.
+- The release-candidate registry validation and six-entry compatibility matrix are
+  complete; GitHub Actions run `29161853457` passed 6/6 jobs.
+- Package and lock metadata target `2.0.0`. The exact stable-version
+  `npm run release:check` passed 369/369 tests across 46 files, build, both
+  zero-vulnerability audits, 96-file tarball installation, stdio MCP, and
+  authenticated HTTP MCP success/error-evidence smoke.
+- Version, package-content, Git, and security reviews are clean. Verdict:
+  **READY FOR 2.0 STABLE**. Stable tag `v2.0.0` and npm `latest` publication are
+  the remaining release operations.
 
 ## Done (0.1)
 

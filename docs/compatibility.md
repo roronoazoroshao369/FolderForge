@@ -28,12 +28,10 @@ diagnostics, and missing-browser degradation with Playwright enabled and disable
 
 GitHub Actions run `29159746609` produced the first observable matrix evidence:
 Ubuntu passed on Node 22 and Node 24, while macOS and Windows failed during the
-test step. Runs `29160360527` and `29160716052` proved the macOS and Windows
-runtime fixes; runs `29161066159` and `29161451454` then passed Windows tests but
-failed package smoke on direct wrapper execution. The corrected tree runs npm's
-JavaScript CLI and the installed FolderForge `dist/main.js` through Node while
-still asserting the expected bin shim exists. The full local release gate passes
-369 tests across 46 files; a fresh six-entry run remains required.
+test step. Runs `29160360527` through `29161451454` isolated and corrected the
+macOS path and Windows runtime/package-smoke assumptions. Final run `29161853457`
+passed all six Ubuntu, macOS, and Windows jobs on Node 22 and Node 24. The stable
+support matrix is accepted.
 
 ## Shell behavior
 

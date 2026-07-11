@@ -4,7 +4,12 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
-## [Unreleased]
+## [2.0.0] - stable candidate prepared 2026-07-11 (not published)
+
+This stable candidate promotes the validated `2.0.0-rc.2` line after GitHub
+Actions run `29161853457` passed all six Ubuntu/macOS/Windows × Node 22/24 jobs
+and the exact `2.0.0` local release gate passed. It has not yet been tagged,
+published under npm `latest`, or released as a hosted artifact.
 
 ### Fixed
 

@@ -262,8 +262,8 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Fix: added deterministic scripts for verification, dependency audits, tarball
   pack/install/CLI smoke, and authenticated HTTP MCP initialize/list/call smoke;
   CI now runs those gates with least-privilege repository permissions.
-- Follow-up: operating-system and Node-version matrix coverage is implemented in
-  Milestone E; cross-platform CI conclusions remain pending until observable.
+- Evidence: the full operating-system and Node-version matrix is implemented in
+  Milestone E; GitHub Actions run `29161853457` passed all six jobs.
 
 ## Milestone C — install safety and explicit browser setup
 
@@ -315,7 +315,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### FF-029 — Windows received POSIX shell arguments
 
 - Severity: high
-- Status: fixed locally; cross-platform CI verifying
+- Status: fixed and cross-platform CI verified
 - Symptom: the default Windows shell was `cmd.exe`, but `shell_exec`, managed
   processes, build tools, and project verification always passed `-lc`, which is
   valid for POSIX shells but not for cmd.
@@ -328,7 +328,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### FF-030 — Build and clean scripts were POSIX-only
 
 - Severity: high
-- Status: fixed locally; cross-platform CI verifying
+- Status: fixed and cross-platform CI verified
 - Symptom: `npm run build` called `chmod +x`, and `npm run clean` called `rm -rf`,
   causing Windows npm scripts to fail before runtime tests.
 - Fix: replaced both operations with Node scripts. Windows relies on npm's `.cmd`
@@ -339,7 +339,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### FF-031 — Tests encoded Linux filesystem and command assumptions
 
 - Severity: medium
-- Status: fixed locally; cross-platform CI verifying
+- Status: fixed and cross-platform CI verified
 - Symptom: process and LSP/setup tests hard-coded `/tmp`, `/bin/bash`, and `sleep`.
 - Fix: tests now use `tmpdir()`, the platform default shell, and Node-based delay
   commands. The Godot process fixture uses `process.execPath`.
@@ -348,7 +348,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### FF-032 — Release gates did not exercise stdio MCP end to end
 
 - Severity: high
-- Status: fixed locally; cross-platform CI verifying
+- Status: fixed and cross-platform CI verified
 - Symptom: package and HTTP smoke covered the distributable and network transport,
   but no release gate initialized the server and called a tool over stdio.
 - Fix: added an SDK-based stdio smoke that verifies server version, `tools/list`,
@@ -367,7 +367,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### FF-034 — Compatibility tests missed junction and Unicode path behavior
 
 - Severity: high for Windows release confidence
-- Status: fixed locally; cross-platform CI verifying
+- Status: fixed and cross-platform CI verified
 - Fix: package and stdio smoke use Unicode/space paths; PathPolicy tests use a
   Windows junction (directory symlink elsewhere) and require escape rejection.
   Managed-process tests verify stop wakes a long-poll without Unix-only commands.
@@ -375,12 +375,11 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### FF-039 — First observable compatibility matrix failed four non-Linux jobs
 
 - Severity: stable-release blocker
-- Status: direct-Node package-smoke fix complete locally; Actions rerun pending
+- Status: fixed and cross-platform CI verified
 - Evidence: GitHub Actions run `29159746609` passed Ubuntu on Node 22/24 and
-  failed macOS plus Windows on Node 22/24 during tests. Runs `29160360527` and
-  `29160716052` proved the macOS and Windows runtime fixes; runs `29161066159`
-  and `29161451454` then passed Windows tests but failed package smoke while
-  executing npm/CLI wrappers.
+  failed macOS plus Windows on Node 22/24 during tests. Runs `29160360527` through
+  `29161451454` isolated the portability defects; final run `29161853457` passed
+  all six Ubuntu/macOS/Windows × Node 22/24 jobs.
 - macOS root cause: temporary paths entered through `/var` but resolved through
   `/private/var`, so lexical containment produced false workspace escapes.
 - Windows root causes: `.cmd` doctor probes could return missing output, temp-path
@@ -463,8 +462,8 @@ using FolderForge itself to implement the AI/browser roadmap.
 
 ## Verification record
 
-- Candidate version: `2.0.0-rc.2`; `package.json`, package-lock metadata, packed
-  tarball, installed CLI, and live MCP `serverInfo.version` agree.
+- Stable candidate version: `2.0.0`; `package.json`, package-lock metadata,
+  packed tarball, installed CLI, and live MCP `serverInfo.version` agree.
 - Typecheck: passed.
 - Lint (`tsc --noEmit`): passed.
 - Build: passed.
@@ -498,8 +497,7 @@ using FolderForge itself to implement the AI/browser roadmap.
   - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded
     disposable temp cleanup, and denial of non-prefixed temp deletion.
 
-Milestone checkpoints through RC.2 publication are committed and pushed on
-`main`. Annotated tag `v2.0.0-rc.2` is pushed, npm `next` points to
-`2.0.0-rc.2`, and clean registry-install validation passed. No global reinstall,
-hosted release, stable tag, or npm `latest` promotion was performed. Observable
-cross-platform Actions success remains required before the stable verdict.
+Milestone checkpoints through the stable-readiness verdict are complete.
+GitHub Actions run `29161853457` passed 6/6 compatibility jobs, and the exact
+`2.0.0` local release gate passed. The stable tag, npm `latest` publication,
+hosted release, and post-publish registry validation remain unperformed.
