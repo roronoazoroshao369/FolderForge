@@ -156,11 +156,13 @@ tools:
 
 ## Status (`2.0.0-rc.2` candidate)
 
-The **`2.0.0-rc.2`** candidate is committed and pushed on `main`. It has not
-been tagged, published to npm, or released; npm publication requires an
-authenticated release session, and cross-platform Actions evidence is still pending. The audited native registry contains 269
-tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
-42, and 269 native tools respectively before dynamic child/plugin additions.
+The **`2.0.0-rc.2`** candidate is tagged as `v2.0.0-rc.2` and published to npm
+under the `next` dist-tag. A clean registry installation passed CLI/help,
+no-postinstall, browser setup dry-run, doctor, stdio MCP, and authenticated HTTP
+MCP validation. Stable promotion is still blocked on observable six-entry GitHub
+Actions evidence. The audited native registry contains 269 tools; the `vibe`,
+`vibe-lite`, `readonly`, and `full` presets advertise 71, 50, 42, and 269 native
+tools respectively before dynamic child/plugin additions.
 
 - **Core and governance** - multi-project activation, path/command/secret policy,
   exact once/session approvals, rate limits, append-only audit, and governed
@@ -171,8 +173,9 @@ tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
 - **AI/browser runtime** - bounded code context, transactional edits,
   verification/report tools, and stable responsive browser wrappers.
 - **Release gates** - typecheck, lint, 365 unit/integration tests, build, both
-  dependency audits, `npm pack`, temporary tarball install, CLI/stdio smoke, and
-  live authenticated HTTP MCP initialize/list/call smoke.
+  dependency audits, `npm pack`, temporary tarball install, CLI/stdio smoke, live
+  authenticated HTTP MCP initialize/list/call smoke, and clean npm-registry
+  installation validation.
 - **Trust boundary** - local plugin packages receive a tamper-detection SHA-256
   tree digest and environment allowlisting, but permission declarations remain
   review/audit metadata rather than an OS sandbox. The digest is not publisher

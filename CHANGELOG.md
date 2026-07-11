@@ -4,21 +4,24 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
-## [2.0.0-rc.2] - candidate prepared 2026-07-11 (not published)
+## [2.0.0-rc.2] - published 2026-07-11 under npm `next`
 
 This release-candidate supersedes the internal RC.1 preparation and includes the
 doctor, explicit browser setup, cross-platform compatibility work, approval
 confidentiality, and plugin integrity/rollback hardening now committed on `main`.
-It has not been tagged, published to npm, or released as a hosted artifact.
+It is tagged as `v2.0.0-rc.2` and published to npm under the `next` dist-tag. No
+stable `latest` promotion or hosted release has been created.
 
 ### Changed
 
 - Bumped package and lockfile metadata to `2.0.0-rc.2`.
 - Extended authenticated HTTP release smoke to prove non-zero shell failures keep
   structured `exitCode`, `stdout`, and `stderr` evidence over MCP.
-- Documented the remaining release blockers: unobserved cross-platform Actions
-  evidence, missing npm authentication, and required registry-installed RC
-  validation before a stable verdict.
+- Validated a clean install from the npm registry, including CLI/help,
+  no-postinstall, browser setup dry-run, doctor, stdio MCP, and authenticated HTTP
+  success/error-evidence smoke.
+- Documented the remaining stable-release blocker: unobserved cross-platform
+  GitHub Actions evidence.
 
 ## [2.0.0-rc.1] - candidate prepared 2026-07-11 (not published)
 

@@ -1,8 +1,9 @@
 # Migrating to FolderForge 2.0
 
-This document covers the `2.0.0-rc.2` candidate committed and pushed on `main`.
-The candidate has not been tagged, published to npm, or released as a hosted
-artifact. Install it from the npm `next` dist-tag only after the RC is published.
+This document covers the `2.0.0-rc.2` candidate committed and pushed on `main`,
+tagged as `v2.0.0-rc.2`, and published to npm under the `next` dist-tag. It has
+not been promoted to stable `latest` or released as a hosted artifact. Install it
+with `npm install @musashishao/folderforge@next`.
 
 ## Runtime requirements
 

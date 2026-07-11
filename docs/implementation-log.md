@@ -450,6 +450,11 @@ using FolderForge itself to implement the AI/browser roadmap.
   `tools/list` with the 50-tool `vibe-lite` invariant, and wire-level calls to
   `pkg_audit`, `file_read`, plus a deliberate non-zero `shell_exec` whose
   structured error evidence remained intact.
+- Clean npm-registry installation of `@musashishao/folderforge@next` passed in
+  a path containing spaces and Unicode. The published artifact reported
+  `2.0.0-rc.2`, declared no `postinstall`, resolved package-local browser setup,
+  kept doctor read-only, advertised 42 stdio and 50 HTTP tools, enforced HTTP
+  authentication, and preserved deliberate shell failure evidence over MCP.
 - Source-built HTTP MCP acceptance covered:
   - Browser foundation: native image blocks, viewport 390×844, interaction,
     console/network, error propagation, and audit correctness.
@@ -463,7 +468,8 @@ using FolderForge itself to implement the AI/browser roadmap.
   - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded
     disposable temp cleanup, and denial of non-prefixed temp deletion.
 
-Milestone checkpoints through RC.2 preparation are committed and pushed on
-`main`. No tag, global reinstall, npm publish, hosted release, or stable release
-was performed. Cross-platform Actions observation and npm-registry RC validation
-remain required before the stable verdict.
+Milestone checkpoints through RC.2 publication are committed and pushed on
+`main`. Annotated tag `v2.0.0-rc.2` is pushed, npm `next` points to
+`2.0.0-rc.2`, and clean registry-install validation passed. No global reinstall,
+hosted release, stable tag, or npm `latest` promotion was performed. Observable
+cross-platform Actions success remains required before the stable verdict.

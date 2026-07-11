@@ -4,11 +4,13 @@ Release history and production-readiness roadmap for FolderForge.
 
 ## Current release-candidate track
 
-The `2.0.0-rc.2` candidate is committed and pushed on `main`. Release gates
-require a clean production and full dependency audit, typecheck, lint,
+The `2.0.0-rc.2` candidate is committed and pushed on `main`, tagged as
+`v2.0.0-rc.2`, and published to npm under the `next` dist-tag. Release gates
+require clean production and full dependency audits, typecheck, lint,
 unit/integration tests, build, `npm pack`, tarball installation, CLI/stdio smoke,
-and authenticated HTTP MCP initialize/list/call/error-evidence smoke. No tag,
-npm publish, stable release, or hosted release has been created.
+authenticated HTTP MCP initialize/list/call/error-evidence smoke, and clean
+registry-install validation. No stable `latest` promotion or hosted release has
+been created.
 
 ## Done (2.0 RC Milestone B — doctor and preflight diagnostics)
 
@@ -89,7 +91,7 @@ npm publish, stable release, or hosted release has been created.
   audits with zero vulnerabilities, package smoke, stdio smoke, and authenticated
   HTTP smoke.
 
-## Prepared (2.0 RC Milestone G — RC.2 release rehearsal)
+## Done (2.0 RC Milestone G — RC.2 release rehearsal and publication)
 
 - Bumped package and lockfile metadata from `2.0.0-rc.1` to `2.0.0-rc.2`.
 - Extended authenticated HTTP smoke with a deliberate non-zero `shell_exec` and
@@ -98,19 +100,23 @@ npm publish, stable release, or hosted release has been created.
   tests, build, both audits with zero vulnerabilities, 95-file tarball smoke,
   stdio smoke, and authenticated HTTP success/error-evidence smoke. Package-content,
   version-consistency, Git, and security reviews also pass locally.
-- Publication is intentionally not represented as complete: the current
-  environment has no authenticated npm session, and cross-platform Actions
-  evidence is not observable from this workspace.
+- Created and pushed annotated tag `v2.0.0-rc.2`, then published
+  `@musashishao/folderforge@2.0.0-rc.2` under the npm `next` dist-tag.
+- Installed `@next` into a clean temporary project whose path contained spaces and
+  Unicode. The registry artifact passed package metadata/no-postinstall,
+  CLI/version/help, browser setup dry-run, doctor human/JSON, stdio MCP, and
+  authenticated HTTP MCP success/error-evidence validation.
 
 ## Blocked (2.0 RC Milestone H — stable release verdict)
 
 - No `READY FOR 2.0 STABLE` verdict is issued while the six-entry GitHub Actions
-  matrix remains unobserved and RC.2 has not been installed from the npm registry.
-- RC.2 must be published under the `next` dist-tag, installed into a clean
-  project, and revalidated with CLI, doctor, package, stdio, and authenticated HTTP
-  checks before stable promotion.
-- A stable `2.0.0` version/tag and npm `latest` publish require a separate exact
-  stable-version release gate and an explicit final release decision.
+  matrix remains unobserved from this workspace. The workflow exists for Ubuntu,
+  macOS, and Windows on Node 22 and Node 24, but GitHub API access returns 404 for
+  workflow and check-run evidence.
+- RC.2 registry publication and clean-install validation are complete.
+- A stable `2.0.0` version/tag and npm `latest` publish require observable CI
+  success, a separate exact stable-version release gate, and an explicit final
+  release decision.
 
 ## Done (0.1)
 
