@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { tmpdir } from 'node:os';
 import { ProcessManager } from '../../src/managers/process-manager.js';
-import { defaultShell } from '../../src/core/shell.js';
+import { defaultShell, quoteShellArg } from '../../src/core/shell.js';
 
 const SHELL = defaultShell();
 const CWD = tmpdir();
-const delayedLine = `node -e "setTimeout(()=>console.log('later-line'),150)"`;
-const keepAlive = `node -e "setTimeout(()=>{},5000)"`;
+const nodeCommand = (source: string): string =>
+  [process.execPath, '-e', source]
+    .map((value) => quoteShellArg(SHELL, value))
+    .join(' ');
+const delayedLine = nodeCommand("setTimeout(()=>console.log('later-line'),150)");
+const keepAlive = nodeCommand('setTimeout(()=>{},5000)');
 
 describe('ProcessManager streaming (readUntil)', () => {
   it('drains buffered output immediately', async () => {

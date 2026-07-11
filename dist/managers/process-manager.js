@@ -1,6 +1,13 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { shellCommandArgs } from '../core/shell.js';
+import { terminateChildProcessTree } from '../core/process-tree.js';
+function wakeWaiters(session) {
+    const waiters = session.waiters;
+    session.waiters = [];
+    for (const wake of waiters)
+        wake();
+}
 /**
  * Manages long-running child processes (dev servers, watchers, compose).
  */
@@ -26,25 +33,19 @@ export class ProcessManager {
             cursor: 0,
             waiters: [],
         };
-        const wake = () => {
-            const ws = session.waiters;
-            session.waiters = [];
-            for (const w of ws)
-                w();
-        };
         const append = (chunk) => {
             session.output += chunk.toString('utf8');
             if (session.output.length > this.maxBuffer) {
                 session.output = session.output.slice(-this.maxBuffer);
             }
-            wake();
+            wakeWaiters(session);
         };
         child.stdout.on('data', append);
         child.stderr.on('data', append);
         child.on('exit', (code) => {
             session.status = session.status === 'killed' ? 'killed' : 'exited';
             session.exitCode = code;
-            wake();
+            wakeWaiters(session);
         });
         this.sessions.set(sessionId, session);
         return this.publicView(session);
@@ -102,16 +103,18 @@ export class ProcessManager {
     stop(sessionId) {
         const s = this.require(sessionId);
         if (s.status === 'running') {
-            s.child.kill('SIGTERM');
             s.status = 'killed';
+            terminateChildProcessTree(s.child);
+            wakeWaiters(s);
         }
         return this.publicView(s);
     }
     kill(sessionId) {
         const s = this.require(sessionId);
         if (s.status === 'running') {
-            s.child.kill('SIGKILL');
             s.status = 'killed';
+            terminateChildProcessTree(s.child, true);
+            wakeWaiters(s);
         }
         return this.publicView(s);
     }

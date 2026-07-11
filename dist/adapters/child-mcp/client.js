@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { logger } from '../../core/logger.js';
+import { terminateChildProcessTree } from '../../core/process-tree.js';
 /**
  * Minimal JSON-RPC client over a child MCP server's stdio.
  * Implements just enough of the MCP wire protocol to initialize,
@@ -112,8 +113,10 @@ export class StdioChildClient {
         return this.initialized && this.child !== null;
     }
     stop() {
-        this.child?.kill('SIGTERM');
+        const child = this.child;
         this.child = null;
         this.initialized = false;
+        if (child)
+            terminateChildProcessTree(child);
     }
 }

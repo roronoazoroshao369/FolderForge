@@ -22,7 +22,11 @@ export function shellCommandArgs(
   const name = shell.replace(/\\/g, '/').split('/').at(-1)?.toLowerCase() ?? '';
 
   if (name === 'cmd' || name === 'cmd.exe' || (platform === 'win32' && !name)) {
-    return ['/d', '/s', '/c', command];
+    // With /s /c, cmd.exe strips the outermost quote pair. Commands that begin
+    // with a quoted executable therefore need one additional wrapper pair so the
+    // executable and its following quoted arguments remain intact.
+    const wrapped = command.trimStart().startsWith('"') ? `"${command}"` : command;
+    return ['/d', '/s', '/c', wrapped];
   }
 
   if (

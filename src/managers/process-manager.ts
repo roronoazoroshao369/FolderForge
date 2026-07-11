@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { shellCommandArgs } from '../core/shell.js';
+import { terminateChildProcessTree } from '../core/process-tree.js';
 
 export interface ProcessSession {
   sessionId: string;
@@ -18,6 +19,12 @@ interface InternalSession extends ProcessSession {
   cursor: number;
   /** Resolvers waiting for new output or exit (long-poll / streaming tail). */
   waiters: Array<() => void>;
+}
+
+function wakeWaiters(session: InternalSession): void {
+  const waiters = session.waiters;
+  session.waiters = [];
+  for (const wake of waiters) wake();
 }
 
 /**
@@ -48,25 +55,19 @@ export class ProcessManager {
       waiters: [],
     };
 
-    const wake = () => {
-      const ws = session.waiters;
-      session.waiters = [];
-      for (const w of ws) w();
-    };
-
     const append = (chunk: Buffer) => {
       session.output += chunk.toString('utf8');
       if (session.output.length > this.maxBuffer) {
         session.output = session.output.slice(-this.maxBuffer);
       }
-      wake();
+      wakeWaiters(session);
     };
     child.stdout.on('data', append);
     child.stderr.on('data', append);
     child.on('exit', (code) => {
       session.status = session.status === 'killed' ? 'killed' : 'exited';
       session.exitCode = code;
-      wake();
+      wakeWaiters(session);
     });
 
     this.sessions.set(sessionId, session);
@@ -131,8 +132,9 @@ export class ProcessManager {
   stop(sessionId: string): ProcessSession {
     const s = this.require(sessionId);
     if (s.status === 'running') {
-      s.child.kill('SIGTERM');
       s.status = 'killed';
+      terminateChildProcessTree(s.child);
+      wakeWaiters(s);
     }
     return this.publicView(s);
   }
@@ -140,8 +142,9 @@ export class ProcessManager {
   kill(sessionId: string): ProcessSession {
     const s = this.require(sessionId);
     if (s.status === 'running') {
-      s.child.kill('SIGKILL');
       s.status = 'killed';
+      terminateChildProcessTree(s.child, true);
+      wakeWaiters(s);
     }
     return this.publicView(s);
   }

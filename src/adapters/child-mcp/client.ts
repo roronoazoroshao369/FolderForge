@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { logger } from '../../core/logger.js';
+import { terminateChildProcessTree } from '../../core/process-tree.js';
 
 interface PendingRequest {
   resolve: (v: unknown) => void;
@@ -122,8 +123,9 @@ export class StdioChildClient {
   }
 
   stop(): void {
-    this.child?.kill('SIGTERM');
+    const child = this.child;
     this.child = null;
     this.initialized = false;
+    if (child) terminateChildProcessTree(child);
   }
 }

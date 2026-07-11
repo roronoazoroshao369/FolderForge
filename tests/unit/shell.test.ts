@@ -23,6 +23,16 @@ describe('cross-platform shell invocation', () => {
     ]);
   });
 
+  it('preserves a quoted executable and quoted arguments through cmd /s /c', () => {
+    const command = '"C:\\Program Files\\nodejs\\node.exe" "C:\\Temp\\exit-seven.cjs"';
+    expect(shellCommandArgs('cmd.exe', command, 'win32')).toEqual([
+      '/d',
+      '/s',
+      '/c',
+      `"${command}"`,
+    ]);
+  });
+
   it('builds PowerShell arguments explicitly', () => {
     expect(shellCommandArgs('pwsh.exe', 'Write-Output hello', 'win32')).toEqual([
       '-NoLogo',

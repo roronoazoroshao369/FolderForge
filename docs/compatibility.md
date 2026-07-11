@@ -28,9 +28,11 @@ diagnostics, and missing-browser degradation with Playwright enabled and disable
 
 GitHub Actions run `29159746609` produced the first observable matrix evidence:
 Ubuntu passed on Node 22 and Node 24, while macOS and Windows failed during the
-test step. The corrected tree canonicalizes macOS filesystem aliases, makes
-Windows doctor/shell/temp/plugin cleanup behavior portable, and passes the full
-local release gate with 366 tests. A fresh six-entry run is required before the
+test step. Run `29160360527` proved the macOS fixes on Node 22/24 and narrowed the
+remaining failures to Windows process-tree lifetime and `cmd.exe` quote handling.
+The corrected tree now terminates managed Windows descendant processes with
+`taskkill /T`, preserves quoted executables through `/s /c`, and passes the full
+local release gate with 367 tests. A fresh six-entry run is required before the
 stable support contract is accepted.
 
 ## Shell behavior
