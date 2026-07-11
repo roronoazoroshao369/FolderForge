@@ -15,7 +15,7 @@ result, review quality, and produce an auditable outcome.
 
 ## Milestone 1.7 — Browser intelligence foundation
 
-Status: implemented in the current working tree; release/commit pending.
+Status: implemented, committed, and pushed on `main`; release pending.
 
 - [x] Promote child MCP image blocks to top-level MCP content.
 - [x] Avoid duplicate screenshot base64 in compatibility text.
@@ -38,7 +38,7 @@ Deferred browser enhancements:
 
 ## Milestone 1.8 — AI coding runtime
 
-Status: implemented and live-tested in the current working tree; release/commit pending.
+Status: implemented, live-tested, committed, and pushed on `main`; release pending.
 
 - [x] `project_analyze` for framework, command, entrypoint, architecture, and Git evidence.
 - [x] `code_context` with bounded BM25 ranking, redacted snippets, and related tests.
@@ -54,7 +54,7 @@ See [`ai-coding-runtime.md`](./ai-coding-runtime.md).
 
 ## Milestone 1.9 — Installable plugin ecosystem
 
-Status: implemented and live-tested in the current working tree; release/commit pending.
+Status: implemented, live-tested, committed, and pushed on `main`; release pending.
 
 - [x] Local `folderforge.plugin.json` manifest with identity, semantic version, compatibility, runtime, permissions, and per-tool risk.
 - [x] Bounded, symlink-free local install/update with atomic registry writes.
@@ -69,7 +69,7 @@ Remote registries, signatures, publisher provenance, and OS-level network/filesy
 
 ## Milestone 2.0 — Governed agent workflows
 
-Status: implemented and live-tested in the current working tree; release/commit pending.
+Status: implemented, live-tested, committed, and pushed on `main`; release pending.
 
 - [x] Persistent workflow definitions, checkpoints, and reproducible reports.
 - [x] Explicit planner/coder/tester/reviewer role scopes with allowed-tool validation.
@@ -93,4 +93,4 @@ See [`workflows.md`](./workflows.md). FolderForge now supplies the deterministic
 6. client-cap regression test;
 7. documentation and issue log updated;
 8. clean git diff with no temporary processes or fixtures;
-9. no commit or push without explicit user approval.
+9. no tag, publish, hosted release, or stable release without explicit user approval.

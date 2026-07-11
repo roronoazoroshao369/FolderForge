@@ -262,8 +262,8 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Fix: added deterministic scripts for verification, dependency audits, tarball
   pack/install/CLI smoke, and authenticated HTTP MCP initialize/list/call smoke;
   CI now runs those gates with least-privilege repository permissions.
-- Remaining scope: operating-system and Node-version matrix coverage is tracked
-  by the compatibility milestone before final 2.0.
+- Follow-up: operating-system and Node-version matrix coverage is implemented in
+  Milestone E; cross-platform CI conclusions remain pending until observable.
 
 ## Milestone C — install safety and explicit browser setup
 
@@ -296,9 +296,23 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Evidence: the source-built CLI and temporary tarball installation both resolve
   `node_modules/playwright/cli.js` and return exit 0 in dry-run mode.
 
-## Milestone D — cross-platform compatibility
+## Milestone D — documentation and state synchronization
 
-### FF-028 — Windows received POSIX shell arguments
+### FF-028 — Current-status documentation lagged Git state
+
+- Severity: medium
+- Status: fixed and reviewed
+- Symptom: README, changelog, roadmap, implementation log, and AI roadmap still
+  described committed/pushed work as pending or confined to a stabilization
+  branch after it had been merged into `main`.
+- Fix: synchronized current-state wording and explicitly separated code prepared,
+  committed, pushed, tagged, published, hosted release, and stable release.
+- Scope: historical evidence that names older runtime versions remains historical
+  and was not rewritten as if it were current acceptance evidence.
+
+## Milestone E — cross-platform compatibility
+
+### FF-029 — Windows received POSIX shell arguments
 
 - Severity: high
 - Status: fixed locally; cross-platform CI verifying
@@ -311,7 +325,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Evidence: focused shell/process/terminal/game tests pass locally; the six-entry
   OS/Node CI matrix is the cross-platform acceptance gate.
 
-### FF-029 — Build and clean scripts were POSIX-only
+### FF-030 — Build and clean scripts were POSIX-only
 
 - Severity: high
 - Status: fixed locally; cross-platform CI verifying
@@ -322,7 +336,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Evidence: clean/build, package smoke, and a regression contract test pass
   locally.
 
-### FF-030 — Tests encoded Linux filesystem and command assumptions
+### FF-031 — Tests encoded Linux filesystem and command assumptions
 
 - Severity: medium
 - Status: fixed locally; cross-platform CI verifying
@@ -369,5 +383,6 @@ using FolderForge itself to implement the AI/browser roadmap.
   - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded
     disposable temp cleanup, and denial of non-prefixed temp deletion.
 
-No tag, global reinstall, npm publish, or hosted release was performed. Milestone
-checkpoints may be committed and pushed only to the stabilization branch.
+Milestone checkpoints through compatibility hardening are committed and pushed
+on `main`. No tag, global reinstall, npm publish, hosted release, or stable
+release was performed.

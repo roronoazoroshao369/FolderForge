@@ -6,8 +6,8 @@ semantic versioning.
 
 ## [2.0.0-rc.1] - candidate prepared 2026-07-11 (not published)
 
-This candidate has not been tagged, published to npm, or released. Development
-checkpoints may exist on the stabilization branch.
+This candidate is committed and pushed on `main`. It has not been tagged,
+published to npm, or released as a hosted artifact.
 
 ### Added
 

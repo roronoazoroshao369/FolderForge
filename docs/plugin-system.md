@@ -1,6 +1,6 @@
 # Local MCP Plugin System
 
-The current working tree supports prepared local MCP packages without creating a
+The 2.0 candidate supports prepared local MCP packages without creating a
 second execution or governance path. Installed plugins become child MCP adapters
 and use the same facade, policy, approval, audit, rate-limit, and rich-content
 bridges as built-in adapters. This is a local, explicitly trusted package flow;

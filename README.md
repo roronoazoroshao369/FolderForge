@@ -156,8 +156,8 @@ tools:
 
 ## Status (`2.0.0-rc.1` candidate)
 
-The repository is prepared as **`2.0.0-rc.1`** on the stabilization branch. It
-has not been tagged, published to npm, or released. The audited native registry contains 269
+The **`2.0.0-rc.1`** candidate is committed and pushed on `main`. It has not
+been tagged, published to npm, or released. The audited native registry contains 269
 tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
 42, and 269 native tools respectively before dynamic child/plugin additions.
 

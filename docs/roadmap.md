@@ -4,11 +4,11 @@ Release history and production-readiness roadmap for FolderForge.
 
 ## Current release-candidate track
 
-The working tree is being prepared for `2.0.0-rc.1`. Release gates require a
-clean production and full dependency audit, typecheck, lint, unit/integration
-tests, build, `npm pack`, tarball installation, CLI smoke, and authenticated HTTP
-MCP initialize/list/call smoke. Version changes do not imply permission to
-tag, publish, or create a hosted release.
+The `2.0.0-rc.1` candidate is committed and pushed on `main`. Release gates
+require a clean production and full dependency audit, typecheck, lint,
+unit/integration tests, build, `npm pack`, tarball installation, CLI smoke, and
+authenticated HTTP MCP initialize/list/call smoke. No tag, npm publish, stable
+release, or hosted release has been created.
 
 ## Done (2.0 RC Milestone B — doctor and preflight diagnostics)
 
@@ -35,7 +35,18 @@ tag, publish, or create a hosted release.
 - Verification: typecheck, lint, build, 342/342 tests across 44 files, both npm
   audits with zero vulnerabilities, package smoke, and authenticated HTTP smoke.
 
-## In verification (2.0 RC Milestone D — compatibility matrix)
+## Done (2.0 RC Milestone D — documentation and state synchronization)
+
+- Synchronized README, roadmap, implementation log, changelog, migration guide,
+  release process, compatibility guide, plugin trust boundary, and explicit
+  browser setup instructions with repository state.
+- Current status now distinguishes committed/pushed code on `main` from tags, npm
+  publication, hosted releases, and stable release, none of which have occurred.
+- Removed stale `release/commit pending`, `stabilization branch`, and
+  `no commit or push` statements from current-status documentation while keeping
+  explicitly historical verification records intact.
+
+## In verification (2.0 RC Milestone E — compatibility matrix)
 
 - Added a six-entry CI matrix: Ubuntu, macOS, and Windows on Node 22 and Node 24.
 - Every entry runs typecheck, lint, tests, build, packed-tarball smoke, and
@@ -323,7 +334,7 @@ comparison, ecosystem survey, and the step-by-step delivery plan live in
 
 ### Post-1.6 enhancement - BM25 relevance ranking
 
-- **Implemented in the current working tree; pending commit/release.** Facade
+- **Implemented, committed, and pushed on `main`; release pending.** Facade
   `list_tools` accepts an optional free-text `query`, ranks the substring-filtered
   catalog with dependency-free BM25 over tool names and descriptions (with tool
   names weighted higher), drops non-matching tools, returns a per-tool `score`,

@@ -37,8 +37,9 @@ on Ubuntu/Node 22. See `compatibility.md` for the support contract.
 7. Obtain explicit authorization before committing, tagging, pushing,
    publishing to npm, or creating a hosted release.
 
-The current candidate target is `2.0.0-rc.1`. Preparing that version locally does
-not authorize any external release action.
+The current candidate target is `2.0.0-rc.1`. Its stabilization changes are
+committed and pushed on `main`, but no tag, npm publish, or hosted release has
+been created. Repository preparation does not authorize those external actions.
 
 ## Current trust limitations
 

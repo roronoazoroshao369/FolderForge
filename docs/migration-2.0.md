@@ -1,7 +1,8 @@
 # Migrating to FolderForge 2.0
 
-This document covers the `2.0.0-rc.1` candidate. The candidate is prepared
-locally and has not been published.
+This document covers the `2.0.0-rc.1` candidate committed and pushed on `main`.
+The candidate has not been tagged, published to npm, or released as a hosted
+artifact.
 
 ## Runtime requirements
 
