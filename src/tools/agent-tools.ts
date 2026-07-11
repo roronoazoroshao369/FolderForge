@@ -10,7 +10,7 @@ import { detectCommands } from '../workspace/project-detector.js';
 import { defineTool } from './registry.js';
 import { simpleDiff } from './diff-util.js';
 import { parseErrors } from './error-parser.js';
-import { shellCommandArgs } from '../core/shell.js';
+import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 import {
   CHANGE_SUMMARY_OUTPUT_SCHEMA,
   CODE_CONTEXT_OUTPUT_SCHEMA,
@@ -255,6 +255,7 @@ async function projectVerify(
         timeout,
         reject: false,
         maxBuffer: maxOutput * 4,
+        ...shellSpawnOptions(ctx.config.terminal.shell),
       }
     );
     const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, maxOutput));

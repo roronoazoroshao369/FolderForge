@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { defaultShell, quoteShellArg, shellCommandArgs } from '../../src/core/shell.js';
+import {
+  defaultShell,
+  quoteShellArg,
+  shellCommandArgs,
+  shellSpawnOptions,
+} from '../../src/core/shell.js';
 
 describe('cross-platform shell invocation', () => {
   it('uses ComSpec for the Windows default shell', () => {
@@ -31,6 +36,14 @@ describe('cross-platform shell invocation', () => {
       '/c',
       `"${command}"`,
     ]);
+  });
+
+  it('disables Node argv escaping only for cmd.exe on Windows', () => {
+    expect(shellSpawnOptions('cmd.exe', 'win32')).toEqual({
+      windowsVerbatimArguments: true,
+    });
+    expect(shellSpawnOptions('pwsh.exe', 'win32')).toEqual({});
+    expect(shellSpawnOptions('/bin/bash', 'linux')).toEqual({});
   });
 
   it('builds PowerShell arguments explicitly', () => {

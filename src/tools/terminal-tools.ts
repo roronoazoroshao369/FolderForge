@@ -2,7 +2,7 @@ import { execa } from 'execa';
 import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
 import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
-import { shellCommandArgs } from '../core/shell.js';
+import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 
 export function terminalTools(): ToolDefinition[] {
   return [
@@ -44,6 +44,7 @@ export function terminalTools(): ToolDefinition[] {
               reject: false,
               all: false,
               maxBuffer: maxBytes * 4,
+              ...shellSpawnOptions(ctx.config.terminal.shell),
             }
           );
           const redact = (s: string) =>

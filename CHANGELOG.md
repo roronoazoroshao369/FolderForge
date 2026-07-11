@@ -13,9 +13,10 @@ semantic versioning.
   real symlink/junction escapes remain blocked.
 - Make doctor npm probing, terminal failure fixtures, disposable temp-path
   classification, plugin cleanup, and Git integration timing portable on Windows.
-- Preserve quoted executables through `cmd.exe /s /c` and terminate complete
-  managed/child process trees on Windows so descendants cannot outlive their shell
-  or keep temporary/plugin directories locked.
+- Preserve quoted executables through `cmd.exe /s /c`, disable Node's second-pass
+  argv escaping for shared cmd callers, and terminate complete managed/child
+  process trees on Windows so descendants cannot outlive their shell or keep
+  temporary/plugin directories locked.
 - Use script-file execution for HTTP structured-error smoke and upgrade the CI
   checkout action to its Node 24-compatible release.
 

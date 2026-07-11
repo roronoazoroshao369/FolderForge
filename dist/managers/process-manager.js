@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { shellCommandArgs } from '../core/shell.js';
+import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 import { terminateChildProcessTree } from '../core/process-tree.js';
 function wakeWaiters(session) {
     const waiters = session.waiters;
@@ -19,6 +19,7 @@ export class ProcessManager {
         const child = spawn(shell, shellCommandArgs(shell, command), {
             cwd,
             env: process.env,
+            ...shellSpawnOptions(shell),
         });
         const session = {
             sessionId,

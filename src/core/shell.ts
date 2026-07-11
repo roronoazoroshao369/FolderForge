@@ -7,6 +7,29 @@ export function defaultShell(
   return env.SHELL ?? '/bin/bash';
 }
 
+function shellName(shell: string): string {
+  return shell.replace(/\\/g, '/').split('/').at(-1)?.toLowerCase() ?? '';
+}
+
+function isCmdShell(shell: string, platform: NodeJS.Platform): boolean {
+  const name = shellName(shell);
+  return name === 'cmd' || name === 'cmd.exe' || (platform === 'win32' && !name);
+}
+
+/**
+ * Child-process options required when argv is already encoded for the selected
+ * shell. Node must not quote cmd.exe argv a second time or `/s /c` receives the
+ * backslashes/quotes literally and changes the command's exit behavior.
+ */
+export function shellSpawnOptions(
+  shell: string,
+  platform: NodeJS.Platform = process.platform
+): { windowsVerbatimArguments?: true } {
+  return platform === 'win32' && isCmdShell(shell, platform)
+    ? { windowsVerbatimArguments: true }
+    : {};
+}
+
 /**
  * Build argv for executing one command through a configured shell.
  *
@@ -19,9 +42,9 @@ export function shellCommandArgs(
   command: string,
   platform: NodeJS.Platform = process.platform
 ): string[] {
-  const name = shell.replace(/\\/g, '/').split('/').at(-1)?.toLowerCase() ?? '';
+  const name = shellName(shell);
 
-  if (name === 'cmd' || name === 'cmd.exe' || (platform === 'win32' && !name)) {
+  if (isCmdShell(shell, platform)) {
     // With /s /c, cmd.exe strips the outermost quote pair. Commands that begin
     // with a quoted executable therefore need one additional wrapper pair so the
     // executable and its following quoted arguments remain intact.
@@ -47,9 +70,9 @@ export function quoteShellArg(
   value: string,
   platform: NodeJS.Platform = process.platform
 ): string {
-  const name = shell.replace(/\\/g, '/').split('/').at(-1)?.toLowerCase() ?? '';
+  const name = shellName(shell);
 
-  if (name === 'cmd' || name === 'cmd.exe' || (platform === 'win32' && !name)) {
+  if (isCmdShell(shell, platform)) {
     // Double percent signs to prevent environment-variable expansion. Double
     // quotes are not valid in Windows path components, but may occur in other
     // literal args, where cmd treats a doubled quote as a literal quote.

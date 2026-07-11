@@ -1,7 +1,7 @@
 import { execa } from 'execa';
 import { defineTool } from './registry.js';
 import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
-import { shellCommandArgs } from '../core/shell.js';
+import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 export function terminalTools() {
     return [
         defineTool({
@@ -38,6 +38,7 @@ export function terminalTools() {
                         reject: false,
                         all: false,
                         maxBuffer: maxBytes * 4,
+                        ...shellSpawnOptions(ctx.config.terminal.shell),
                     });
                     const redact = (s) => ctx.container.policy.secret.redact((s ?? '').slice(0, maxBytes));
                     const data = {

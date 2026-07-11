@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolContext } from '../core/types.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
 import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
-import { shellCommandArgs } from '../core/shell.js';
+import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 
 async function runScript(ctx: ToolContext, key: 'test' | 'lint' | 'typecheck' | 'build') {
   const cmds = detectCommands(ctx.projectRoot);
@@ -18,6 +18,7 @@ async function runScript(ctx: ToolContext, key: 'test' | 'lint' | 'typecheck' | 
       timeout: ctx.config.terminal.defaultTimeoutMs,
       reject: false,
       maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
+      ...shellSpawnOptions(ctx.config.terminal.shell),
     }
   );
   const max = ctx.config.terminal.maxOutputBytes;

@@ -3,7 +3,7 @@ import { defineTool } from './registry.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
 import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
-import { shellCommandArgs } from '../core/shell.js';
+import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 async function runScript(ctx, key) {
     const cmds = detectCommands(ctx.projectRoot);
     const command = cmds.scripts[key];
@@ -14,6 +14,7 @@ async function runScript(ctx, key) {
         timeout: ctx.config.terminal.defaultTimeoutMs,
         reject: false,
         maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
+        ...shellSpawnOptions(ctx.config.terminal.shell),
     });
     const max = ctx.config.terminal.maxOutputBytes;
     const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, max));
