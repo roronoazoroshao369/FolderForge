@@ -16,7 +16,7 @@ adapters:
   playwright:
     enabled: true
     command: npx
-    args: ["-y", "@playwright/mcp@0.0.41"]
+    args: ["-y", "@playwright/mcp@0.0.41", "--isolated"]
   desktopCommander:
     enabled: false
     command: npx
@@ -86,6 +86,19 @@ safe mode and approval-gated elsewhere even when reached through the facade, and
 the audit trail records the real sub-tool name. The catalog is cached on first
 `list_tools` and refreshable. See [`mcp-facade.md`](./mcp-facade.md) for the full
 design, options considered, and future work (`list_changed`).
+
+## Rich results and child errors
+
+FolderForge normalizes standard child MCP content blocks (`text`, `image`, text
+`resource`, and `resource_link`) and promotes them into the parent response. The
+original child payload remains available as structured data, but promoted
+`data.content` is not duplicated in the compatibility text summary. Child
+`isError:true` becomes a parent error and a `tool_error` audit event.
+
+The generated Playwright configuration uses `--isolated` so concurrent
+FolderForge instances do not contend for one persistent browser profile. Override
+its `args` with a dedicated `--user-data-dir` only when persistent state is
+intentional.
 
 ## Provided integrations
 

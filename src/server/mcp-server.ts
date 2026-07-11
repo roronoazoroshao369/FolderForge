@@ -161,51 +161,51 @@ function toJsonSchema(schema: Record<string, unknown>): Tool['inputSchema'] {
  * Exported for unit testing of the structuredContent mirroring contract.
  */
 export function toCallToolResult(result: ToolResult, hasOutputSchema = false): CallToolResult {
+  const richContent = result.content ?? [];
+
   if (!result.ok) {
     const text = result.approvalId
       ? `${result.error ?? 'Approval required'}\n(approvalId=${result.approvalId})`
       : result.error ?? 'Tool call failed';
-    return { content: [{ type: 'text', text }], isError: true };
+    const content: CallToolResult['content'] = [{ type: 'text', text }];
+    const displayData = withoutPromotedContent(result.data, richContent.length > 0);
+    if (displayData !== undefined || result.diff !== undefined) {
+      content.push({
+        type: 'text',
+        text: JSON.stringify(
+          {
+            ...(displayData !== undefined ? { data: displayData } : {}),
+            ...(result.diff !== undefined ? { diff: result.diff } : {}),
+          },
+          null,
+          2
+        ),
+      });
+    }
+    appendRichContent(content, richContent);
+    const out: CallToolResult = { content, isError: true };
+    if (hasOutputSchema && result.data !== undefined && result.data !== null) {
+      (out as CallToolResult & { structuredContent?: Record<string, unknown> }).structuredContent =
+        result.data as Record<string, unknown>;
+    }
+    return out;
   }
 
   const payload: Record<string, unknown> = {};
-  if (result.data !== undefined) payload.data = result.data;
+  const displayData = withoutPromotedContent(result.data, richContent.length > 0);
+  if (displayData !== undefined) payload.data = displayData;
   if (result.diff !== undefined) payload.diff = result.diff;
 
   const text =
-    result.diff && result.data === undefined
+    result.diff && displayData === undefined
       ? result.diff
       : JSON.stringify(Object.keys(payload).length ? payload : { ok: true }, null, 2);
 
-  // Build the content array. The text block always leads (back-compat for
-  // text-only clients); rich content blocks (embedded resources / links) are
-  // appended so spec-aware clients can render a diff inline or open a file in a
-  // viewer/tab. See ToolContentBlock in core/types.
+  // The text block always leads for backwards compatibility. Rich MCP blocks
+  // follow it so vision-capable clients receive images directly instead of a
+  // JSON-escaped base64 string nested inside `data.content`.
   const content: CallToolResult['content'] = [{ type: 'text', text }];
-  for (const block of result.content ?? []) {
-    if (block.kind === 'text') {
-      content.push({ type: 'text', text: block.text });
-    } else if (block.kind === 'resource') {
-      content.push({
-        type: 'resource',
-        resource: {
-          uri: block.uri,
-          text: block.text,
-          ...(block.mimeType ? { mimeType: block.mimeType } : {}),
-          ...(block.title ? { title: block.title } : {}),
-        },
-      } as CallToolResult['content'][number]);
-    } else if (block.kind === 'resource_link') {
-      content.push({
-        type: 'resource_link',
-        uri: block.uri,
-        ...(block.name ? { name: block.name } : {}),
-        ...(block.title ? { title: block.title } : {}),
-        ...(block.description ? { description: block.description } : {}),
-        ...(block.mimeType ? { mimeType: block.mimeType } : {}),
-      } as CallToolResult['content'][number]);
-    }
-  }
+  appendRichContent(content, richContent);
 
   const out: CallToolResult = { content };
 
@@ -218,4 +218,46 @@ export function toCallToolResult(result: ToolResult, hasOutputSchema = false): C
   }
 
   return out;
+}
+
+function withoutPromotedContent(data: unknown, promoted: boolean): unknown {
+  if (!promoted || typeof data !== 'object' || data === null || Array.isArray(data)) return data;
+  const record = data as Record<string, unknown>;
+  if (!Array.isArray(record.content)) return data;
+
+  const clone = { ...record };
+  delete clone.content;
+  return Object.keys(clone).length > 0 ? clone : undefined;
+}
+
+function appendRichContent(
+  target: CallToolResult['content'],
+  blocks: NonNullable<ToolResult['content']>
+): void {
+  for (const block of blocks) {
+    if (block.kind === 'text') {
+      target.push({ type: 'text', text: block.text });
+    } else if (block.kind === 'image') {
+      target.push({ type: 'image', data: block.data, mimeType: block.mimeType });
+    } else if (block.kind === 'resource') {
+      target.push({
+        type: 'resource',
+        resource: {
+          uri: block.uri,
+          text: block.text,
+          ...(block.mimeType ? { mimeType: block.mimeType } : {}),
+          ...(block.title ? { title: block.title } : {}),
+        },
+      } as CallToolResult['content'][number]);
+    } else if (block.kind === 'resource_link') {
+      target.push({
+        type: 'resource_link',
+        uri: block.uri,
+        ...(block.name ? { name: block.name } : {}),
+        ...(block.title ? { title: block.title } : {}),
+        ...(block.description ? { description: block.description } : {}),
+        ...(block.mimeType ? { mimeType: block.mimeType } : {}),
+      } as CallToolResult['content'][number]);
+    }
+  }
 }

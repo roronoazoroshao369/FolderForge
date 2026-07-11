@@ -94,6 +94,29 @@ describe('file tools integration (Q8)', () => {
     expect(mismatch.error).toMatch(/not found/i);
   });
 
+  it('returns nearest-context diagnostics without fuzzy-applying a patch', async () => {
+    const { registry } = setup(ws);
+    await registry.call('workspace_activate', { path: ws });
+    const before = readFileSync(join(ws, 'src', 'hello.txt'), 'utf8');
+
+    const result = await registry.call('file_patch', {
+      path: 'src/hello.txt',
+      oldText: 'hello   world\nline two',
+      newText: 'must not apply',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/whitespace-normalized text matches/i);
+    expect(result.data).toMatchObject({
+      reason: 'context_not_found',
+      diagnostic: {
+        whitespaceNormalizedMatch: true,
+        nearest: { startLine: 1 },
+      },
+    });
+    expect(readFileSync(join(ws, 'src', 'hello.txt'), 'utf8')).toBe(before);
+  });
+
   it('reads many files in one call', async () => {
     const { registry } = setup(ws);
     await registry.call('workspace_activate', { path: ws });

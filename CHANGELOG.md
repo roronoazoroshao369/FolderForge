@@ -4,13 +4,43 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
-## [Unreleased]
+## [2.0.0-rc.1] - candidate prepared 2026-07-11 (not published)
+
+This candidate version exists only in the local working tree. No tag, push, npm
+publish, or hosted release has been performed.
 
 ### Added
 
 - **MCP facade for large child servers.** Added opt-in two-tool `list_tools` / `call_tool` surfacing so 100+ child tools remain reachable without exceeding common client tool caps.
 - **Per-sub-tool governance for facade calls.** Each dispatched child operation re-enters policy, approval, rate-limit, and audit handling under its own synthetic identity.
 - **BM25 relevance ranking for facade discovery.** `list_tools` now accepts `query`, ranks tool names and descriptions, and returns `ranked: true` with per-tool scores.
+- **Vision-ready child MCP results.** Standard child `image`, text `resource`, and `resource_link` blocks are promoted into the parent MCP response; screenshot base64 is not duplicated in compatibility text.
+- **Correct child error semantics.** Child `isError:true` now returns parent MCP `isError:true` and records `tool_error` instead of a false-success audit event.
+- **Responsive browser testing.** Added `browser_set_viewport` and expanded `browser_screenshot` inputs for format, full-page, and element capture.
+- **Concurrent browser isolation.** Generated/default Playwright adapter configuration now includes `--isolated` to avoid shared-profile lock collisions and cross-session state leakage.
+- **Stable 50-tool UI surface.** `vibe-lite` keeps all 10 browser wrappers, pins workflow, agent, and browser groups under cap pressure, and removes superseded/lower-value primitives while preserving process lifecycle in exactly 50 tools.
+- **Reliable Git installs.** Added an npm `prepare` build so installs from a Git repository regenerate the complete ignored `dist/` tree instead of depending on an incomplete set of legacy tracked artifacts.
+- **AI coding runtime.** Added typed `project_analyze`, `code_context`, `patch_transaction`, `project_verify`, and `change_summary` tools for governed analyze→edit→verify loops.
+- **Transactional edits.** Multi-file patch previews now enforce exact-state apply/rollback checks and return MCP diff resources.
+- **Structured failure evidence.** Error responses preserve data/structuredContent, including verification exit codes, stdout/stderr, and parsed diagnostics.
+- **Local MCP plugin lifecycle.** Added validated local manifests plus list/inspect/install/update/enable/disable/uninstall/health tools with hot facade registration and restart persistence.
+- **Plugin environment isolation.** Installed child MCP servers receive only a minimal executable path and explicitly allowlisted environment variables instead of inheriting the complete parent environment.
+- **Dynamic adapter registry.** Child adapters can be added, refreshed, and removed at runtime with manifest risk maps while continuing through the same policy, approval, rate-limit, rich-content, and audit pipeline.
+- **Governed agent workflows.** Added persistent role-scoped workflows with dependencies, step references, expectations, checkpointed execution, cancellation, reports, and restart-safe non-replay.
+- **Complete one-shot approvals.** Approved `once` requests now match exact canonical tool arguments, are consumed once, and allow paused workflows to resume without repeated approval prompts.
+- **Bounded workflow evidence.** Checkpoints redact and cap tool evidence, persist image metadata instead of base64, reject detected secrets in definitions, and store atomically outside Git.
+- **Self-hosting diagnostics.** Non-zero shell calls now expose a useful primary error plus typed stdout/stderr/exit data; exact patch failures return nearest-context and whitespace/line-ending diagnostics without fuzzy mutation.
+- **Isolated test approvals.** Vitest uses temporary approval storage instead of accumulating state in repository fixtures.
+- **Conservative temp cleanup.** A standalone cleanup of explicitly prefixed FolderForge temp roots is MEDIUM, while chained, wildcard, root/home/system, and non-prefixed targets remain blocked or approval-gated.
+- **Plugin update availability.** Failed validation/copy before replacement restores the previous enabled plugin facade.
+- **Executable release gates.** Added dependency audits, package/tarball install and CLI smoke checks, plus authenticated HTTP MCP initialize/list/call smoke checks to the release workflow.
+- **Apache-2.0 license artifact.** Added the license file required by package metadata and enforced its presence in the packed tarball.
+
+### Fixed
+
+- **Package-manager failure diagnostics.** Non-zero package/audit commands now keep exit code, stdout, and stderr while returning an actionable primary error.
+- **Release dependency findings.** Upgraded the Vitest/Vite test toolchain to remove the full-audit high/critical advisories.
+- **Release documentation drift.** Corrected approval persistence semantics, tool preset counts, and the explicit non-sandbox boundary of local plugins.
 
 - **Godot bridge addon shipped (`addons/folderforge_bridge/`, wiring point #8).**
   The RUN-channel GDScript addon - the last unbuilt architectural piece of the

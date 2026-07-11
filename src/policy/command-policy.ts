@@ -1,4 +1,6 @@
 import type { RiskLevel } from '../core/types.js';
+import { tmpdir } from 'node:os';
+import { relative, resolve } from 'node:path';
 
 /**
  * Patterns that are always blocked (CRITICAL), regardless of policy mode.
@@ -48,6 +50,25 @@ const MEDIUM_PATTERNS: RegExp[] = [
   /\b(npm|pnpm|yarn)\s+run\s+build\b/,
 ];
 
+/**
+ * Recognize only one standalone deletion of a disposable FolderForge temp root.
+ * No variables, globs, chaining, command substitutions, or relative paths are
+ * accepted. Root/home/system paths never enter this branch.
+ */
+function disposableTempRemoval(command: string): string | null {
+  const match = /^rm\s+-rf?\s+(?:--\s+)?(["']?)(\/[^"'\s;&|`$*?{}\[\]]+)\1$/.exec(
+    command.trim()
+  );
+  if (!match) return null;
+
+  const target = resolve(match[2]!);
+  const tempRoot = resolve(tmpdir());
+  const rel = relative(tempRoot, target);
+  if (!rel || rel.startsWith('..') || rel.includes('..')) return null;
+  const first = rel.split(/[\\/]/)[0] ?? '';
+  return /^(?:ff-|folderforge-)[a-z0-9._-]+$/i.test(first) ? target : null;
+}
+
 export interface CommandClassification {
   risk: RiskLevel;
   blockedReason?: string;
@@ -89,16 +110,28 @@ export class CommandPolicy {
 
   classify(command: string): CommandClassification {
     const trimmed = command.trim();
+    const disposableTarget = disposableTempRemoval(trimmed);
+    if (disposableTarget) {
+      return { risk: 'MEDIUM', matched: `disposable-temp:${disposableTarget}` };
+    }
 
     for (const re of CRITICAL_PATTERNS) {
       if (re.test(trimmed)) {
-        return { risk: 'CRITICAL', blockedReason: `Matches destructive pattern: ${re}`, matched: re.source };
+        return {
+          risk: 'CRITICAL',
+          blockedReason: `Matches destructive pattern: ${re}`,
+          matched: re.source,
+        };
       }
     }
 
     const cfgHit = this.matchesConfigBlocklist(trimmed);
     if (cfgHit) {
-      return { risk: 'CRITICAL', blockedReason: `Matches blocked command rule: ${cfgHit}`, matched: cfgHit };
+      return {
+        risk: 'CRITICAL',
+        blockedReason: `Matches blocked command rule: ${cfgHit}`,
+        matched: cfgHit,
+      };
     }
 
     for (const re of HIGH_PATTERNS) {

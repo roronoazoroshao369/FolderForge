@@ -15,7 +15,19 @@ export interface ApprovalRequest {
   state: ApprovalState;
   createdAt: number;
   resolvedAt?: number;
+  consumedAt?: number;
   scope: 'once' | 'session';
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 export interface ApprovalEngineOptions {
@@ -71,6 +83,25 @@ export class ApprovalEngine {
 
   isSessionAllowed(tool: string): boolean {
     return this.sessionAllowed.has(tool);
+  }
+
+  /** Consume one approved one-shot request matching the exact tool and args. */
+  consumeOnce(tool: string, args: Record<string, unknown>): boolean {
+    const fingerprint = canonical(args);
+    const match = [...this.requests.values()]
+      .filter(
+        (request) =>
+          request.tool === tool &&
+          request.state === 'approved' &&
+          request.scope === 'once' &&
+          request.consumedAt === undefined &&
+          canonical(request.args) === fingerprint
+      )
+      .sort((a, b) => a.createdAt - b.createdAt)[0];
+    if (!match) return false;
+    match.consumedAt = Date.now();
+    this.append(match);
+    return true;
   }
 
   approve(id: string, scope: 'once' | 'session' = 'once'): ApprovalRequest | undefined {

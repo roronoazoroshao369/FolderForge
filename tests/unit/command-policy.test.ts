@@ -33,6 +33,15 @@ describe('CommandPolicy.classify', () => {
     expect(policy.classify('npm run build').risk).toBe('MEDIUM');
   });
 
+  it('allows only a standalone FolderForge disposable temp removal as MEDIUM', () => {
+    expect(policy.classify('rm -rf /tmp/ff-live-123').risk).toBe('MEDIUM');
+    expect(policy.classify('rm -rf -- /tmp/folderforge-test-abc').risk).toBe('MEDIUM');
+    expect(policy.classify('rm -rf /tmp/random-project').risk).toBe('CRITICAL');
+    expect(policy.classify('rm -rf /tmp/ff-live-123; echo unsafe').risk).toBe('CRITICAL');
+    expect(policy.classify('rm -rf /').risk).toBe('CRITICAL');
+    expect(policy.classify('rm -rf ~/.cache').risk).toBe('CRITICAL');
+  });
+
   it('classifies benign commands as LOW', () => {
     expect(policy.classify('ls -la').risk).toBe('LOW');
     expect(policy.classify('echo hello').risk).toBe('LOW');

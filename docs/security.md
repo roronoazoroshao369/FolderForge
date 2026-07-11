@@ -63,15 +63,15 @@ Anthropic, AWS, GitHub, Google, Slack tokens, private-key blocks, generic
 
 HIGH/CRITICAL (and any tool in `policy.requireApproval`) create a pending
 `ApprovalRequest` (`src/policy/approvals.ts`). Resolve them in the dashboard
-(`POST /approvals/:id/approve|deny`) or via approval tools. `session`-scoped
-approvals remember the tool for the rest of the session.
+(`POST /approvals/:id/approve|deny`) or via approval tools.
 
-Approvals are **persisted across restarts**: every create/approve/deny is
-appended to `<project>/.vibemcp/approvals.jsonl` (append-only, compacted on
-load). Pending and resolved requests survive a restart so the dashboard history
-stays intact. Session-scoped allowances are **not** re-armed automatically - a
-fresh process starts a fresh session, so a session approval from a previous run
-must be granted again.
+Approvals are **persisted across restarts** in
+`<project>/.folderforge/approvals.jsonl` (or the explicit
+`FOLDERFORGE_APPROVALS_PATH` override). Pending and resolved requests survive a
+restart so the dashboard history stays intact. An approved `once` request is
+matched against the exact tool plus canonical arguments, consumed by one retry,
+and cannot be replayed. A `session` approval allows the tool for the current
+process only; it is not re-armed after restart.
 
 ## MCP HTTP auth
 

@@ -8,21 +8,8 @@ import { startHttpTransport } from './server/transports/http.js';
 import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-function readVersion() {
-    try {
-        const here = dirname(fileURLToPath(import.meta.url));
-        // dist/main.js -> ../package.json
-        const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'));
-        return pkg.version ?? '0.0.0';
-    }
-    catch {
-        return '0.0.0';
-    }
-}
-const VERSION = readVersion();
+import { readFolderForgeVersion } from './core/version.js';
+const VERSION = readFolderForgeVersion();
 function parseArgs(argv) {
     const args = { stdio: false, http: false, dashboard: true };
     for (let i = 0; i < argv.length; i++) {
@@ -205,8 +192,9 @@ async function main() {
     // list (e.g. ~50 tools) can run a focused preset like "vibe". CLI flags win
     // over the config file. Applied before the first tools/list.
     const cfgTools = config.tools;
+    const effectivePreset = args.toolsPreset ?? cfgTools?.preset;
     const active = resolveActiveTools(registry, {
-        preset: args.toolsPreset ?? cfgTools?.preset,
+        preset: effectivePreset,
         enabledGroups: args.toolsGroups ?? cfgTools?.enabledGroups,
         enabled: args.toolsEnable ?? cfgTools?.enabled,
         disabled: args.toolsDisable ?? cfgTools?.disabled,
@@ -218,7 +206,7 @@ async function main() {
     // Wire enabled child MCP adapters (Serena, Playwright, ...). Each child tool is
     // exposed namespaced (e.g. serena__find_symbol). Discovery never blocks startup.
     try {
-        const added = await registerAdapterTools(container, registry);
+        const added = await registerAdapterTools(container, registry, active === null || effectivePreset === 'full');
         if (added > 0)
             logger.info({ added }, 'Registered child MCP adapter tools');
     }

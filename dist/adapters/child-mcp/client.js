@@ -9,21 +9,26 @@ export class StdioChildClient {
     command;
     args;
     env;
+    cwd;
+    inheritEnv;
     child = null;
     pending = new Map();
     nextId = 1;
     buffer = '';
     initialized = false;
-    constructor(command, args, env = {}) {
+    constructor(command, args, env = {}, cwd, inheritEnv = true) {
         this.command = command;
         this.args = args;
         this.env = env;
+        this.cwd = cwd;
+        this.inheritEnv = inheritEnv;
     }
     async start() {
         if (this.child)
             return;
         this.child = spawn(this.command, this.args, {
-            env: { ...process.env, ...this.env },
+            cwd: this.cwd,
+            env: this.inheritEnv ? { ...process.env, ...this.env } : { ...this.env },
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         this.child.stdout.on('data', (chunk) => this.onData(chunk));

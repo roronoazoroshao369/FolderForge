@@ -2,6 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { logger } from '../core/logger.js';
+function canonical(value) {
+    if (Array.isArray(value))
+        return `[${value.map(canonical).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.entries(value)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
+            .join(',')}}`;
+    }
+    return JSON.stringify(value);
+}
 /**
  * Approval queue. The dashboard reads/resolves these.
  *
@@ -38,6 +49,22 @@ export class ApprovalEngine {
     }
     isSessionAllowed(tool) {
         return this.sessionAllowed.has(tool);
+    }
+    /** Consume one approved one-shot request matching the exact tool and args. */
+    consumeOnce(tool, args) {
+        const fingerprint = canonical(args);
+        const match = [...this.requests.values()]
+            .filter((request) => request.tool === tool &&
+            request.state === 'approved' &&
+            request.scope === 'once' &&
+            request.consumedAt === undefined &&
+            canonical(request.args) === fingerprint)
+            .sort((a, b) => a.createdAt - b.createdAt)[0];
+        if (!match)
+            return false;
+        match.consumedAt = Date.now();
+        this.append(match);
+        return true;
     }
     approve(id, scope = 'once') {
         const req = this.requests.get(id);

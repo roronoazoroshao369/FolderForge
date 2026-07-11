@@ -49,5 +49,21 @@ export const ADAPTER_RISK_MAPS: Record<string, Record<string, SubOpRisk>> = {
  * throws; unknown adapter/tool combinations return {@link DEFAULT_SUBOP_RISK}.
  */
 export function resolveSubOpRisk(adapter: string, tool: string): SubOpRisk {
-  return ADAPTER_RISK_MAPS[adapter]?.[tool] ?? DEFAULT_SUBOP_RISK;
+  const runtime = RUNTIME_RISK_MAPS.get(adapter);
+  return runtime?.tools[tool] ?? ADAPTER_RISK_MAPS[adapter]?.[tool] ?? runtime?.fallback ?? DEFAULT_SUBOP_RISK;
+}
+
+/** Runtime plugin risk maps registered from validated plugin manifests. */
+const RUNTIME_RISK_MAPS = new Map<string, { fallback: SubOpRisk; tools: Record<string, SubOpRisk> }>();
+
+export function registerAdapterRiskMap(
+  adapter: string,
+  fallback: SubOpRisk,
+  tools: Record<string, SubOpRisk>
+): void {
+  RUNTIME_RISK_MAPS.set(adapter, { fallback: { ...fallback }, tools: { ...tools } });
+}
+
+export function unregisterAdapterRiskMap(adapter: string): void {
+  RUNTIME_RISK_MAPS.delete(adapter);
 }

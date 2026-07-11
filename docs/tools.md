@@ -147,11 +147,29 @@ Tool results now carry typed MCP content blocks in addition to plain text:
 | Block type | Use |
 | --- | --- |
 | `text` | Plain text (always first — backwards-compatible) |
+| `image` | Base64 image content with a MIME type (e.g. browser screenshots for vision-capable clients) |
 | `resource` | Embedded content (e.g. `git_diff` attaches the diff as `text/x-diff` for in-client diff viewers) |
 | `resource_link` | URI reference to a local file or dashboard URL for out-of-band viewing |
 
+### AI coding runtime
+
+The `agent` group provides `project_analyze`, `code_context`, `patch_transaction`, `project_verify`, and `change_summary`. All five advertise output schemas. `patch_transaction` additionally returns diff resources; failed verification preserves structured execution evidence. See [`ai-coding-runtime.md`](./ai-coding-runtime.md).
+
+### Governed workflows
+
+The `workflow` group provides create/run/resume/status/list/cancel/report operations. Definitions are role-scoped, acyclic, bounded, and non-recursive; every child step still uses the original tool's governance. See [`workflows.md`](./workflows.md).
+
+### Local MCP plugins
+
+The `plugin` group provides `plugin_list`, `plugin_inspect`, `plugin_install`, `plugin_update`, `plugin_enable`, `plugin_disable`, `plugin_uninstall`, and `plugin_health`. Installed plugins default to a two-tool facade and declare per-sub-tool risk in their manifest. See [`plugin-system.md`](./plugin-system.md).
+
 ### Browser & DB
-Child-MCP adapter tools are exposed namespaced as `<adapter>__<tool>` (e.g.
+The stable native browser wrappers are `browser_open`, `browser_snapshot`,
+`browser_click`, `browser_type`, `browser_console`, `browser_network`,
+`browser_screenshot`, `browser_set_viewport`, `browser_close`, and
+`browser_eval`. They route to the configured Playwright child MCP while keeping
+FolderForge schemas, policy, audit, and rich image delivery. Dynamic child tools
+may also be exposed namespaced as `<adapter>__<tool>` (e.g.
 `playwright__browser_navigate`, `serena__find_symbol`) - see `docs/adapters.md`.
 `db_*` tools (`db_connect`, `db_list_connections`, `db_list_tables`,
 `db_describe_table`, `db_query_readonly`, `db_explain`) are native. Read-only
@@ -164,10 +182,10 @@ queries are LOW; writes/migrations are HIGH.
 
 | Preset | Groups | Notes |
 | --- | --- | --- |
-| `vibe` | workspace, file, search, terminal, process, git, code, build | Full vibe-coding surface (~59 tools). |
-| `vibe-lite` | same as `vibe` | Hard-capped to **50 tools** via `PRESET_TOOL_CAP`. Lands at exactly 50 by dropping 9 low-value tools (`git_blame`, `git_stash`, `git_fetch`, `git_pull`, `git_show`, `process_kill`, `process_write`, `code_insert_before_symbol`, `code_insert_after_symbol`) via `PRESET_DEFAULT_DISABLED`, so the full browser group survives. `workspace` and any `--tools-enable` names are always retained. |
-| `readonly` | workspace, file, search, code | Read-only exploration. |
-| `full` | all groups | Explicit opt-in to the full surface. |
+| `vibe` | workspace, workflow, agent, file, search, terminal, process, git, code, build | Full coding and governed-workflow surface (**71 tools** in the audited working tree). |
+| `vibe-lite` | workflow, agent, file, search, code, terminal, build, git, process, browser | Folder-scoped and hard-capped to **50 tools**. The complete workflow, agent, and browser groups are pinned; lower-level/default-disabled primitives are trimmed before cap resolution. Explicit `--tools-enable` names are retained. This is the only preset that does not force-add the workspace group. |
+| `readonly` | workspace, workflow, agent, file, search, code | Exploration-oriented surface (**42 tools**); mutating calls are still denied by readonly policy rather than by group membership alone. |
+| `full` | all native groups, including plugin and game | Explicit opt-in to the full native surface (**269 tools** in the audited working tree). Dynamic child/plugin tools may add to this count. |
 
 ## Task presets
 

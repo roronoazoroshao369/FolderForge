@@ -23,6 +23,82 @@ function isProbablyBinary(buf: Buffer): boolean {
   return false;
 }
 
+interface ContextDiagnostic {
+  requestedLines: number;
+  lineEndingMismatch: boolean;
+  whitespaceNormalizedMatch: boolean;
+  nearest: {
+    startLine: number;
+    endLine: number;
+    score: number;
+    text: string;
+  } | null;
+}
+
+function normalizedWhitespace(value: string): string {
+  return value.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').trim();
+}
+
+function lineSimilarity(a: string, b: string): number {
+  const left = new Set(normalizedWhitespace(a).toLowerCase().split(/\W+/).filter(Boolean));
+  const right = new Set(normalizedWhitespace(b).toLowerCase().split(/\W+/).filter(Boolean));
+  if (left.size === 0 && right.size === 0) return 1;
+  const intersection = [...left].filter((token) => right.has(token)).length;
+  const union = new Set([...left, ...right]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function diagnoseContext(before: string, requested: string): ContextDiagnostic {
+  const normalizedBefore = before.replace(/\r\n?/g, '\n');
+  const normalizedRequested = requested.replace(/\r\n?/g, '\n');
+  const requestedLines = normalizedRequested.split('\n');
+  const fileLines = normalizedBefore.split('\n');
+  const windowSize = Math.max(1, requestedLines.length);
+  let best: ContextDiagnostic['nearest'] = null;
+
+  for (let start = 0; start < Math.max(1, fileLines.length - windowSize + 1); start++) {
+    const window = fileLines.slice(start, start + windowSize);
+    const score =
+      requestedLines.reduce(
+        (sum, line, index) => sum + lineSimilarity(line, window[index] ?? ''),
+        0
+      ) / windowSize;
+    if (!best || score > best.score) {
+      best = {
+        startLine: start + 1,
+        endLine: start + window.length,
+        score: Number(score.toFixed(4)),
+        text: window.slice(0, 12).join('\n').slice(0, 4000),
+      };
+    }
+  }
+
+  return {
+    requestedLines: requestedLines.length,
+    lineEndingMismatch: !before.includes(requested) && normalizedBefore.includes(normalizedRequested),
+    whitespaceNormalizedMatch:
+      !before.includes(requested) &&
+      normalizedWhitespace(before).includes(normalizedWhitespace(requested)),
+    nearest: best,
+  };
+}
+
+function contextFailure(label: string, before: string, requested: string) {
+  const diagnostic = diagnoseContext(before, requested);
+  const hints = [
+    diagnostic.lineEndingMismatch ? 'line endings differ' : null,
+    diagnostic.whitespaceNormalizedMatch ? 'whitespace-normalized text matches' : null,
+    diagnostic.nearest
+      ? `nearest candidate lines ${diagnostic.nearest.startLine}-${diagnostic.nearest.endLine} (score ${diagnostic.nearest.score})`
+      : null,
+  ].filter(Boolean);
+  return {
+    ok: false as const,
+    error: `${label} ${hints.length ? hints.join('; ') + '.' : ''}`.trim(),
+    data: { reason: 'context_not_found', diagnostic },
+  };
+}
+
 export function fileTools(): ToolDefinition[] {
   return [
     defineTool({
@@ -142,7 +218,7 @@ export function fileTools(): ToolDefinition[] {
         const oldText = String(args.oldText);
         const expected = args.expectedOccurrences !== undefined ? Number(args.expectedOccurrences) : 1;
         const count = before.split(oldText).length - 1;
-        if (count === 0) return { ok: false, error: 'oldText not found in file.' };
+        if (count === 0) return contextFailure('oldText not found in file.', before, oldText);
         if (count !== expected) {
           return { ok: false, error: `Found ${count} occurrences, expected ${expected}. Refusing to edit.` };
         }
@@ -168,7 +244,9 @@ export function fileTools(): ToolDefinition[] {
         const before = existsSync(abs) ? readFileSync(abs, 'utf8') : '';
         let after: string;
         if (args.oldText) {
-          if (!before.includes(String(args.oldText))) return { ok: false, error: 'Patch context not found.' };
+          if (!before.includes(String(args.oldText))) {
+            return contextFailure('Patch context not found.', before, String(args.oldText));
+          }
           after = before.replace(String(args.oldText), String(args.newText));
         } else {
           after = String(args.newText);

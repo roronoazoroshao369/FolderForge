@@ -24,9 +24,10 @@ export class PolicyEngine {
         this.secret = new SecretPolicy(config.secretScan);
         // Persist approvals under the project's .folderforge dir so pending and
         // resolved requests survive restarts. Falls back to in-memory if unset.
-        const persistPath = config.workspace.defaultProject
-            ? resolve(config.workspace.defaultProject, '.folderforge', 'approvals.jsonl')
-            : undefined;
+        const persistPath = process.env.FOLDERFORGE_APPROVALS_PATH ||
+            (config.workspace.defaultProject
+                ? resolve(config.workspace.defaultProject, '.folderforge', 'approvals.jsonl')
+                : undefined);
         this.approvals = new ApprovalEngine(persistPath ? { persistPath } : {});
         this.mode = config.policy.defaultMode;
         this.requireApproval = new Set(config.policy.requireApproval);
@@ -61,7 +62,8 @@ export class PolicyEngine {
             }
             // A session-scoped approval (pre-granted via the dashboard/approval tools)
             // lets the tool through without re-prompting on every call.
-            if (this.approvals.isSessionAllowed(toolName)) {
+            if (this.approvals.isSessionAllowed(toolName) ||
+                this.approvals.consumeOnce(toolName, args)) {
                 return { kind: 'allow', risk };
             }
             return this.toApproval(toolName, risk, args, 'CRITICAL action requires explicit approval.');
@@ -78,7 +80,8 @@ export class PolicyEngine {
             if (this.mode === 'danger') {
                 return { kind: 'allow', risk };
             }
-            if (this.approvals.isSessionAllowed(toolName)) {
+            if (this.approvals.isSessionAllowed(toolName) ||
+                this.approvals.consumeOnce(toolName, args)) {
                 return { kind: 'allow', risk };
             }
             return this.toApproval(toolName, risk, args, `${toolName} (${risk}) requires approval.`);

@@ -36,12 +36,14 @@ agent (Claude Desktop / Codex / ...)
         | approved → resolve inline
         | denied  → error returned
         v
-  Tool handler (file/git/shell/...)        src/tools/*-tools.ts
+  Tool handler / child adapter             src/tools/* + src/adapters/*
         |  may return ToolContentBlock[]
-        |  (text | resource | resource_link)
+        |  (text | image | resource | resource_link)
+        |  child isError -> ToolResult.ok=false
         v
   toCallToolResult → MCP content blocks    src/server/mcp-server.ts
    text block always first (back-compat)
+   image blocks render directly in vision-capable clients
    embedded resource (e.g. text/x-diff for git_diff)
         v
   Container services                        src/core/container.ts
@@ -80,3 +82,7 @@ when the MCP client does not advertise the `elicitation` capability.
   (`TASK_PRESETS`) so agents see a focused tool list instead of everything.
 - **Fail safe.** Unknown tools, denied paths, and CRITICAL commands return a
   structured error rather than throwing across the protocol boundary.
+
+## Workflow control plane
+
+Persisted workflows are deterministic orchestration over `ToolRegistry.call`; they never invoke handlers directly. This preserves per-step policy, approval, rate limits, audit, adapter risk, and rich results. Checkpoints store bounded/redacted evidence and resume only unfinished steps. See [`workflows.md`](./workflows.md).

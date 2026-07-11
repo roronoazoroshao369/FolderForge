@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadConfig, validateConfig } from '../../src/core/config.js';
+import { fullConfig, loadConfig, validateConfig } from '../../src/core/config.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
 
 describe('config loading + validation', () => {
@@ -9,6 +9,14 @@ describe('config loading + validation', () => {
     expect(cfg.rateLimit.enabled).toBe(true);
     expect(cfg.secretScan.entropyEnabled).toBe(true);
     expect(cfg.workspace.allowedDirectories.length).toBeGreaterThan(0);
+  });
+
+  it('generates an isolated Playwright adapter by default', () => {
+    const cfg = fullConfig() as {
+      adapters: { playwright: { enabled: boolean; args: string[] } };
+    };
+    expect(cfg.adapters.playwright.enabled).toBe(true);
+    expect(cfg.adapters.playwright.args).toContain('--isolated');
   });
 
   it('rejects an invalid policy mode', () => {

@@ -16,6 +16,9 @@ import { pkgTools } from './pkg-tools.js';
 import { formatTools } from './format-tools.js';
 import { coverageTools } from './coverage-tools.js';
 import { gameTools } from './game-tools.js';
+import { agentTools } from './agent-tools.js';
+import { pluginTools } from './plugin-tools.js';
+import { workflowTools } from './workflow-tools.js';
 import { buildAdapterTools } from './adapter-tools.js';
 
 /**
@@ -39,6 +42,9 @@ export function buildRegistry(container: Container): ToolRegistry {
     ...pkgTools(),
     ...formatTools(),
     ...coverageTools(),
+    ...agentTools(),
+    ...pluginTools(),
+    ...workflowTools(),
     ...gameTools(),
   ]);
   // Expose the registry on the container so routing tools (workspace_route)
@@ -55,10 +61,12 @@ export function buildRegistry(container: Container): ToolRegistry {
  */
 export async function registerAdapterTools(
   container: Container,
-  registry: ToolRegistry
+  registry: ToolRegistry,
+  activate = false
 ): Promise<number> {
   const adapterTools = await buildAdapterTools(container);
   registry.registerAll(adapterTools);
+  if (activate) registry.activate(adapterTools.map((tool) => tool.name));
   return adapterTools.length;
 }
 
@@ -67,8 +75,45 @@ export async function registerAdapterTools(
  */
 export const TASK_PRESETS: Record<string, string[]> = {
   explore: ['workspace_status', 'search_text', 'search_files', 'code_find_symbol', 'code_symbols_overview', 'file_read'],
-  run_ui: ['process_start', 'process_read', 'browser_open', 'browser_snapshot', 'browser_console', 'browser_network'],
-  fix_tests: ['run_test', 'code_diagnostics', 'file_patch', 'file_edit_block', 'shell_exec', 'git_diff'],
+  run_ui: [
+    'process_start',
+    'process_read',
+    'process_stop',
+    'browser_open',
+    'browser_set_viewport',
+    'browser_snapshot',
+    'browser_click',
+    'browser_type',
+    'browser_console',
+    'browser_network',
+    'browser_screenshot',
+    'browser_eval',
+    'browser_close',
+  ],
+  implement: [
+    'project_analyze',
+    'code_context',
+    'patch_transaction',
+    'project_verify',
+    'change_summary',
+    'file_read',
+    'search_text',
+    'code_find_symbol',
+    'code_find_references',
+    'git_diff',
+  ],
+  fix_tests: [
+    'project_analyze',
+    'code_context',
+    'patch_transaction',
+    'project_verify',
+    'change_summary',
+    'run_test',
+    'code_diagnostics',
+    'file_edit_block',
+    'shell_exec',
+    'git_diff',
+  ],
 };
 
 /**
@@ -80,7 +125,7 @@ export const TASK_PRESETS: Record<string, string[]> = {
 export const GROUP_PRESETS: Record<string, string[]> = {
   // Focused set for AI "vibe coding": read/edit, search, run, git, code intel.
   // Leaves out db, browser, coverage, security, memory to stay well under 50.
-  vibe: ['workspace', 'file', 'search', 'terminal', 'process', 'git', 'code', 'build'],
+  vibe: ['workspace', 'workflow', 'agent', 'file', 'search', 'terminal', 'process', 'git', 'code', 'build'],
   // Same groups as `vibe`, but hard-capped to fit clients that reject more than
   // 50 tools. The cap is applied by PRESET_TOOL_CAP below; group order here also
   // sets keep-priority so the most useful groups survive the trim.
@@ -90,27 +135,27 @@ export const GROUP_PRESETS: Record<string, string[]> = {
   // dedicated docker group is needed. Listed in PRESET_NO_FORCE_WORKSPACE so the
   // always-keep-workspace rule is skipped for this preset only.
   //
-  // Group order = keep-priority when the cap trims. The 9 tools dropped by
+  // Group order = keep-priority when the cap trims. Lower-level and infrequent tools dropped by
   // default to land at exactly 50 are declared in PRESET_DEFAULT_DISABLED:
-  //   git_blame, git_stash, git_fetch, git_pull, git_show,
-  //   process_kill, process_write,
-  //   code_insert_before_symbol, code_insert_after_symbol
-  // The whole browser group is intentionally kept (UI testing). To trim/keep
-  // others, edit PRESET_DEFAULT_DISABLED or use `disabled`/`enabled` in config.
-  'vibe-lite': ['file', 'search', 'code', 'terminal', 'build', 'git', 'process', 'browser'],
+  //   six rarely-used git tools; process_kill/process_write; run_coverage;
+  //   file_patch/search_ast/project_detect_commands/parse_errors/run_build; and
+  //   two symbol-insert edits. The five agent tools replace or compose these
+  // lower-level capabilities for the common vibe-coding loop. Both the complete
+  // agent and browser groups are pinned under cap pressure.
+  'vibe-lite': ['workflow', 'agent', 'file', 'search', 'code', 'terminal', 'build', 'git', 'process', 'browser'],
   // Read-only exploration.
-  readonly: ['workspace', 'file', 'search', 'code'],
+  readonly: ['workspace', 'workflow', 'agent', 'file', 'search', 'code'],
   // Everything (explicit opt-in to the full surface).
   full: [
-    'workspace', 'file', 'search', 'terminal', 'process', 'git', 'build',
-    'memory', 'security', 'code', 'browser', 'db', 'pkg', 'format', 'coverage',
+    'workspace', 'workflow', 'agent', 'file', 'search', 'terminal', 'process', 'git', 'build',
+    'memory', 'security', 'code', 'browser', 'db', 'pkg', 'format', 'coverage', 'plugin',
     'game',
   ],
   // Godot game-dev focus: the coding essentials plus the `game` group, so an
   // agent can read/edit project files and drive the engine without the db /
   // coverage / pkg noise. Runtime tiers (later steps) join the same group.
   godot: [
-    'workspace', 'file', 'search', 'code', 'terminal', 'build', 'git',
+    'workspace', 'workflow', 'agent', 'file', 'search', 'code', 'terminal', 'build', 'git',
     'process', 'browser', 'game',
   ],
 };
@@ -125,16 +170,24 @@ export const PRESET_TOOL_CAP: Record<string, number> = {
 };
 
 /**
+ * Groups that must survive a preset cap intact. `vibe-lite` promises end-to-end
+ * UI testing, so future additions in earlier groups must never silently evict a
+ * browser wrapper from the advertised surface.
+ */
+export const PRESET_PINNED_GROUPS: Record<string, string[]> = {
+  'vibe-lite': ['workflow', 'agent', 'browser'],
+};
+
+/**
  * Per-preset default tool removals, applied on top of group selection (and
  * before any user-supplied `disabled` list). For `vibe-lite` we deliberately
- * drop the 9 least-useful-for-vibe-coding tools so the surface lands at exactly
- * 50 *and* the whole browser group survives (the automatic group-priority cap
- * would otherwise delete browser_* entirely). The cuts: rarely-used git
- * porcelain, two process controls, and two symbol-insert edits already covered
- * by file_patch / file_edit_block.
+ * drop lower-level or infrequent tools so the surface lands at exactly 50.
+ * The complete workflow, agent, and browser groups remain pinned; agent tools compose
+ * the common analyze/context/patch/verify/summary workflow.
  */
 export const PRESET_DEFAULT_DISABLED: Record<string, string[]> = {
   'vibe-lite': [
+    'git_log',
     'git_blame',
     'git_stash',
     'git_fetch',
@@ -142,6 +195,20 @@ export const PRESET_DEFAULT_DISABLED: Record<string, string[]> = {
     'git_show',
     'process_kill',
     'process_write',
+    'run_coverage',
+    'file_patch',
+    'search_ast',
+    'project_detect_commands',
+    'parse_errors',
+    'run_build',
+    'file_write',
+    'search_files',
+    'git_status',
+    'run_test',
+    'run_lint',
+    'run_typecheck',
+    'pkg_run',
+    'git_reset',
     'code_insert_before_symbol',
     'code_insert_after_symbol',
   ],
@@ -211,8 +278,12 @@ export function resolveActiveTools(
   // tools are always retained and never counted out.
   const cap = opts.preset ? PRESET_TOOL_CAP[opts.preset] : undefined;
   if (cap !== undefined && keep.size > cap) {
+    const pinnedGroups = new Set(
+      opts.preset ? PRESET_PINNED_GROUPS[opts.preset] ?? [] : []
+    );
     const pinned = new Set([
       ...(forceWorkspace ? ['workspace'] : []),
+      ...all.filter((t) => pinnedGroups.has(t.group)).map((t) => t.name),
       ...(opts.enabled ?? []),
     ]);
     const priority = groups ?? [];

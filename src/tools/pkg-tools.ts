@@ -113,7 +113,7 @@ function validatePkgSpec(spec: string): string | null {
   return null;
 }
 
-async function runPm(ctx: ToolContext, argv: string[]): Promise<ToolResult> {
+export async function runPm(ctx: ToolContext, argv: string[]): Promise<ToolResult> {
   const [bin, ...rest] = argv;
   const sub = await execa(bin!, rest, {
     cwd: ctx.projectRoot,
@@ -128,10 +128,16 @@ async function runPm(ctx: ToolContext, argv: string[]): Promise<ToolResult> {
   const redact = ctx.container.policy.secret.redact;
   const stdout = redact((sub.stdout ?? '').slice(0, max));
   const stderr = redact((sub.stderr ?? '').slice(0, max));
-  return {
-    ok: sub.exitCode === 0,
-    data: { command: argv.join(' '), exitCode: sub.exitCode ?? null, stdout, stderr },
-  };
+  const exitCode = sub.exitCode ?? null;
+  const data = { command: argv.join(' '), exitCode, stdout, stderr };
+  if (exitCode !== 0) {
+    return {
+      ok: false,
+      error: `${bin} exited with code ${exitCode ?? 'unknown'}.`,
+      data,
+    };
+  }
+  return { ok: true, data };
 }
 
 function withPm(

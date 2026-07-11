@@ -93,6 +93,24 @@ export class ToolRegistry {
     for (const t of tools) this.register(t);
   }
 
+  /** Remove registered tools matching a predicate and hide them from routing. */
+  unregisterWhere(predicate: (tool: ToolDefinition) => boolean): string[] {
+    const removed: string[] = [];
+    for (const [name, tool] of this.tools) {
+      if (!predicate(tool)) continue;
+      this.tools.delete(name);
+      this.activeSet?.delete(name);
+      removed.push(name);
+    }
+    return removed;
+  }
+
+  /** Make newly registered tools visible when a routed subset is active. */
+  activate(names: string[]): void {
+    if (!this.activeSet) return;
+    for (const name of names) this.activeSet.add(name);
+  }
+
   get(name: string): ToolDefinition | undefined {
     return this.tools.get(name);
   }
@@ -127,13 +145,34 @@ export class ToolRegistry {
     // Determine per-call risk (shell can be re-classified by the handler later,
     // but we evaluate the base risk here too).
     let risk = tool.risk;
+    let mutates = tool.mutates;
     if (name === 'shell_exec' && typeof args.command === 'string') {
       const cls = this.container.policy.command.classify(args.command);
       risk = cls.risk;
+    } else if (name === 'patch_transaction') {
+      const action = String(args.action ?? 'preview');
+      if (action === 'preview' || action === 'status') {
+        risk = 'LOW';
+        mutates = false;
+      } else {
+        risk = args.force === true ? 'HIGH' : 'MEDIUM';
+        mutates = true;
+      }
+    } else if (name === 'project_verify') {
+      if (args.dryRun === true) {
+        risk = 'LOW';
+        mutates = false;
+      } else {
+        // Test/lint/typecheck scripts are executable project code even when no
+        // build step is requested. Keep all real verification runs governed as
+        // MEDIUM; only a non-executing dry run is safe in readonly mode.
+        risk = 'MEDIUM';
+        mutates = true;
+      }
     }
 
     return this.runPipeline(
-      { name, risk, mutates: tool.mutates, handler: tool.handler },
+      { name, risk, mutates, handler: tool.handler },
       args,
       control
     );

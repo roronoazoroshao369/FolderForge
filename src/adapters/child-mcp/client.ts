@@ -21,13 +21,16 @@ export class StdioChildClient {
   constructor(
     private command: string,
     private args: string[],
-    private env: Record<string, string> = {}
+    private env: Record<string, string> = {},
+    private cwd?: string,
+    private inheritEnv = true
   ) {}
 
   async start(): Promise<void> {
     if (this.child) return;
     this.child = spawn(this.command, this.args, {
-      env: { ...process.env, ...this.env },
+      cwd: this.cwd,
+      env: this.inheritEnv ? { ...process.env, ...this.env } : { ...this.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as ChildProcessWithoutNullStreams;
 

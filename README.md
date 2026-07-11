@@ -100,10 +100,11 @@ projects at once, list them all in `allowedDirectories`.
 Some MCP clients cap how many tools they will load (around 50). FolderForge
 exposes a large native catalog, so you can trim the advertised list at startup
 to a focused set. The filter is applied before the first `tools/list`, so the
-client never sees the tools you excluded. The `workspace` group is always kept.
+client never sees the tools you excluded. Most presets retain the `workspace`
+group; `vibe-lite` is intentionally folder-scoped and is the exception.
 
-Fastest path - the `vibe` preset (file, search, terminal, process, git, code,
-build):
+Fastest path - the `vibe` preset (workspace, workflow, agent, file, search,
+terminal, process, git, code, build):
 
 ```jsonc
 {
@@ -126,9 +127,12 @@ folderforge --stdio --project . --tools-groups file,search,terminal,git,code,bui
 folderforge --stdio --project . --tools-preset vibe --tools-disable search_ast --tools-enable run_test
 ```
 
-Available presets: `vibe` (coding-focused), `readonly` (explore only), `full`
-(everything). Groups: `file`, `search`, `terminal`, `process`, `git`, `build`,
-`code`, `pkg`, `format`, `coverage`, `memory`, `security`, `browser`, `db`.
+Available presets: `vibe` (71-tool coding/workflow surface in the audited tree),
+`vibe-lite` (folder-scoped coding plus all browser wrappers, hard-capped at 50),
+`readonly` (42-tool exploration-oriented surface), and `full` (269 native tools
+before dynamic child/plugin tools). Groups include `workspace`, `workflow`,
+`agent`, `file`, `search`, `terminal`, `process`, `git`, `build`, `code`, `pkg`,
+`format`, `coverage`, `memory`, `security`, `browser`, `db`, `plugin`, and `game`.
 
 Or set it in `folderforge.yaml` so you don't repeat flags:
 
@@ -150,31 +154,30 @@ tools:
 - Supports file, search, shell, process, git, build, code-intelligence,
   memory, browser, and database workflows
 
-## Status (1.0)
+## Status (`2.0.0-rc.1` candidate)
 
-FolderForge is at **1.0**. The full stack is in place and frozen for release:
+The repository is locally prepared as **`2.0.0-rc.1`**. It has not been tagged,
+pushed, published to npm, or released. The audited native registry contains 269
+tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
+42, and 269 native tools respectively before dynamic child/plugin additions.
 
-- **Core** - config loader (with aggregated validation errors), dependency
-  container, multi-project workspace activation.
-- **Policy** - path, command, and secret policies + risk model; approval queue
-  (once/session scopes) persisted under `.folderforge/approvals.jsonl`;
-  per-tool rate limits and daily quotas; pluggable secret scanning with
-  Shannon-entropy detection.
-- **Tools** - full native catalog (files, search incl. structural `search_ast`,
-  terminal, processes, git, build/quality, code intelligence, memory, security,
-  policy/audit, approvals, browser, database) plus `workspace_route` for
-  task-preset tool routing. The public tool surface is **frozen** in
-  `src/tools/schema-lock.ts` and guarded by tests.
-- **Adapters** - Serena, Playwright, and Desktop Commander child-MCP servers,
-  proxied with namespacing (`serena__<tool>`).
-- **Server** - MCP `tools/list` / `tools/call` over stdio and a hardened
-  Streamable HTTP transport (constant-time bearer auth, CORS allowlist,
-  idle-session expiry).
-- **Observability** - append-only JSONL audit log + ring buffer, `policy_explain`
-  dry-run tooling, and a local dashboard (`/status`, `/audit`, `/processes`,
-  `/approvals`).
+- **Core and governance** - multi-project activation, path/command/secret policy,
+  exact once/session approvals, rate limits, append-only audit, and governed
+  workflows.
+- **MCP** - stdio and authenticated Streamable HTTP, structured error evidence,
+  progress, cancellation, elicitation, image/resource/resource-link delivery,
+  child facades, and dynamic plugin adapters.
+- **AI/browser runtime** - bounded code context, transactional edits,
+  verification/report tools, and stable responsive browser wrappers.
+- **Release gates** - typecheck, lint, 328 unit/integration tests, build, both
+  dependency audits, `npm pack`, temporary tarball install, CLI smoke, and live
+  authenticated HTTP MCP initialize/list/call smoke.
+- **Trust boundary** - local plugin permission declarations are review/audit
+  metadata, not an OS sandbox. Untrusted plugin distribution remains disabled by
+  product policy until hard isolation and signed provenance exist.
 
-See `docs/roadmap.md` for the detailed milestone history and post-1.0 ideas.
+See `docs/roadmap.md`, `docs/releasing.md`, and `docs/migration-2.0.md` for the
+release record, gates, and migration notes.
 
 ### MCP protocol features (1.2)
 
@@ -200,11 +203,12 @@ can resolve it there.
 
 #### Embedded resources
 
-Tool results can now carry MCP content blocks beyond plain text.  `git_diff`
-attaches the diff as an embedded `text/x-diff` resource so supporting clients
-can render it in a dedicated viewer / diff tab rather than a raw text block.
-Other tools may attach `resource_link` blocks pointing to local file URIs or
-dashboard URLs.
+Tool results can now carry MCP content blocks beyond plain text. `git_diff`
+attaches the diff as an embedded `text/x-diff` resource, and child MCP image
+blocks are promoted so `browser_screenshot` can render directly in
+vision-capable clients. Other tools may attach `resource_link` blocks pointing
+to local file URIs or dashboard URLs. Promoted image base64 is not duplicated in
+the compatibility text summary.
 
 `git_reset`, `git_push`, and `git_pull` confirm interactively before acting
 when the client supports elicitation, and `git_push` / `git_fetch` / `git_pull`
@@ -299,8 +303,10 @@ The generated `folderforge.yaml` is **batteries-included**:
 - `policy.defaultMode: dev`
 - `tools.preset: vibe-lite` (folder-scoped coding set + the full `browser` group)
 - **`adapters.playwright.enabled: true`** - so the `browser_*` tools (navigate,
-  click, type, snapshot, console, network, screenshot, eval) actually run for
-  FE / UI-UX testing instead of returning *"Playwright adapter is disabled"*.
+  viewport resize, click, type, snapshot, console, network, screenshot, eval)
+  actually run for FE / UI-UX testing instead of returning *"Playwright adapter
+  is disabled"*. Generated adapter args include `--isolated` so concurrent
+  FolderForge instances do not lock the same browser profile.
 
 Rules:
 

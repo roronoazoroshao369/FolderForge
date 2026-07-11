@@ -118,31 +118,74 @@ function toJsonSchema(schema) {
  * Exported for unit testing of the structuredContent mirroring contract.
  */
 export function toCallToolResult(result, hasOutputSchema = false) {
+    const richContent = result.content ?? [];
     if (!result.ok) {
         const text = result.approvalId
             ? `${result.error ?? 'Approval required'}\n(approvalId=${result.approvalId})`
             : result.error ?? 'Tool call failed';
-        return { content: [{ type: 'text', text }], isError: true };
+        const content = [{ type: 'text', text }];
+        const displayData = withoutPromotedContent(result.data, richContent.length > 0);
+        if (displayData !== undefined || result.diff !== undefined) {
+            content.push({
+                type: 'text',
+                text: JSON.stringify({
+                    ...(displayData !== undefined ? { data: displayData } : {}),
+                    ...(result.diff !== undefined ? { diff: result.diff } : {}),
+                }, null, 2),
+            });
+        }
+        appendRichContent(content, richContent);
+        const out = { content, isError: true };
+        if (hasOutputSchema && result.data !== undefined && result.data !== null) {
+            out.structuredContent =
+                result.data;
+        }
+        return out;
     }
     const payload = {};
-    if (result.data !== undefined)
-        payload.data = result.data;
+    const displayData = withoutPromotedContent(result.data, richContent.length > 0);
+    if (displayData !== undefined)
+        payload.data = displayData;
     if (result.diff !== undefined)
         payload.diff = result.diff;
-    const text = result.diff && result.data === undefined
+    const text = result.diff && displayData === undefined
         ? result.diff
         : JSON.stringify(Object.keys(payload).length ? payload : { ok: true }, null, 2);
-    // Build the content array. The text block always leads (back-compat for
-    // text-only clients); rich content blocks (embedded resources / links) are
-    // appended so spec-aware clients can render a diff inline or open a file in a
-    // viewer/tab. See ToolContentBlock in core/types.
+    // The text block always leads for backwards compatibility. Rich MCP blocks
+    // follow it so vision-capable clients receive images directly instead of a
+    // JSON-escaped base64 string nested inside `data.content`.
     const content = [{ type: 'text', text }];
-    for (const block of result.content ?? []) {
+    appendRichContent(content, richContent);
+    const out = { content };
+    // When a tool declares an outputSchema, also return machine-readable
+    // structuredContent so spec-aware clients can consume typed output without
+    // re-parsing the text block (MCP 2025-06-18 structured tool output).
+    if (hasOutputSchema && result.data !== undefined && result.data !== null) {
+        out.structuredContent =
+            result.data;
+    }
+    return out;
+}
+function withoutPromotedContent(data, promoted) {
+    if (!promoted || typeof data !== 'object' || data === null || Array.isArray(data))
+        return data;
+    const record = data;
+    if (!Array.isArray(record.content))
+        return data;
+    const clone = { ...record };
+    delete clone.content;
+    return Object.keys(clone).length > 0 ? clone : undefined;
+}
+function appendRichContent(target, blocks) {
+    for (const block of blocks) {
         if (block.kind === 'text') {
-            content.push({ type: 'text', text: block.text });
+            target.push({ type: 'text', text: block.text });
+        }
+        else if (block.kind === 'image') {
+            target.push({ type: 'image', data: block.data, mimeType: block.mimeType });
         }
         else if (block.kind === 'resource') {
-            content.push({
+            target.push({
                 type: 'resource',
                 resource: {
                     uri: block.uri,
@@ -153,7 +196,7 @@ export function toCallToolResult(result, hasOutputSchema = false) {
             });
         }
         else if (block.kind === 'resource_link') {
-            content.push({
+            target.push({
                 type: 'resource_link',
                 uri: block.uri,
                 ...(block.name ? { name: block.name } : {}),
@@ -163,13 +206,4 @@ export function toCallToolResult(result, hasOutputSchema = false) {
             });
         }
     }
-    const out = { content };
-    // When a tool declares an outputSchema, also return machine-readable
-    // structuredContent so spec-aware clients can consume typed output without
-    // re-parsing the text block (MCP 2025-06-18 structured tool output).
-    if (hasOutputSchema && result.data !== undefined && result.data !== null) {
-        out.structuredContent =
-            result.data;
-    }
-    return out;
 }

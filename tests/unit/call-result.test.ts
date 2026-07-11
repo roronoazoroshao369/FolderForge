@@ -57,4 +57,56 @@ describe('toCallToolResult', () => {
     expect(out.isError).toBe(true);
     expect((out.content[0] as { text: string }).text).toContain('ap_123');
   });
+
+  it('promotes an image block without duplicating base64 in the JSON text summary', () => {
+    const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB';
+    const out = toCallToolResult({
+      ok: true,
+      data: {
+        content: [
+          { type: 'text', text: 'saved screenshot' },
+          { type: 'image', data: base64, mimeType: 'image/png' },
+        ],
+      },
+      content: [
+        { kind: 'text', text: 'saved screenshot' },
+        { kind: 'image', data: base64, mimeType: 'image/png' },
+      ],
+    });
+
+    expect((out.content[0] as { type: 'text'; text: string }).text).not.toContain(base64);
+    expect(out.content).toContainEqual({ type: 'image', data: base64, mimeType: 'image/png' });
+  });
+
+  it('preserves structured diagnostics on error results', () => {
+    const out = toCallToolResult(
+      {
+        ok: false,
+        error: 'verification failed',
+        data: { exitCode: 2, stdout: 'partial output', stderr: 'type error' },
+      },
+      true
+    ) as WithStructured;
+
+    expect(out.isError).toBe(true);
+    expect(out.content).toHaveLength(2);
+    expect(JSON.parse((out.content[1] as { text: string }).text)).toEqual({
+      data: { exitCode: 2, stdout: 'partial output', stderr: 'type error' },
+    });
+    expect(out.structuredContent).toEqual({
+      exitCode: 2,
+      stdout: 'partial output',
+      stderr: 'type error',
+    });
+  });
+
+  it('keeps rich child content on error results', () => {
+    const out = toCallToolResult({
+      ok: false,
+      error: 'child failed',
+      content: [{ kind: 'text', text: 'child diagnostic' }],
+    });
+    expect(out.isError).toBe(true);
+    expect(out.content).toContainEqual({ type: 'text', text: 'child diagnostic' });
+  });
 });

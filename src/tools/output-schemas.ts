@@ -22,6 +22,19 @@ const errorItem = {
   },
 } as const;
 
+/** Output of shell_exec on success or non-zero exit. */
+export const SHELL_EXEC_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    exitCode: { type: ['integer', 'null'] },
+    stdout: { type: 'string' },
+    stderr: { type: 'string' },
+    durationMs: { type: 'integer' },
+    risk: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] },
+  },
+  required: ['exitCode', 'stdout', 'stderr', 'durationMs', 'risk'],
+} as const;
+
 /** Output of run_test / run_lint / run_typecheck / run_build (runScript). */
 export const RUN_SCRIPT_OUTPUT_SCHEMA = {
   type: 'object',
@@ -80,6 +93,132 @@ export const DB_QUERY_OUTPUT_SCHEMA = {
     },
   },
   required: ['rows'],
+} as const;
+
+/** Output of project_analyze. */
+export const PROJECT_ANALYZE_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    version: { type: ['string', 'null'] },
+    private: { type: ['boolean', 'null'] },
+    projectRoot: { type: 'string' },
+    languages: { type: 'array', items: { type: 'string' } },
+    packageManagers: { type: 'array', items: { type: 'string' } },
+    frameworks: { type: 'array', items: { type: 'string' } },
+    commands: { type: 'object', additionalProperties: true },
+    architecture: { type: 'object', additionalProperties: true },
+    manifests: { type: 'array', items: { type: 'string' } },
+    configFiles: { type: 'array', items: { type: 'string' } },
+    git: { type: 'object', additionalProperties: true },
+  },
+  required: ['name', 'projectRoot', 'languages', 'packageManagers', 'frameworks', 'commands', 'architecture', 'manifests', 'configFiles', 'git'],
+} as const;
+
+/** Output of code_context. */
+export const CODE_CONTEXT_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    query: { type: 'string' },
+    scannedFiles: { type: 'integer' },
+    indexedFiles: { type: 'integer' },
+    indexedBytes: { type: 'integer' },
+    truncated: { type: 'boolean' },
+    skippedLarge: { type: 'integer' },
+    skippedDenied: { type: 'integer' },
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          kind: { type: 'string' },
+          score: { type: 'number' },
+          size: { type: 'integer' },
+          snippets: { type: 'array', items: { type: 'string' } },
+          relatedTests: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['path', 'kind', 'score', 'size', 'snippets', 'relatedTests'],
+      },
+    },
+    matchingTests: { type: 'array', items: { type: 'string' } },
+    hints: { type: 'object', additionalProperties: true },
+  },
+  required: ['query', 'scannedFiles', 'indexedFiles', 'indexedBytes', 'truncated', 'results', 'matchingTests'],
+} as const;
+
+const patchFileView = {
+  type: 'object',
+  properties: {
+    path: { type: 'string' },
+    existed: { type: 'boolean' },
+    beforeBytes: { type: 'integer' },
+    afterBytes: { type: 'integer' },
+    diff: { type: 'string' },
+  },
+  required: ['path', 'existed', 'beforeBytes', 'afterBytes', 'diff'],
+} as const;
+
+/** Output of patch_transaction. */
+export const PATCH_TRANSACTION_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    projectRoot: { type: 'string' },
+    createdAt: { type: 'integer' },
+    updatedAt: { type: 'integer' },
+    state: { type: 'string', enum: ['previewed', 'applied', 'rolled_back'] },
+    files: { type: 'array', items: patchFileView },
+  },
+  required: ['id', 'projectRoot', 'createdAt', 'updatedAt', 'state', 'files'],
+} as const;
+
+/** Output of project_verify on both success and failure. */
+export const PROJECT_VERIFY_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    dryRun: { type: 'boolean' },
+    passed: { type: 'boolean' },
+    packageManager: { type: 'string' },
+    requested: { type: 'array', items: { type: 'string' } },
+    completed: { type: 'integer' },
+    plan: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    results: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          check: { type: 'string' },
+          command: { type: ['string', 'null'] },
+          exitCode: { type: ['integer', 'null'] },
+          durationMs: { type: 'integer' },
+          stdout: { type: 'string' },
+          stderr: { type: 'string' },
+          errors: { type: 'array', items: errorItem },
+          passed: { type: 'boolean' },
+          skipped: { type: 'boolean' },
+          reason: { type: 'string' },
+        },
+        required: ['check'],
+      },
+    },
+  },
+} as const;
+
+/** Output of change_summary. */
+export const CHANGE_SUMMARY_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    branch: { type: ['string', 'null'] },
+    clean: { type: 'boolean' },
+    ahead: { type: 'integer' },
+    behind: { type: 'integer' },
+    files: { type: 'object', additionalProperties: true },
+    numstat: { type: 'object', additionalProperties: true },
+    suggestedChecks: { type: 'array', items: { type: 'string' } },
+    commitReady: { type: 'boolean' },
+  },
+  required: ['clean', 'files', 'numstat', 'suggestedChecks', 'commitReady'],
 } as const;
 
 /** Output of run_coverage. */

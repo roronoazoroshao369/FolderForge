@@ -65,6 +65,25 @@ export class ToolRegistry {
         for (const t of tools)
             this.register(t);
     }
+    /** Remove registered tools matching a predicate and hide them from routing. */
+    unregisterWhere(predicate) {
+        const removed = [];
+        for (const [name, tool] of this.tools) {
+            if (!predicate(tool))
+                continue;
+            this.tools.delete(name);
+            this.activeSet?.delete(name);
+            removed.push(name);
+        }
+        return removed;
+    }
+    /** Make newly registered tools visible when a routed subset is active. */
+    activate(names) {
+        if (!this.activeSet)
+            return;
+        for (const name of names)
+            this.activeSet.add(name);
+    }
     get(name) {
         return this.tools.get(name);
     }
@@ -88,6 +107,63 @@ export class ToolRegistry {
             return { ok: false, error: `Unknown tool: ${name}` };
         }
         const args = rawArgs ?? {};
+        // Determine per-call risk (shell can be re-classified by the handler later,
+        // but we evaluate the base risk here too).
+        let risk = tool.risk;
+        let mutates = tool.mutates;
+        if (name === 'shell_exec' && typeof args.command === 'string') {
+            const cls = this.container.policy.command.classify(args.command);
+            risk = cls.risk;
+        }
+        else if (name === 'patch_transaction') {
+            const action = String(args.action ?? 'preview');
+            if (action === 'preview' || action === 'status') {
+                risk = 'LOW';
+                mutates = false;
+            }
+            else {
+                risk = args.force === true ? 'HIGH' : 'MEDIUM';
+                mutates = true;
+            }
+        }
+        else if (name === 'project_verify') {
+            if (args.dryRun === true) {
+                risk = 'LOW';
+                mutates = false;
+            }
+            else {
+                // Test/lint/typecheck scripts are executable project code even when no
+                // build step is requested. Keep all real verification runs governed as
+                // MEDIUM; only a non-executing dry run is safe in readonly mode.
+                risk = 'MEDIUM';
+                mutates = true;
+            }
+        }
+        return this.runPipeline({ name, risk, mutates, handler: tool.handler }, args, control);
+    }
+    /**
+     * Run an ad-hoc tool through the identical governance pipeline as {@link call},
+     * keyed on a caller-supplied identity/risk/mutation classification.
+     *
+     * This is the governance re-entry point for facade sub-ops (see
+     * docs/mcp-facade.md, Step 5). A facade `<adapter>__call_tool` handler must NOT
+     * forward straight to the child; instead it resolves the sub-op's own
+     * risk/mutates and calls this method with a synthetic name
+     * (`<adapter>__call_tool:<subtool>`) so policy mode, approval/elicitation,
+     * rate-limit, and audit all fire per sub-op and the audit trail records the
+     * real sub-tool - never a single bland dispatcher line.
+     */
+    async callDynamic(descriptor, rawArgs, control) {
+        return this.runPipeline(descriptor, rawArgs ?? {}, control);
+    }
+    /**
+     * The shared governance pipeline: cancellation check -> audit -> policy
+     * evaluate -> approval/elicitation -> rate-limit -> handler -> audit result.
+     * Both native `call` and facade `callDynamic` funnel through here so there is
+     * exactly one governance path and a facade can never bypass it.
+     */
+    async runPipeline(descriptor, args, control) {
+        const { name, risk, mutates } = descriptor;
         const started = Date.now();
         // P6 - cancellation: if the client already cancelled before we start (or
         // cancels during the synchronous policy/rate-limit checks below), refuse
@@ -95,20 +171,13 @@ export class ToolRegistry {
         if (control?.signal?.aborted) {
             return { ok: false, error: 'Tool call cancelled before execution.' };
         }
-        // Determine per-call risk (shell can be re-classified by the handler later,
-        // but we evaluate the base risk here too).
-        let risk = tool.risk;
-        if (name === 'shell_exec' && typeof args.command === 'string') {
-            const cls = this.container.policy.command.classify(args.command);
-            risk = cls.risk;
-        }
         this.container.audit.record({
             type: 'tool_call',
             tool: name,
             risk,
             summary: summarizeArgs(name, args),
         });
-        const decision = this.container.policy.evaluate(name, risk, tool.mutates, args);
+        const decision = this.container.policy.evaluate(name, risk, mutates, args);
         if (decision.kind === 'deny') {
             this.container.audit.record({ type: 'policy_deny', tool: name, risk, summary: decision.reason });
             return { ok: false, error: `Denied: ${decision.reason}` };
@@ -212,7 +281,7 @@ export class ToolRegistry {
             };
         }
         try {
-            const result = await tool.handler(args, {
+            const result = await descriptor.handler(args, {
                 config: this.container.config,
                 projectRoot: this.container.projectRoot(),
                 ...(control !== undefined ? { control } : {}),

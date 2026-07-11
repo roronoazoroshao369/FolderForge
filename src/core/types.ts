@@ -112,6 +112,10 @@ export interface AdapterDef {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** Child process working directory. */
+  cwd?: string;
+  /** Whether to inherit the parent environment (defaults to true for built-ins). */
+  inheritEnv?: boolean;
   /**
    * Facade mode. When true, this adapter is exposed through a two-tool facade
    * (`<adapter>__list_tools` + `<adapter>__call_tool`) instead of re-exporting
@@ -284,6 +288,12 @@ export interface ToolCallControl {
  */
 export type ToolContentBlock =
   | { kind: 'text'; text: string }
+  | {
+      /** Base64-encoded image content rendered directly by vision-capable clients. */
+      kind: 'image';
+      data: string;
+      mimeType: string;
+    }
   | {
       /** Inline resource the client renders in place (diff, file preview, log). */
       kind: 'resource';

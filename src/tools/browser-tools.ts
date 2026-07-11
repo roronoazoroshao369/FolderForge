@@ -1,5 +1,6 @@
 import { defineTool } from './registry.js';
 import type { ToolDefinition, ToolContext } from '../core/types.js';
+import { childCallToToolResult } from '../adapters/child-mcp/result.js';
 
 const PW_MAP: Record<string, string> = {
   browser_open: 'browser_navigate',
@@ -9,6 +10,7 @@ const PW_MAP: Record<string, string> = {
   browser_console: 'browser_console_messages',
   browser_network: 'browser_network_requests',
   browser_screenshot: 'browser_take_screenshot',
+  browser_set_viewport: 'browser_resize',
   browser_close: 'browser_close',
   browser_eval: 'browser_evaluate',
 };
@@ -38,7 +40,7 @@ async function routeToPlaywright(ctx: ToolContext, toolName: string, args: Recor
     const client = await ctx.container.adapters.ensure('playwright');
     const pwTool = PW_MAP[toolName] ?? toolName;
     const result = await client.callTool(pwTool, args);
-    return { ok: true, data: result };
+    return childCallToToolResult(result, toolName);
   } catch (err) {
     return { ok: false, error: `Playwright call failed: ${String(err)}` };
   }
@@ -114,7 +116,54 @@ export function browserTools(): ToolDefinition[] {
     ),
     bTool('browser_console', 'Read browser console messages.', false, {}),
     bTool('browser_network', 'List network requests made by the page.', false, {}),
-    bTool('browser_screenshot', 'Capture a screenshot of the page.', true, {}),
+    bTool(
+      'browser_screenshot',
+      'Capture the current viewport, full page, or one referenced element and return an MCP image block for vision-capable clients.',
+      true,
+      {
+        type: {
+          type: 'string',
+          enum: ['png', 'jpeg'],
+          description: 'Image format. Defaults to png.',
+        },
+        filename: {
+          type: 'string',
+          description: 'Optional output filename used by the Playwright child server.',
+        },
+        element: {
+          type: 'string',
+          description: 'Human-readable target description. Requires ref.',
+        },
+        ref: {
+          type: 'string',
+          description: 'Exact target ref from browser_snapshot. Requires element.',
+        },
+        fullPage: {
+          type: 'boolean',
+          description: 'Capture the full scrollable page. Cannot be combined with an element target.',
+        },
+      },
+    ),
+    bTool(
+      'browser_set_viewport',
+      'Resize the browser viewport for responsive UI testing.',
+      true,
+      {
+        width: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 10000,
+          description: 'Viewport width in CSS pixels.',
+        },
+        height: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 10000,
+          description: 'Viewport height in CSS pixels.',
+        },
+      },
+      ['width', 'height'],
+    ),
     bTool('browser_close', 'Close the browser session.', true, {}),
     bTool(
       'browser_eval',

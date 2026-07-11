@@ -127,6 +127,7 @@ adapters:
     args:
       - "-y"
       - "@playwright/mcp@0.0.41"
+      - "--isolated"
   desktopCommander:
     enabled: false
     command: npx

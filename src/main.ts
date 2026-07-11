@@ -8,22 +8,9 @@ import { startHttpTransport } from './server/transports/http.js';
 import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { readFolderForgeVersion } from './core/version.js';
 
-function readVersion(): string {
-  try {
-    const here = dirname(fileURLToPath(import.meta.url));
-    // dist/main.js -> ../package.json
-    const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { version?: string };
-    return pkg.version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
-
-const VERSION = readVersion();
+const VERSION = readFolderForgeVersion();
 
 interface CliArgs {
   project?: string;
@@ -226,8 +213,9 @@ async function main(): Promise<void> {
     enabled?: string[];
     disabled?: string[];
   } }).tools;
+  const effectivePreset = args.toolsPreset ?? cfgTools?.preset;
   const active = resolveActiveTools(registry, {
-    preset: args.toolsPreset ?? cfgTools?.preset,
+    preset: effectivePreset,
     enabledGroups: args.toolsGroups ?? cfgTools?.enabledGroups,
     enabled: args.toolsEnable ?? cfgTools?.enabled,
     disabled: args.toolsDisable ?? cfgTools?.disabled,
@@ -243,7 +231,11 @@ async function main(): Promise<void> {
   // Wire enabled child MCP adapters (Serena, Playwright, ...). Each child tool is
   // exposed namespaced (e.g. serena__find_symbol). Discovery never blocks startup.
   try {
-    const added = await registerAdapterTools(container, registry);
+    const added = await registerAdapterTools(
+      container,
+      registry,
+      active === null || effectivePreset === 'full'
+    );
     if (added > 0) logger.info({ added }, 'Registered child MCP adapter tools');
   } catch (err) {
     logger.warn({ err: String(err) }, 'Adapter tool registration failed; continuing without adapters');

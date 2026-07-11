@@ -1,6 +1,14 @@
 # Roadmap
 
-Status of FolderForge toward a stable 1.0.
+Release history and production-readiness roadmap for FolderForge.
+
+## Current release-candidate track
+
+The working tree is being prepared for `2.0.0-rc.1`. Release gates require a
+clean production and full dependency audit, typecheck, lint, unit/integration
+tests, build, `npm pack`, tarball installation, CLI smoke, and authenticated HTTP
+MCP initialize/list/call smoke. Version changes do not imply permission to
+commit, tag, push, publish, or create a hosted release.
 
 ## Done (0.1)
 
@@ -283,6 +291,50 @@ comparison, ecosystem survey, and the step-by-step delivery plan live in
   and sets `ranked: true`. Existing unranked catalog order, substring filtering,
   and pagination remain unchanged when `query` is omitted. Covered by unit and
   integration tests; the full typecheck/test/build suite is green (294/294 tests).
+
+## Done (1.7 - browser intelligence foundation)
+
+FolderForge can now support an end-to-end AI frontend workflow through its stable
+`browser_*` wrappers: implement a page, run it locally, inspect semantic state,
+exercise interactions, review console/network evidence, resize for responsive
+layouts, and receive screenshots as MCP-native image content for vision review.
+
+- **Vision-ready screenshots.** Child MCP `image` blocks are promoted into the
+  parent `tools/call` response instead of being flattened into JSON text. The raw
+  child result remains available internally, while promoted `data.content` is
+  omitted from the compatibility summary so image base64 is not sent twice.
+- **Correct child error semantics.** A child `isError:true` now becomes
+  `ToolResult.ok:false`, MCP `isError:true`, and an audited `tool_error` event.
+  This fixes false-success records for failed browser and generic child-adapter
+  calls.
+- **Responsive and richer capture primitives.** Added
+  `browser_set_viewport` (Playwright `browser_resize`) and exposed screenshot
+  inputs for PNG/JPEG, full-page, and snapshot-ref element capture.
+- **Stable capped UI surface.** `vibe-lite` still advertises exactly 50 tools,
+  includes all 10 browser wrappers, and pins the browser group so future catalog
+  growth cannot silently evict UI-testing capabilities under cap pressure.
+- **Concurrent session safety.** Default and generated Playwright adapter args
+  include `--isolated`, preventing profile-lock collisions between simultaneous
+  FolderForge instances and avoiding accidental browser-state leakage. Persistent
+  state remains opt-in through a dedicated `--user-data-dir` override.
+- **Architecture and delivery records.** See
+  [`mcp-plugin-architecture.md`](./mcp-plugin-architecture.md),
+  [`browser-agent-design.md`](./browser-agent-design.md),
+  [`ai-agent-roadmap.md`](./ai-agent-roadmap.md), and
+  [`implementation-log.md`](./implementation-log.md).
+- **Live verification.** A source-built HTTP MCP server reported version `1.6.0`,
+  advertised 249 native tools in the full preset, returned a valid top-level PNG
+  screenshot at 390×844, preserved console/network/browser interaction behavior,
+  propagated invalid navigation as an error, and recorded it as
+  `tool_error`, `ok:false`.
+
+## Done (1.9 - local MCP plugin ecosystem)
+
+FolderForge can install and govern prepared local MCP packages through a validated manifest and hot lifecycle. Plugins use the existing child MCP facade, rich-result bridge, dynamic risk classification, policy, approval, rate limiting, and audit pipeline. Environment inheritance is disabled for installed plugins, only declared variables are passed, and enabled plugins survive restart. Remote marketplaces, signatures, provenance, and hard OS sandboxing remain explicitly deferred. See [`plugin-system.md`](./plugin-system.md).
+
+## Done (2.0 - governed agent workflows)
+
+FolderForge now persists role-scoped plans, executes every step through the existing tool governance pipeline, pauses/resumes at approval boundaries, avoids replaying successful work, and emits reproducible bounded reports across restart. This completes the initial browser → coding runtime → plugin ecosystem → workflow control-plane goal. See [`workflows.md`](./workflows.md).
 
 ## Next (post-1.0 ideas)
 

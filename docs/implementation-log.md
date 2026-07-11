@@ -1,0 +1,306 @@
+# Implementation Log
+
+This log records product defects and developer-experience issues observed while
+using FolderForge itself to implement the AI/browser roadmap.
+
+## Milestone 1.7 — Browser intelligence foundation
+
+### FF-001 — Screenshot image was flattened into JSON text
+
+- Severity: high
+- Status: fixed and live-tested
+- Symptom: Playwright returned a valid MCP `image` block, but FolderForge nested
+  the child result under `data` and serialized it as text. Vision-capable clients
+  could not render the screenshot.
+- Fix: added generic child MCP content normalization and an internal image content
+  block; `toCallToolResult` now emits top-level MCP image content.
+- Evidence: live HTTP MCP test decoded a valid PNG at 390×844.
+
+### FF-002 — Child MCP errors were audited as successful calls
+
+- Severity: high
+- Status: fixed and live-tested
+- Symptom: proxy handlers returned `{ok:true}` even when the child result carried
+  `isError:true`, producing false-success audit records.
+- Fix: `childCallToToolResult` maps child `isError:true` to `ToolResult.ok:false`,
+  preserving diagnostics.
+- Evidence: invalid browser navigation returns MCP `isError:true`; `audit_recent`
+  contains `tool_error`, `ok:false` for `browser_open`.
+
+### FF-003 — Screenshot base64 could be duplicated on the wire
+
+- Severity: medium
+- Status: fixed and tested
+- Symptom: promoting an image while also stringifying the original
+  `data.content` would send the same base64 twice.
+- Fix: compatibility text omits nested `data.content` after rich blocks are
+  promoted; structured/raw data remains available internally.
+- Evidence: live screenshot contained 36,440 base64 characters and none were
+  duplicated in the text blocks.
+
+### FF-004 — No responsive viewport wrapper
+
+- Severity: medium
+- Status: fixed and live-tested
+- Fix: added `browser_set_viewport`, mapped to Playwright `browser_resize`, with a
+  bounded required width/height schema.
+- Evidence: page `innerWidth`/`innerHeight` and screenshot dimensions both
+  verified at 390×844.
+
+### FF-005 — Browser capability could be evicted by `vibe-lite` cap
+
+- Severity: high for AI UI workflows
+- Status: fixed and regression-tested
+- Symptom: after adding a tenth browser wrapper, `browser_eval` was the last tool
+  and was silently removed by the 50-tool cap.
+- Fix: current defaults remove 11 lower-value tools so the preset lands at 50;
+  browser is also a pinned group during cap resolution.
+- Evidence: tests verify all 10 browser wrappers remain both normally and under
+  forced cap pressure.
+
+### FF-006 — Playwright profile collision across FolderForge instances
+
+- Severity: high for multi-agent/concurrent use
+- Status: fixed in generated/default config; live-tested
+- Symptom: a second server failed with `Browser is already in use for
+  .../mcp-chrome` while another instance was active.
+- Fix: default and generated Playwright adapter args include `--isolated`.
+- Trade-off: browser state no longer persists by default. Persistence remains
+  opt-in with a dedicated `--user-data-dir`.
+
+### FF-007 — Source/global binary version mismatch
+
+- Severity: medium
+- Status: source verified; deployment action remains external
+- Symptom: the previously running global `folderforge` endpoint reported `1.4.0`
+  while the repository package is `1.6.0`.
+- Finding: source `main.ts` reads the package version dynamically; a rebuilt
+  `dist/main.js` live server reports `1.6.0` correctly.
+- Resolution: reinstall/link/restart the global binary when this working tree is
+  released. No source version constant was wrong.
+
+### FF-008 — Git installs could receive an incomplete ignored `dist/` tree
+
+- Severity: high for plugin distribution
+- Status: fixed and package-verified
+- Symptom: `dist/` is ignored while a legacy subset remains tracked. New runtime
+  modules such as facade helpers and child-result normalization therefore do not
+  appear in ordinary Git status and may be absent from a Git dependency archive.
+- Fix: added the npm `prepare` lifecycle to rebuild `dist/` after dependencies are
+  installed. npm registry publication continues to use `prepublishOnly`.
+- Evidence: `npm pack --dry-run` includes the generated browser/result and adapter
+  runtime modules. Source checkouts remain documented to build before direct use.
+
+### FF-009 — Tool errors discarded structured evidence
+
+- Severity: high for autonomous debugging
+- Status: fixed and live-tested
+- Symptom: `ToolResult.ok:false` serialized only its error sentence; exit code, stdout, stderr, parsed errors, and partial results in `data` were lost.
+- Fix: error responses now append a JSON evidence block and mirror `structuredContent` when an output schema exists.
+- Evidence: live `project_verify` failure returned exit code 2, stderr, parsed diagnostics, and MCP `isError:true`.
+
+### FF-010 — Safe multi-file edits lacked a transaction boundary
+
+- Severity: high
+- Status: fixed and tested
+- Fix: added bounded in-memory patch transactions with preview, exact-state conflict checks, atomic best-effort apply/rollback, diff resources, TTL, and HIGH-risk force override.
+
+### FF-011 — AI coding context was primitive and unbounded
+
+- Severity: medium
+- Status: fixed and tested
+- Fix: added project intelligence plus a bounded/redacted BM25 context pack with related tests and follow-up symbol hints.
+
+### FF-012 — Verification scripts could be misclassified as read-only
+
+- Severity: high
+- Status: fixed before release
+- Decision: only `project_verify dryRun:true` is LOW. Every real typecheck/lint/test/build execution remains MEDIUM because package scripts execute project code.
+
+### FF-013 — Child plugins inherited the full parent environment
+
+- Severity: critical for third-party plugin use
+- Status: fixed and live-tested
+- Symptom: the generic child client always merged `process.env`, which would expose unrelated tokens and credentials to installed MCP plugins.
+- Fix: adapter definitions now support `cwd` and `inheritEnv`; installed plugins run with inheritance disabled, a minimal executable path, and only manifest-allowlisted variables.
+- Evidence: live plugin saw the declared variable and received `null` for an undeclared parent secret.
+
+### FF-014 — Dynamic adapter tools could be hidden by an already-active preset
+
+- Severity: high
+- Status: fixed and live-tested
+- Symptom: child tools registered after `setActive` existed in the registry but were absent from `tools/list`.
+- Fix: the registry can explicitly activate newly approved tools; full/no-filter startup activates adapters, and hot plugin enable activates only that plugin facade. Capped presets do not silently absorb every installed plugin.
+
+### FF-015 — Plugin load failure could leave persisted enabled state
+
+- Severity: high
+- Status: fixed and tested
+- Fix: install/update/enable activation failures now unload the adapter/risk map and persist the plugin as disabled.
+
+### FF-016 — Declared plugin permissions are not an OS sandbox
+
+- Severity: known security boundary
+- Status: documented limitation
+- Detail: network/filesystem declarations are review and audit metadata in 1.9. Local prepared packages still execute code. Remote distribution, signatures, publisher provenance, and hard sandbox enforcement are intentionally deferred instead of being represented as complete.
+
+### FF-017 — Approved `once` requests were never consumed
+
+- Severity: high
+- Status: fixed and live-tested
+- Symptom: approving a request with scope `once` changed persisted state but a retry generated a new request, creating an approval loop.
+- Fix: exact tool + canonical args are matched, consumed once, and persisted with `consumedAt`. Session approvals remain unchanged.
+- Evidence: a paused live workflow resumed after one approval; the approved child step ran once and prior successful steps were not replayed.
+
+### FF-018 — Workflow checkpoint IDs could not be reloaded
+
+- Severity: high
+- Status: fixed in focused testing
+- Symptom: shortened UUIDs retained a hyphen while checkpoint path validation allowed only alphanumeric IDs, so creation succeeded but status/run failed.
+- Fix: generated IDs remove UUID separators before truncation.
+
+### FF-019 — Tool cap preserved orchestration but evicted process lifecycle
+
+- Severity: high for FE vibe coding
+- Status: fixed and regression-tested
+- Symptom: pinning workflow/agent/browser groups under a 50-tool cap caused automatic trimming to remove all process tools.
+- Fix: explicitly remove seven lower-level primitives superseded by agent composition so process start/read/tail/stop/list remain available.
+
+### FF-020 — Persisted workflow evidence could leak or balloon
+
+- Severity: high
+- Status: fixed by design and tested
+- Fix: definitions with detected secrets are rejected; resolved args and evidence are redacted; data is capped; text/diffs are bounded; image base64 is replaced by metadata; run files are atomic mode `0600` and gitignored.
+
+### FF-021 — Failed plugin update could interrupt the old enabled facade
+
+- Severity: high
+- Status: fixed and tested
+- Symptom: lifecycle code unloaded an enabled plugin before validating the new
+  package; an early update failure could leave the valid old package installed
+  but unavailable until restart.
+- Fix: failed pre-replacement updates hot-restore the previous facade and risk
+  map. A focused integration test calls the old plugin successfully afterward.
+
+## MCP developer-experience issues observed
+
+### MCP-DX-001 — Patch context diagnostics
+
+- Status: fixed and live-tested
+- Resolution: `file_patch` and `file_edit_block` now return line-ending and
+  whitespace-normalized mismatch flags plus the nearest bounded candidate range
+  and similarity score. Matching remains exact; no fuzzy edit is applied.
+
+### MCP-DX-002 — Non-zero shell commands lost primary diagnostics
+
+- Status: fixed and live-tested
+- Resolution: `shell_exec` declares an output schema, returns a useful primary
+  error (`Command exited with code N`), and preserves exit code, stdout, stderr,
+  duration, and classified risk in error data/structuredContent.
+
+### MCP-DX-003 — Compound command failures hid partial evidence
+
+- Status: fixed by the same structured-error bridge
+- Resolution: shell stdout/stderr and exit code now survive MCP `isError:true`.
+  A shell may still stop at the first failing `&&` segment, as expected, but
+  evidence produced before failure remains available.
+
+### MCP-DX-004 — Test fixtures accumulated persisted approvals
+
+- Status: fixed
+- Resolution: `FOLDERFORGE_APPROVALS_PATH` allows an explicit store override;
+  Vitest setup assigns a per-worker temporary store and removes it after the run.
+  The stale fixture-local log was removed. Repeated suites no longer grow it.
+
+### MCP-DX-005 — Safe disposable temp cleanup was over-classified
+
+- Status: fixed conservatively and live-tested
+- Resolution: only one standalone deletion targeting an absolute top-level
+  `/tmp/ff-*` or `/tmp/folderforge-*` tree is MEDIUM. Variables, globs, chaining,
+  relative paths, other temp names, root, home, and system paths remain
+  HIGH/CRITICAL. Embedded scripts containing destructive operations remain
+  conservatively classified; callers should execute a reviewed script file.
+
+## Milestone A — Release-candidate readiness
+
+### FF-022 — Test toolchain had high/critical audit findings
+
+- Severity: blocker
+- Status: fixed and regression-tested
+- Symptom: the production dependency audit was clean, but the full audit reported
+  one critical and one high vulnerability through Vitest 2 / Vite 5.
+- Fix: upgraded Vitest to 4.1.10 and refreshed the lockfile.
+- Evidence: npm installation reported zero vulnerabilities; the full release
+  regression is recorded below.
+
+### FF-023 — Package audit failures lost actionable diagnostics
+
+- Severity: medium
+- Status: fixed and regression-tested
+- Symptom: a package-manager audit with findings returned a generic tool failure
+  even though the child command produced JSON evidence.
+- Root cause: `runPm` returned `ok:false` with data but no primary error string.
+- Fix: non-zero package commands now return a useful exit-code error while
+  retaining command, exit code, stdout, and stderr.
+- Evidence: `tests/unit/pkg-tools.test.ts` verifies a non-zero command preserves
+  all evidence under Vitest 4.1.10.
+
+### FF-024 — Published package declared a license file that did not exist
+
+- Severity: blocker
+- Status: fixed and package-verified
+- Symptom: the first tarball smoke test failed because `package.json` listed
+  `LICENSE`, but the repository contained no license file.
+- Fix: added the Apache-2.0 license text and made the package smoke require it.
+- Evidence: `npm pack` produced an installable tarball containing the license,
+  build, README, and package metadata; the installed CLI passed version/help.
+
+### FF-025 — Release workflow did not exercise the distributable artifact
+
+- Severity: high
+- Status: fixed for the Node 22/Linux release gate
+- Fix: added deterministic scripts for verification, dependency audits, tarball
+  pack/install/CLI smoke, and authenticated HTTP MCP initialize/list/call smoke;
+  CI now runs those gates with least-privilege repository permissions.
+- Remaining scope: operating-system and Node-version matrix coverage is tracked
+  by the compatibility milestone before final 2.0.
+
+### MCP-DX-006 — Compound shell and audit failures can surface generic text
+
+- Severity: medium
+- Status: partially fixed
+- Finding: the package-audit path is fixed in source. The currently connected
+  ForgeFolder instance can still collapse some compound shell failures to a
+  generic tool error, requiring a diagnostic wrapper to collect stdout/stderr.
+- Follow-up: verify the structured-error bridge from a rebuilt/current binary and
+  add a dedicated regression in the doctor/compatibility milestone.
+
+## Verification record
+
+- Candidate version: `2.0.0-rc.1`; `package.json`, package-lock metadata, packed
+  tarball, installed CLI, and live MCP `serverInfo.version` agree.
+- Typecheck: passed.
+- Lint (`tsc --noEmit`): passed.
+- Build: passed.
+- Final unit/integration suite: 328/328 passed across 42 test files.
+- Production and full dependency audits: 0 vulnerabilities.
+- `npm pack` produced a 91-file candidate tarball containing the license, README,
+  package metadata, and generated runtime; temporary installation passed CLI
+  version/help checks and cleaned its artifacts.
+- Authenticated HTTP MCP smoke passed unauthorized rejection, initialize,
+  `tools/list` with the 50-tool `vibe-lite` invariant, and wire-level calls to
+  `pkg_audit` plus `file_read`.
+- Source-built HTTP MCP acceptance covered:
+  - Browser foundation: native image blocks, viewport 390×844, interaction,
+    console/network, error propagation, and audit correctness.
+  - AI coding runtime: project analysis/context, transactional patch lifecycle,
+    Git summary, and structured verification failures.
+  - Plugin ecosystem: hot lifecycle, risk facade, environment allowlist, health,
+    restart persistence, disable/update/uninstall, and failed-update recovery.
+  - Governed workflows: role scope, dependency/reference execution, approval
+    pause/resume, exact non-replay, reports, audit, and restart persistence.
+  - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded
+    disposable temp cleanup, and denial of non-prefixed temp deletion.
+
+No commit, tag, global reinstall, or push was performed in this implementation
+session.

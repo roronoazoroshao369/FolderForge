@@ -5,9 +5,7 @@ import { resolveSubOpRisk } from '../adapters/child-mcp/risk-map.js';
 import { bm25Rank } from '../adapters/child-mcp/rank.js';
 import { defineTool } from './registry.js';
 import { logger } from '../core/logger.js';
-
-/** Adapters we expose, in a stable order, with their namespace prefix. */
-const ADAPTER_NAMES: AdapterName[] = ['serena', 'playwright', 'desktopCommander'];
+import { childCallToToolResult } from '../adapters/child-mcp/result.js';
 
 /** Separator between an adapter namespace and the child tool name. */
 export const NS_SEP = '__';
@@ -51,9 +49,17 @@ export function subOpIdentity(adapter: AdapterName, childTool: string): string {
  * Discovery failures for one adapter never block the others.
  */
 export async function buildAdapterTools(container: Container): Promise<ToolDefinition[]> {
+  return buildAdapterToolsFor(container, container.adapters.names());
+}
+
+/** Build wrappers for a selected adapter set (used by hot plugin lifecycle). */
+export async function buildAdapterToolsFor(
+  container: Container,
+  names: AdapterName[]
+): Promise<ToolDefinition[]> {
   const tools: ToolDefinition[] = [];
 
-  for (const name of ADAPTER_NAMES) {
+  for (const name of names) {
     if (!container.adapters.isEnabled(name)) continue;
 
     if (container.adapters.isFacade(name)) {
@@ -95,7 +101,7 @@ export async function buildAdapterTools(container: Container): Promise<ToolDefin
             try {
               const client = await container.adapters.ensure(name);
               const raw = await client.callTool(child.name, args);
-              return { ok: true, data: raw };
+              return childCallToToolResult(raw, toolName);
             } catch (err) {
               return { ok: false, error: `${toolName} failed: ${String(err)}` };
             }
@@ -272,7 +278,7 @@ function buildFacadeTools(container: Container, name: AdapterName): ToolDefiniti
             try {
               const client = await container.adapters.ensure(name);
               const raw = await client.callTool(subTool, innerArgs);
-              return { ok: true, data: raw };
+              return childCallToToolResult(raw, subOpIdentity(name, subTool));
             } catch (err) {
               return { ok: false, error: `${name}:${subTool} failed: ${String(err)}` };
             }

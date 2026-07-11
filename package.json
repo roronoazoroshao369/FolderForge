@@ -1,6 +1,6 @@
 {
   "name": "@musashishao/folderforge",
-  "version": "1.6.0",
+  "version": "2.0.0-rc.1",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "keywords": [
     "mcp",
@@ -49,9 +49,14 @@
     "test:watch": "vitest",
     "start": "node dist/main.js",
     "postinstall": "node -e \"try{require('child_process').execSync('npx --yes playwright install chromium',{stdio:'inherit'})}catch(e){console.warn('[folderforge] Skipped Playwright browser download:',e&&e.message)}\"",
+    "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "npm run clean && npm run build && npm test"
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build",
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "smoke:http": "node scripts/smoke-http.mjs",
+    "release:check": "npm run verify && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:http",
+    "prepublishOnly": "npm run release:check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -69,7 +74,7 @@
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.0.0"
+    "vitest": "^4.1.10"
   },
   "publishConfig": {
     "access": "public"

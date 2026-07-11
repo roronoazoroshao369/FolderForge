@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
+import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
 
 export function terminalTools(): ToolDefinition[] {
   return [
@@ -18,6 +19,7 @@ export function terminalTools(): ToolDefinition[] {
         },
         required: ['command'],
       },
+      outputSchema: SHELL_EXEC_OUTPUT_SCHEMA,
       handler: async (args, ctx) => {
         const command = String(args.command);
         const cls = ctx.container.policy.command.classify(command);
@@ -41,16 +43,20 @@ export function terminalTools(): ToolDefinition[] {
           });
           const redact = (s: string) =>
             ctx.container.policy.secret.redact((s ?? '').slice(0, maxBytes));
-          return {
-            ok: sub.exitCode === 0,
-            data: {
-              exitCode: sub.exitCode,
-              stdout: redact(sub.stdout),
-              stderr: redact(sub.stderr),
-              durationMs: Date.now() - started,
-              risk: cls.risk,
-            },
+          const data = {
+            exitCode: sub.exitCode,
+            stdout: redact(sub.stdout),
+            stderr: redact(sub.stderr),
+            durationMs: Date.now() - started,
+            risk: cls.risk,
           };
+          return sub.exitCode === 0
+            ? { ok: true, data }
+            : {
+                ok: false,
+                error: `Command exited with code ${sub.exitCode ?? 'unknown'}.`,
+                data,
+              };
         } catch (err) {
           return { ok: false, error: `Execution failed: ${String(err)}` };
         }
