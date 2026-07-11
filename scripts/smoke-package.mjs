@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
+import { commandInvocation } from './command-invocation.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -12,16 +13,19 @@ const temp = mkdtempSync(join(tmpdir(), 'folderforge pack ünicode-'));
 let tarballPath;
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const env = { ...process.env, ...options.env };
+  const invocation = commandInvocation(command, args, process.platform, env);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: options.cwd ?? root,
-    env: { ...process.env, ...options.env },
+    env,
     encoding: 'utf8',
     stdio: options.capture === false ? 'inherit' : 'pipe',
+    ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
-  if (result.status !== 0) {
+  if (result.status !== 0 || result.error !== undefined) {
     throw new Error(
-      `${command} ${args.join(' ')} failed with code ${result.status}\n` +
-        `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+      `${command} ${args.join(' ')} failed with code ${result.status ?? 'unknown'}\n` +
+        `${result.stdout ?? ''}\n${result.stderr ?? result.error?.message ?? ''}`
     );
   }
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };

@@ -375,12 +375,12 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### FF-039 — First observable compatibility matrix failed four non-Linux jobs
 
 - Severity: stable-release blocker
-- Status: third Windows fix complete locally; Actions rerun pending
+- Status: package-smoke Windows fix complete locally; Actions rerun pending
 - Evidence: GitHub Actions run `29159746609` passed Ubuntu on Node 22/24 and
-  failed macOS plus Windows on Node 22/24 during tests. Run `29160360527` then
-  passed Ubuntu and macOS on both Node lines. Run `29160716052` proved the
-  process-tree cleanup and narrowed the remaining Windows failures to cmd argv
-  encoding.
+  failed macOS plus Windows on Node 22/24 during tests. Run `29160360527` proved
+  macOS, run `29160716052` proved Windows process-tree cleanup, and run
+  `29161066159` passed Windows tests before failing package smoke on direct `.cmd`
+  wrapper execution.
 - macOS root cause: temporary paths entered through `/var` but resolved through
   `/private/var`, so lexical containment produced false workspace escapes.
 - Windows root causes: `.cmd` doctor probes could return missing output, temp-path
@@ -392,11 +392,12 @@ using FolderForge itself to implement the AI/browser roadmap.
   escape rejection; make doctor output nullable-safe and invoke `.cmd` through
   `cmd.exe`; derive temp paths from `tmpdir()`; wrap quoted executables for cmd;
   terminate Windows process trees synchronously with `taskkill /T /F`; pass
-  `windowsVerbatimArguments` through every shared cmd caller; retry bounded plugin
-  tree removal; and give the real Git remote flow a bounded 20-second timeout.
-  HTTP structured-error smoke uses the same script-file path, and Actions checkout
-  is upgraded to v5.
-- Local evidence: `npm run release:check` passes 368/368 tests across 46 files,
+  `windowsVerbatimArguments` through every shared cmd caller; route package-smoke
+  `.cmd`/`.bat` wrappers through `ComSpec` with the same verbatim contract; retry
+  bounded plugin tree removal; and give the real Git remote flow a bounded
+  20-second timeout. HTTP structured-error smoke uses the same script-file path,
+  and Actions checkout is upgraded to v5.
+- Local evidence: `npm run release:check` passes 371/371 tests across 47 files,
   both zero-vulnerability audits, build, 96-file package smoke, stdio, and
   authenticated HTTP smoke.
 
@@ -466,7 +467,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Typecheck: passed.
 - Lint (`tsc --noEmit`): passed.
 - Build: passed.
-- Final local unit/integration suite after the portability fixes: 368/368 passed across 46 test files.
+- Final local unit/integration suite after the portability fixes: 371/371 passed across 47 test files.
 - Production and full dependency audits: 0 vulnerabilities.
 - `npm pack` produced a 96-file candidate tarball containing the license, README,
   package metadata, and generated runtime; temporary installation passed CLI
