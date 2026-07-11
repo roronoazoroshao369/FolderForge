@@ -175,7 +175,7 @@ export class ToolRegistry {
             type: 'tool_call',
             tool: name,
             risk,
-            summary: summarizeArgs(name, args),
+            summary: summarizeArgs(name, args, (value) => this.container.policy.secret.redactValue(value)),
         });
         const decision = this.container.policy.evaluate(name, risk, mutates, args);
         if (decision.kind === 'deny') {
@@ -202,7 +202,7 @@ export class ToolRegistry {
                 try {
                     elicited = await control.elicitInput({
                         message: `Approve "${name}" (${risk})?\n${decision.reason}\n` +
-                            `Args: ${summarizeArgs(name, args)}\n` +
+                            `Args: ${summarizeArgs(name, args, (value) => this.container.policy.secret.redactValue(value))}\n` +
                             `Choose "session" to allow this tool for the rest of the session.`,
                         requestedSchema: {
                             type: 'object',
@@ -318,14 +318,29 @@ export class ToolRegistry {
         }
     }
 }
-function summarizeArgs(name, args) {
+function boundSummaryValue(value, depth = 0) {
+    if (depth >= 3)
+        return '[TRUNCATED]';
+    if (typeof value === 'string')
+        return value.slice(0, 256);
+    if (Array.isArray(value))
+        return value.slice(0, 4).map((item) => boundSummaryValue(item, depth + 1));
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value)
+            .slice(0, 8)
+            .map(([key, child]) => [key, boundSummaryValue(child, depth + 1)]));
+    }
+    return value;
+}
+function summarizeArgs(name, args, redact) {
     const keys = Object.keys(args);
     if (keys.length === 0)
         return name;
-    const parts = keys.slice(0, 4).map((k) => {
-        const v = args[k];
-        const s = typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v);
-        return `${k}=${s}`;
-    });
-    return parts.join(' ');
+    const preview = Object.fromEntries(keys.slice(0, 4).map((key) => [key, boundSummaryValue(args[key])]));
+    const safeArgs = redact(preview);
+    return keys.slice(0, 4).map((key) => {
+        const value = safeArgs[key];
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+        return `${key}=${String(serialized).slice(0, 60)}`;
+    }).join(' ');
 }

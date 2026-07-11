@@ -54,13 +54,22 @@ presets.
 - Clients with elicitation can approve inline. Other clients receive an
   `approvalId` for the dashboard/tool flow.
 
+## Approval-state hardening
+
+Approval JSONL remains backward-compatible. On load, legacy raw argument records
+are fingerprinted, redacted, and atomically compacted. New records store a
+canonical SHA-256 argument fingerprint plus redacted argument evidence; session
+approvals still do not survive process restart.
+
 ## Local plugins
 
 Local plugins remain an explicitly trusted-code feature. Manifest network and
 filesystem permissions are review/audit metadata, not OS-enforced isolation.
-Only enable packages whose source and prepared runtime you trust. Remote
-marketplace distribution, signed provenance, and hard sandboxing are not part of
-this candidate.
+Only enable packages whose source and prepared runtime you trust. New installs
+and updates record a SHA-256 package-tree digest and reject later tampering, but
+this is not a signature or publisher proof. Remote marketplace distribution,
+verified publisher identity, signed provenance, and hard sandboxing are not part
+of this candidate.
 
 ## Release verification
 

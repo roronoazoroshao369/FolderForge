@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, renameSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { RiskLevel } from '../core/types.js';
 import { logger } from '../core/logger.js';
@@ -10,6 +10,8 @@ export interface ApprovalRequest {
   id: string;
   tool: string;
   args: Record<string, unknown>;
+  /** SHA-256 of canonical unredacted args, used only for exact retry matching. */
+  argsFingerprint?: string;
   risk: RiskLevel;
   reason: string;
   state: ApprovalState;
@@ -30,6 +32,31 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function fingerprint(args: Record<string, unknown>): string {
+  return `sha256:${createHash('sha256').update(canonical(args)).digest('hex')}`;
+}
+
+function boundedEvidence(value: unknown, depth = 0): unknown {
+  if (depth >= 5) return '[TRUNCATED: depth]';
+  if (typeof value === 'string') {
+    return value.length > 1024 ? `${value.slice(0, 1024)}…[TRUNCATED]` : value;
+  }
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 20).map((item) => boundedEvidence(item, depth + 1));
+    if (value.length > 20) items.push(`[TRUNCATED: ${value.length - 20} items]`);
+    return items;
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    const bounded = Object.fromEntries(
+      entries.slice(0, 20).map(([key, child]) => [key, boundedEvidence(child, depth + 1)])
+    );
+    if (entries.length > 20) bounded.__truncated = `${entries.length - 20} fields`;
+    return bounded;
+  }
+  return value;
+}
+
 export interface ApprovalEngineOptions {
   /**
    * Path to a JSONL file used to persist approvals across restarts. When omitted
@@ -43,6 +70,8 @@ export interface ApprovalEngineOptions {
    * audit/history regardless.
    */
   restoreSession?: boolean;
+  /** Redact structured args before they are retained or persisted. */
+  sanitizeArgs?: (args: Record<string, unknown>) => Record<string, unknown>;
 }
 
 /**
@@ -58,10 +87,12 @@ export class ApprovalEngine {
   private sessionAllowed = new Set<string>();
   private persistPath: string | undefined;
   private restoreSession: boolean;
+  private sanitizeArgs: (args: Record<string, unknown>) => Record<string, unknown>;
 
   constructor(opts: ApprovalEngineOptions = {}) {
     this.persistPath = opts.persistPath;
     this.restoreSession = opts.restoreSession ?? false;
+    this.sanitizeArgs = opts.sanitizeArgs ?? ((args) => JSON.parse(JSON.stringify(args)) as Record<string, unknown>);
     if (this.persistPath) this.load();
   }
 
@@ -69,7 +100,8 @@ export class ApprovalEngine {
     const req: ApprovalRequest = {
       id: `appr_${randomUUID().slice(0, 8)}`,
       tool,
-      args,
+      args: this.sanitizeArgs(boundedEvidence(args) as Record<string, unknown>),
+      argsFingerprint: fingerprint(args),
       risk,
       reason,
       state: 'pending',
@@ -87,7 +119,7 @@ export class ApprovalEngine {
 
   /** Consume one approved one-shot request matching the exact tool and args. */
   consumeOnce(tool: string, args: Record<string, unknown>): boolean {
-    const fingerprint = canonical(args);
+    const requestedFingerprint = fingerprint(args);
     const match = [...this.requests.values()]
       .filter(
         (request) =>
@@ -95,7 +127,7 @@ export class ApprovalEngine {
           request.state === 'approved' &&
           request.scope === 'once' &&
           request.consumedAt === undefined &&
-          canonical(request.args) === fingerprint
+          (request.argsFingerprint ?? fingerprint(request.args)) === requestedFingerprint
       )
       .sort((a, b) => a.createdAt - b.createdAt)[0];
     if (!match) return false;
@@ -157,7 +189,11 @@ export class ApprovalEngine {
       if (!trimmed) continue;
       try {
         const req = JSON.parse(trimmed) as ApprovalRequest;
-        if (req && typeof req.id === 'string') {
+        if (req && typeof req.id === 'string' && req.args && typeof req.args === 'object') {
+          // Migrate legacy records without retaining raw arguments: fingerprint
+          // first, then sanitize before the next atomic compaction.
+          req.argsFingerprint ??= fingerprint(req.args);
+          req.args = this.sanitizeArgs(boundedEvidence(req.args) as Record<string, unknown>);
           this.requests.set(req.id, req);
           loaded++;
         }
@@ -182,7 +218,8 @@ export class ApprovalEngine {
     if (!path) return;
     try {
       mkdirSync(dirname(path), { recursive: true });
-      appendFileSync(path, JSON.stringify(req) + '\n', 'utf8');
+      appendFileSync(path, JSON.stringify(req) + '\n', { encoding: 'utf8', mode: 0o600 });
+      chmodSync(path, 0o600);
     } catch (err) {
       logger.warn({ path, id: req.id, err: String(err) }, 'Failed to persist approval');
     }
@@ -195,8 +232,9 @@ export class ApprovalEngine {
     try {
       const body = [...this.requests.values()].map((r) => JSON.stringify(r)).join('\n');
       const tmp = `${path}.tmp`;
-      writeFileSync(tmp, body ? body + '\n' : '', 'utf8');
+      writeFileSync(tmp, body ? body + '\n' : '', { encoding: 'utf8', mode: 0o600 });
       renameSync(tmp, path);
+      chmodSync(path, 0o600);
     } catch (err) {
       logger.warn({ path, err: String(err) }, 'Failed to compact approvals store');
     }

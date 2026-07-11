@@ -21,6 +21,9 @@ const RULES: SecretRule[] = [
   { name: 'Env secret', re: /\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|GITHUB_TOKEN)\s*=\s*\S+/g },
 ];
 
+
+const SENSITIVE_FIELD_RE = /api.?key|access.?key|secret|token|password|passwd|credential|authorization|cookie|session/i;
+
 const NAMED_ENV = [
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
@@ -90,6 +93,26 @@ export class SecretPolicy {
       });
     }
     return out;
+  }
+
+  /** Recursively redact structured values while preserving useful shape. */
+  redactValue(value: unknown, key = ''): unknown {
+    if (SENSITIVE_FIELD_RE.test(key)) return '[REDACTED]';
+    if (typeof value === 'string') {
+      const redacted = this.redact(value);
+      if (redacted !== value) return redacted;
+      return this.scan(value).length > 0 ? '[REDACTED]' : value;
+    }
+    if (Array.isArray(value)) return value.map((item) => this.redactValue(item));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([childKey, child]) => [
+          childKey,
+          this.redactValue(child, childKey),
+        ])
+      );
+    }
+    return value;
   }
 
   redactEnv(env: Record<string, string | undefined>): Record<string, string> {

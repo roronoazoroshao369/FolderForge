@@ -53,10 +53,14 @@ describe('PluginManager', () => {
     expect(satisfiesFolderForgeRange('2.0.0', '^1.6.0')).toBe(false);
   });
 
-  it('installs, inspects, updates, enables, and uninstalls a local package', () => {
+  it('installs, verifies integrity, updates, enables, and uninstalls a local package', async () => {
     const manager = new PluginManager(root, '1.6.0');
     const installed = manager.install(source, false);
-    expect(installed).toMatchObject({ id: 'demo-plugin', version: '1.0.0', enabled: false, facade: true });
+    expect(installed).toMatchObject({
+      id: 'demo-plugin', version: '1.0.0', enabled: false, facade: true,
+      integrity: { algorithm: 'sha256', files: 2 },
+    });
+    expect(manager.inspect('demo-plugin').integrity.status).toBe('verified');
     expect(readFileSync(join(installed.installDir, 'folderforge.plugin.json'), 'utf8')).toContain('demo-plugin');
 
     const adapter = manager.adapter('demo-plugin');
@@ -67,10 +71,34 @@ describe('PluginManager', () => {
 
     const updateSource = join(root, 'update');
     writePlugin(updateSource, '1.1.0');
-    expect(manager.update('demo-plugin', updateSource).version).toBe('1.1.0');
+    expect((await manager.update('demo-plugin', updateSource)).version).toBe('1.1.0');
     expect(manager.setEnabled('demo-plugin', true).enabled).toBe(true);
     expect(manager.uninstall('demo-plugin').id).toBe('demo-plugin');
     expect(manager.list()).toEqual([]);
+  });
+
+  it('rejects post-install package tampering', () => {
+    const manager = new PluginManager(root, '1.6.0');
+    const installed = manager.install(source, false);
+    writeFileSync(join(installed.installDir, 'server.mjs'), 'tampered\n');
+    expect(() => manager.inspect('demo-plugin')).toThrow(/integrity mismatch/i);
+    expect(() => manager.adapter('demo-plugin')).toThrow(/integrity mismatch/i);
+  });
+
+  it('rolls back package and registry when post-replacement verification fails', async () => {
+    const manager = new PluginManager(root, '1.6.0');
+    manager.install(source, true);
+    const updateSource = join(root, 'update-verify-failure');
+    writePlugin(updateSource, '1.1.0');
+
+    await expect(manager.update('demo-plugin', updateSource, async () => {
+      throw new Error('activation failed');
+    })).rejects.toThrow(/activation failed/);
+
+    const restored = manager.inspect('demo-plugin');
+    expect(restored.installed.version).toBe('1.0.0');
+    expect(readFileSync(join(restored.installed.installDir, 'server.mjs'), 'utf8')).toContain('process.stdin.resume');
+    expect(restored.integrity.status).toBe('verified');
   });
 
   it('rejects incompatible packages and symlinks', () => {

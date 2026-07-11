@@ -785,18 +785,26 @@ function checkPlugins(projectRoot: string, env: NodeJS.ProcessEnv, findings: Doc
         if (!executable) throw new Error(`runtime executable is unavailable: ${command}`);
         const declared = inspected.manifest.permissions ?? {};
         const sensitive = declared.network === true || declared.filesystem === 'external' || (declared.env?.length ?? 0) > 0;
+        const unverified = inspected.integrity.status === 'unverified';
+        const warn = sensitive || unverified;
         findings.push(
           finding(
             `plugin.${plugin.id}`,
-            sensitive ? 'warn' : 'pass',
-            sensitive ? 'warning' : 'info',
-            sensitive
-              ? `Plugin ${plugin.id} has elevated declared permissions.`
-              : `Plugin ${plugin.id} manifest and compatibility are valid.`,
-            `version=${plugin.version}; enabled=${plugin.enabled}; command=${command}; permissions=${JSON.stringify(declared)}`,
-            sensitive
-              ? 'Treat plugin permissions as review metadata, not an OS sandbox; verify publisher, integrity, and runtime behavior.'
-              : ''
+            warn ? 'warn' : 'pass',
+            warn ? 'warning' : 'info',
+            unverified
+              ? `Plugin ${plugin.id} has no recorded package integrity digest.`
+              : sensitive
+                ? `Plugin ${plugin.id} has elevated declared permissions.`
+                : `Plugin ${plugin.id} manifest, compatibility, and integrity are valid.`,
+            `version=${plugin.version}; enabled=${plugin.enabled}; command=${command}; ` +
+              `integrity=${inspected.integrity.status}:${inspected.integrity.actual.digest}; ` +
+              `permissions=${JSON.stringify(declared)}`,
+            unverified
+              ? 'Reinstall or update the plugin from a reviewed local source to record a SHA-256 package digest.'
+              : sensitive
+                ? 'Treat plugin permissions as review metadata, not an OS sandbox; verify publisher, provenance, and runtime behavior.'
+                : ''
           )
         );
       } catch (error) {

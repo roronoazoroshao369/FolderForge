@@ -70,8 +70,13 @@ Approvals are **persisted across restarts** in
 `FOLDERFORGE_APPROVALS_PATH` override). Pending and resolved requests survive a
 restart so the dashboard history stays intact. An approved `once` request is
 matched against the exact tool plus canonical arguments, consumed by one retry,
-and cannot be replayed. A `session` approval allows the tool for the current
-process only; it is not re-armed after restart.
+and cannot be replayed. Exact matching uses a SHA-256 fingerprint of the
+canonical unredacted arguments; the JSONL record retains only recursively
+redacted argument evidence and is written mode `0600`. The fingerprint is an
+equality/integrity aid, not encryption or proof of origin. A `session` approval
+allows the tool for the current process only; it is not re-armed after restart.
+Audit summaries and interactive elicitation prompts use the same key-aware, regex,
+and entropy-based redaction path.
 
 ## MCP HTTP auth
 
@@ -133,4 +138,6 @@ with no token available is a startup error.
 
 Every call, denial, and approval is appended to
 `<project>/.folderforge/audit/audit.jsonl` and kept in a 500-entry ring buffer
-for `audit_recent` and the dashboard `/audit` endpoint.
+for `audit_recent` and the dashboard `/audit` endpoint. Tool argument summaries
+are redacted before recording; raw approval arguments are not copied into audit
+summaries.

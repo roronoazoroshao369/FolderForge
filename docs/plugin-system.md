@@ -60,12 +60,18 @@ Enable/disable/update are hot operations; no server restart is required.
 
 Plugin state lives under `.folderforge/plugins/` and creates a local `.gitignore`
 so copied runtime files and registry metadata do not pollute project history.
-Registry writes are atomic and mode `0600`.
+Registry writes are atomic and mode `0600`. Every newly installed or updated
+package records a deterministic SHA-256 digest over sorted relative file paths and
+file bytes. `plugin_inspect`, adapter startup, and `folderforge doctor` recompute
+the tree and reject a mismatch. Legacy registry records without a digest remain
+readable but are reported as `unverified` until reinstalled or updated.
 
 A package is rejected when it exceeds 2,000 files or 50 MB, contains symlinks,
 has an invalid/reserved id, uses an incompatible FolderForge version, or declares
-an invalid runtime/permission/risk contract. Update stages a full replacement and
-restores the previous package if activation fails at the filesystem boundary.
+an invalid runtime/permission/risk contract. Update stages a full replacement,
+keeps the previous package and registry record until the new child MCP catalog
+loads successfully, and restores the old package/facade on validation, copy,
+registry-write, or activation failure.
 
 ## Environment and process isolation
 
@@ -80,6 +86,22 @@ code with the current user's privileges, subject to FolderForge's child-process
 environment filtering and governance at the MCP call boundary. Do not install
 untrusted executable code. Hard filesystem/network isolation, signed provenance,
 and remote distribution remain future trust-layer work.
+
+## Trust evaluation
+
+| Control | Current status | What it proves | What it does not prove |
+| --- | --- | --- | --- |
+| Package integrity hash | **Enforced for new installs/updates** | Copied package bytes have not changed since installation | Publisher identity, authenticity, or safety of the original bytes |
+| Package lock / pinning | **Evidence-only** | A copied lockfile and prepared dependencies are included in the package digest | FolderForge does not resolve/install dependencies or guarantee registry reproducibility |
+| Provenance | **Not provided** | None | No signed build provenance or source-to-artifact attestation |
+| Publisher identity | **Not provided** | None | A local directory name/manifest id is not a verified publisher |
+| Permission review | **Validated and surfaced** | Declared network/filesystem/env intent is reviewable; env inheritance is allowlisted | Network/filesystem declarations are not OS-enforced |
+| Sandbox | **Not provided** | MCP calls still pass policy/approval/risk/audit governance | Plugin code runs with the current OS user's privileges |
+
+A bare external `runtime.command` (for example `node`) is resolved from the host
+`PATH` and is outside the package digest. A `./` runtime path and all copied
+runtime files are inside the digest. Only install prepared local packages whose
+source, dependency preparation, and host runtime you trust.
 
 ## Tool exposure
 
@@ -116,7 +138,7 @@ verified:
 
 ## Deferred trust features
 
-- cryptographic signatures and publisher provenance;
+- cryptographic signatures, verified publisher identity, and signed build provenance;
 - remote registry/marketplace and dependency resolution;
 - OS/container sandbox enforcement for network/filesystem permissions;
 - automatic compatibility migration;

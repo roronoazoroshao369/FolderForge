@@ -1,4 +1,5 @@
 import type { ToolDefinition, ToolResult } from '../core/types.js';
+import type { InstalledPlugin } from '../plugins/plugin-manager.js';
 import { registerAdapterRiskMap, unregisterAdapterRiskMap } from '../adapters/child-mcp/risk-map.js';
 import { buildAdapterToolsFor, NS_SEP } from './adapter-tools.js';
 import { defineTool } from './registry.js';
@@ -112,18 +113,20 @@ export function pluginTools(): ToolDefinition[] {
         try {
           previousEnabled = ctx.container.plugins.inspect(id).installed.enabled;
           unloadPlugin(id, ctx);
-          const updated = ctx.container.plugins.update(id, String(args.source ?? ''));
-          try {
-            const tools = updated.enabled ? await loadPlugin(id, ctx) : [];
-            return { ok: true, data: { updated, tools, restartRequired: false } };
-          } catch (error) {
-            ctx.container.plugins.setEnabled(id, false);
-            unloadPlugin(id, ctx);
-            return failure(error);
-          }
+          let tools: string[] = [];
+          const updated = await ctx.container.plugins.update(
+            id,
+            String(args.source ?? ''),
+            async (candidate: InstalledPlugin) => {
+              tools = candidate.enabled ? await loadPlugin(id, ctx) : [];
+            }
+          );
+          return { ok: true, data: { updated, tools, restartRequired: false } };
         } catch (error) {
-          // If validation/copy failed before replacing the package, restore the
-          // previously enabled facade so a failed update is not an outage.
+          // Manager-level update rollback restores the previous package and
+          // registry record. Replace any partially loaded candidate facade with
+          // the previously enabled facade so a failed update is not an outage.
+          unloadPlugin(id, ctx);
           if (previousEnabled) {
             try { await loadPlugin(id, ctx); } catch { /* preserve original update error */ }
           }

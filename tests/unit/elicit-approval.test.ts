@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ToolRegistry, defineTool } from '../../src/tools/registry.js';
 import { toCallToolResult } from '../../src/server/mcp-server.js';
 import type { ToolCallControl, ToolResult } from '../../src/core/types.js';
+import { SecretPolicy } from '../../src/policy/secret-policy.js';
 
 /**
  * Interactive approval via MCP elicitation.
@@ -19,7 +20,7 @@ interface FakeApprovals {
   denied: string[];
 }
 
-function fakeContainer(approvalState: FakeApprovals) {
+function fakeContainer(approvalState: FakeApprovals, auditSummaries: string[] = []) {
   let counter = 0;
   const approvals = {
     create() {
@@ -39,7 +40,7 @@ function fakeContainer(approvalState: FakeApprovals) {
   return {
     config: {},
     projectRoot: () => '/tmp',
-    audit: { record() {} },
+    audit: { record(event: { summary?: string }) { if (event.summary) auditSummaries.push(event.summary); } },
     rateLimiter: { hit: () => ({ allowed: true }) },
     policy: {
       // Always route this tool to approval so we exercise the new branch.
@@ -50,6 +51,7 @@ function fakeContainer(approvalState: FakeApprovals) {
         reason: 'test approval',
       }),
       approvals,
+      secret: new SecretPolicy(),
       command: { classify: () => ({ risk: 'LOW' as const }) },
     },
   };
@@ -89,6 +91,33 @@ describe('elicitation-based approval', () => {
     expect(res.ok).toBe(true);
     expect(ran).toBe(true);
     expect(state.approved).toEqual([{ id: 'appr_1', scope: 'session' }]);
+  });
+
+  it('redacts sensitive args from audit summaries and elicitation prompts', async () => {
+    const state: FakeApprovals = { created: [], approved: [], denied: [] };
+    const summaries: string[] = [];
+    const container = fakeContainer(state, summaries);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const registry = new ToolRegistry(container as any);
+    registry.register(approvalTool());
+    let message = '';
+
+    const res = await registry.call(
+      'danger_tool',
+      { token: 'plain-token-value', nested: { password: 'plain-password-value', keep: 1 } },
+      {
+        elicitInput: async (params) => {
+          message = params.message;
+          return { action: 'accept', content: { approve: true, scope: 'once' } };
+        },
+      }
+    );
+
+    expect(res.ok).toBe(true);
+    const evidence = `${summaries.join('\n')}\n${message}`;
+    expect(evidence).not.toContain('plain-token-value');
+    expect(evidence).not.toContain('plain-password-value');
+    expect(evidence).toContain('[REDACTED]');
   });
 
   it('denies and skips the tool when the user declines', async () => {

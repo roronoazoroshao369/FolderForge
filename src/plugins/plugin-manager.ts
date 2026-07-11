@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
@@ -43,6 +44,13 @@ export interface PluginManifest {
   };
 }
 
+export interface PluginIntegrity {
+  algorithm: 'sha256';
+  digest: string;
+  files: number;
+  bytes: number;
+}
+
 export interface InstalledPlugin {
   id: string;
   name: string;
@@ -56,6 +64,8 @@ export interface InstalledPlugin {
   permissions: NonNullable<PluginManifest['permissions']>;
   compatibility: NonNullable<PluginManifest['compatibility']>;
   facade: boolean;
+  /** Digest of the exact copied package tree. Legacy records may omit it. */
+  integrity?: PluginIntegrity;
 }
 
 interface RegistryFile {
@@ -158,6 +168,39 @@ function validateManifest(raw: unknown, currentVersion: string): PluginManifest 
   };
 }
 
+function pluginIntegrity(directory: string): PluginIntegrity {
+  const hash = createHash('sha256');
+  let files = 0;
+  let bytes = 0;
+  const walk = (dir: string): void => {
+    const entries = readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.name !== '.git')
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) throw new Error(`Plugin packages may not contain symlinks: ${relative(directory, path)}`);
+      if (stat.isDirectory()) {
+        walk(path);
+      } else if (stat.isFile()) {
+        const rel = relative(directory, path).split(sep).join('/');
+        const content = readFileSync(path);
+        files++;
+        bytes += content.byteLength;
+        hash.update(`file\0${rel}\0${content.byteLength}\0`);
+        hash.update(content);
+        hash.update('\0');
+      }
+    }
+  };
+  walk(directory);
+  return { algorithm: 'sha256', digest: hash.digest('hex'), files, bytes };
+}
+
+function sameIntegrity(a: PluginIntegrity, b: PluginIntegrity): boolean {
+  return a.algorithm === b.algorithm && a.digest === b.digest && a.files === b.files && a.bytes === b.bytes;
+}
+
 function assertCopyBudget(source: string): void {
   let files = 0;
   let bytes = 0;
@@ -191,9 +234,21 @@ export class PluginManager {
     return this.readRegistry().plugins.map((plugin) => ({ ...plugin }));
   }
 
-  inspect(id: string): { installed: InstalledPlugin; manifest: PluginManifest } {
+  inspect(id: string): {
+    installed: InstalledPlugin;
+    manifest: PluginManifest;
+    integrity: { status: 'verified' | 'unverified'; actual: PluginIntegrity };
+  } {
     const installed = this.require(id);
-    return { installed, manifest: this.readManifest(installed.installDir) };
+    const actual = pluginIntegrity(installed.installDir);
+    if (installed.integrity && !sameIntegrity(installed.integrity, actual)) {
+      throw new Error(`Plugin integrity mismatch: ${id}. Reinstall or update from a trusted local package.`);
+    }
+    return {
+      installed,
+      manifest: this.readManifest(installed.installDir),
+      integrity: { status: installed.integrity ? 'verified' : 'unverified', actual },
+    };
   }
 
   install(sourceDir: string, enabled = true): InstalledPlugin {
@@ -206,19 +261,25 @@ export class PluginManager {
     const destination = join(this.root, manifest.id);
     try {
       cpSync(source, destination, { recursive: true, filter: (path) => basename(path) !== '.git' });
+      const now = Date.now();
+      const installed = this.toInstalled(
+        manifest, source, destination, enabled, now, now, pluginIntegrity(destination)
+      );
+      const registry = this.readRegistry();
+      registry.plugins.push(installed);
+      this.writeRegistry(registry);
+      return installed;
     } catch (error) {
       rmSync(destination, { recursive: true, force: true });
       throw error;
     }
-    const now = Date.now();
-    const installed = this.toInstalled(manifest, source, destination, enabled, now, now);
-    const registry = this.readRegistry();
-    registry.plugins.push(installed);
-    this.writeRegistry(registry);
-    return installed;
   }
 
-  update(id: string, sourceDir: string): InstalledPlugin {
+  async update(
+    id: string,
+    sourceDir: string,
+    verify?: (updated: InstalledPlugin) => Promise<void>
+  ): Promise<InstalledPlugin> {
     const current = this.require(id);
     const source = resolve(sourceDir);
     const manifest = this.readManifest(source);
@@ -226,21 +287,40 @@ export class PluginManager {
     assertCopyBudget(source);
     const staging = `${current.installDir}.staging-${Date.now()}`;
     const backup = `${current.installDir}.backup-${Date.now()}`;
-    cpSync(source, staging, { recursive: true, filter: (path) => basename(path) !== '.git' });
-    renameSync(current.installDir, backup);
+    const originalRegistry = this.readRegistry();
+    let oldMoved = false;
     try {
+      cpSync(source, staging, { recursive: true, filter: (path) => basename(path) !== '.git' });
+      const integrity = pluginIntegrity(staging);
+      renameSync(current.installDir, backup);
+      oldMoved = true;
       renameSync(staging, current.installDir);
+      const updated = this.toInstalled(
+        manifest,
+        source,
+        current.installDir,
+        current.enabled,
+        current.installedAt,
+        Date.now(),
+        integrity
+      );
+      const nextRegistry: RegistryFile = {
+        ...originalRegistry,
+        plugins: originalRegistry.plugins.map((plugin) => (plugin.id === id ? updated : plugin)),
+      };
+      this.writeRegistry(nextRegistry);
+      if (verify) await verify(updated);
       rmSync(backup, { recursive: true, force: true });
+      return updated;
     } catch (error) {
       rmSync(staging, { recursive: true, force: true });
-      if (!existsSync(current.installDir) && existsSync(backup)) renameSync(backup, current.installDir);
+      if (oldMoved) {
+        rmSync(current.installDir, { recursive: true, force: true });
+        if (existsSync(backup)) renameSync(backup, current.installDir);
+        try { this.writeRegistry(originalRegistry); } catch { /* preserve update failure */ }
+      }
       throw error;
     }
-    const updated = this.toInstalled(manifest, source, current.installDir, current.enabled, current.installedAt, Date.now());
-    const registry = this.readRegistry();
-    registry.plugins = registry.plugins.map((plugin) => (plugin.id === id ? updated : plugin));
-    this.writeRegistry(registry);
-    return updated;
   }
 
   setEnabled(id: string, enabled: boolean): InstalledPlugin {
@@ -327,7 +407,15 @@ export class PluginManager {
     renameSync(temp, this.registryPath);
   }
 
-  private toInstalled(manifest: PluginManifest, source: string, installDir: string, enabled: boolean, installedAt: number, updatedAt: number): InstalledPlugin {
+  private toInstalled(
+    manifest: PluginManifest,
+    source: string,
+    installDir: string,
+    enabled: boolean,
+    installedAt: number,
+    updatedAt: number,
+    integrity: PluginIntegrity
+  ): InstalledPlugin {
     return {
       id: manifest.id,
       name: manifest.name,
@@ -341,6 +429,7 @@ export class PluginManager {
       permissions: manifest.permissions ?? {},
       compatibility: manifest.compatibility ?? {},
       facade: manifest.runtime.facade !== false,
+      integrity,
     };
   }
 }

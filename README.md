@@ -169,12 +169,13 @@ tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
   child facades, and dynamic plugin adapters.
 - **AI/browser runtime** - bounded code context, transactional edits,
   verification/report tools, and stable responsive browser wrappers.
-- **Release gates** - typecheck, lint, 357 unit/integration tests, build, both
+- **Release gates** - typecheck, lint, 365 unit/integration tests, build, both
   dependency audits, `npm pack`, temporary tarball install, CLI/stdio smoke, and
   live authenticated HTTP MCP initialize/list/call smoke.
-- **Trust boundary** - local plugin permission declarations are review/audit
-  metadata, not an OS sandbox. Untrusted plugin distribution remains disabled by
-  product policy until hard isolation and signed provenance exist.
+- **Trust boundary** - local plugin packages receive a tamper-detection SHA-256
+  tree digest and environment allowlisting, but permission declarations remain
+  review/audit metadata rather than an OS sandbox. The digest is not publisher
+  identity or signed provenance; untrusted distribution remains disabled.
 
 See `docs/roadmap.md`, `docs/releasing.md`, `docs/compatibility.md`, and
 `docs/migration-2.0.md` for the release record, gates, compatibility contract,

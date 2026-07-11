@@ -64,6 +64,31 @@ release, or hosted release has been created.
 - Local verification: full source suite, build/clean, package smoke, stdio smoke,
   HTTP smoke, and both audits. Cross-platform CI evidence is pending.
 
+## Done (2.0 RC Milestone F — approval and plugin security hardening)
+
+- Approval `once` uses exact tool + canonical-argument SHA-256 fingerprints, is
+  consumed by one retry, executes the approved action, and creates a fresh
+  request on any later retry. Approved unconsumed once requests survive restart;
+  session allowances do not.
+- Approval JSONL stores only recursively redacted argument evidence, remains mode
+  `0600`, and audit/elicitation summaries use key-aware, regex, and entropy
+  redaction.
+- New plugin installs and updates record a deterministic SHA-256 package-tree
+  digest. Inspect, adapter startup, and doctor reject post-install tampering;
+  legacy records are reported as unverified.
+- Plugin update rollback now covers valid replacement packages that fail child MCP
+  activation, restoring the old package, registry record, risk map, and enabled
+  facade.
+- Integration coverage proves environment allowlisting, CRITICAL per-sub-tool risk
+  enforcement before child execution, real once-approved file deletion, no-loop
+  behavior, update rollback, and restart semantics.
+- Trust review explicitly records: package digest enforced; lock/pinning
+  evidence-only; publisher identity and signed provenance absent; permissions
+  reviewable but not OS-enforced; no sandbox.
+- Verification: typecheck, lint, build, 365/365 tests across 46 files, both npm
+  audits with zero vulnerabilities, package smoke, stdio smoke, and authenticated
+  HTTP smoke.
+
 ## Done (0.1)
 
 - Core config loader with YAML merge and path normalization.

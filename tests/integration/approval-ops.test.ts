@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { loadConfig } from '../../src/core/config.js';
+import { afterEach, describe, it, expect } from 'vitest';
+import { defaultConfig, loadConfig } from '../../src/core/config.js';
 import { Container } from '../../src/core/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { ToolResult } from '../../src/core/types.js';
 import { TS_FIXTURE } from './fixtures.js';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 /**
  * approval_approve / approval_deny (Godot integration Step 0).
@@ -28,6 +31,12 @@ function data<T = Record<string, unknown>>(res: ToolResult): T {
 }
 
 describe('approval_approve / approval_deny', () => {
+
+  const tempRoots: string[] = [];
+  afterEach(() => {
+    for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
   it('approves a pending request (once scope)', async () => {
     const { container, registry } = setup('safe');
     const req = container.policy.approvals.create('file_delete', {}, 'HIGH', 'test');
@@ -68,6 +77,32 @@ describe('approval_approve / approval_deny', () => {
     const res = await registry.call('approval_deny', { id: req.id });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/already approved/i);
+  });
+
+  it('executes an approved once action exactly once without an approval loop', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-approval-real-'));
+    tempRoots.push(root);
+    writeFileSync(join(root, 'delete-me.txt'), 'remove me\n');
+    const config = defaultConfig(root);
+    config.policy.defaultMode = 'safe';
+    config.rateLimit.enabled = false;
+    const container = new Container(config);
+    container.policy.setMode('safe');
+    const registry = buildRegistry(container);
+    const args = { path: 'delete-me.txt' };
+
+    const gated = await registry.call('file_delete', args);
+    expect(gated.approvalId).toBeDefined();
+    await registry.call('approval_approve', { id: gated.approvalId, scope: 'once' });
+
+    const executed = await registry.call('file_delete', args);
+    expect(executed.ok).toBe(true);
+    expect(existsSync(join(root, 'delete-me.txt'))).toBe(false);
+
+    const third = await registry.call('file_delete', args);
+    expect(third.ok).toBe(false);
+    expect(third.approvalId).toBeDefined();
+    expect(third.approvalId).not.toBe(gated.approvalId);
   });
 
   it('unblocks a gated tool end-to-end via session approval', async () => {

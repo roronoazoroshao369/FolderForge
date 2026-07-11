@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, renameSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { logger } from '../core/logger.js';
 function canonical(value) {
@@ -12,6 +12,30 @@ function canonical(value) {
             .join(',')}}`;
     }
     return JSON.stringify(value);
+}
+function fingerprint(args) {
+    return `sha256:${createHash('sha256').update(canonical(args)).digest('hex')}`;
+}
+function boundedEvidence(value, depth = 0) {
+    if (depth >= 5)
+        return '[TRUNCATED: depth]';
+    if (typeof value === 'string') {
+        return value.length > 1024 ? `${value.slice(0, 1024)}…[TRUNCATED]` : value;
+    }
+    if (Array.isArray(value)) {
+        const items = value.slice(0, 20).map((item) => boundedEvidence(item, depth + 1));
+        if (value.length > 20)
+            items.push(`[TRUNCATED: ${value.length - 20} items]`);
+        return items;
+    }
+    if (value && typeof value === 'object') {
+        const entries = Object.entries(value);
+        const bounded = Object.fromEntries(entries.slice(0, 20).map(([key, child]) => [key, boundedEvidence(child, depth + 1)]));
+        if (entries.length > 20)
+            bounded.__truncated = `${entries.length - 20} fields`;
+        return bounded;
+    }
+    return value;
 }
 /**
  * Approval queue. The dashboard reads/resolves these.
@@ -26,9 +50,11 @@ export class ApprovalEngine {
     sessionAllowed = new Set();
     persistPath;
     restoreSession;
+    sanitizeArgs;
     constructor(opts = {}) {
         this.persistPath = opts.persistPath;
         this.restoreSession = opts.restoreSession ?? false;
+        this.sanitizeArgs = opts.sanitizeArgs ?? ((args) => JSON.parse(JSON.stringify(args)));
         if (this.persistPath)
             this.load();
     }
@@ -36,7 +62,8 @@ export class ApprovalEngine {
         const req = {
             id: `appr_${randomUUID().slice(0, 8)}`,
             tool,
-            args,
+            args: this.sanitizeArgs(boundedEvidence(args)),
+            argsFingerprint: fingerprint(args),
             risk,
             reason,
             state: 'pending',
@@ -52,13 +79,13 @@ export class ApprovalEngine {
     }
     /** Consume one approved one-shot request matching the exact tool and args. */
     consumeOnce(tool, args) {
-        const fingerprint = canonical(args);
+        const requestedFingerprint = fingerprint(args);
         const match = [...this.requests.values()]
             .filter((request) => request.tool === tool &&
             request.state === 'approved' &&
             request.scope === 'once' &&
             request.consumedAt === undefined &&
-            canonical(request.args) === fingerprint)
+            (request.argsFingerprint ?? fingerprint(request.args)) === requestedFingerprint)
             .sort((a, b) => a.createdAt - b.createdAt)[0];
         if (!match)
             return false;
@@ -120,7 +147,11 @@ export class ApprovalEngine {
                 continue;
             try {
                 const req = JSON.parse(trimmed);
-                if (req && typeof req.id === 'string') {
+                if (req && typeof req.id === 'string' && req.args && typeof req.args === 'object') {
+                    // Migrate legacy records without retaining raw arguments: fingerprint
+                    // first, then sanitize before the next atomic compaction.
+                    req.argsFingerprint ??= fingerprint(req.args);
+                    req.args = this.sanitizeArgs(boundedEvidence(req.args));
                     this.requests.set(req.id, req);
                     loaded++;
                 }
@@ -146,7 +177,8 @@ export class ApprovalEngine {
             return;
         try {
             mkdirSync(dirname(path), { recursive: true });
-            appendFileSync(path, JSON.stringify(req) + '\n', 'utf8');
+            appendFileSync(path, JSON.stringify(req) + '\n', { encoding: 'utf8', mode: 0o600 });
+            chmodSync(path, 0o600);
         }
         catch (err) {
             logger.warn({ path, id: req.id, err: String(err) }, 'Failed to persist approval');
@@ -160,8 +192,9 @@ export class ApprovalEngine {
         try {
             const body = [...this.requests.values()].map((r) => JSON.stringify(r)).join('\n');
             const tmp = `${path}.tmp`;
-            writeFileSync(tmp, body ? body + '\n' : '', 'utf8');
+            writeFileSync(tmp, body ? body + '\n' : '', { encoding: 'utf8', mode: 0o600 });
             renameSync(tmp, path);
+            chmodSync(path, 0o600);
         }
         catch (err) {
             logger.warn({ path, err: String(err) }, 'Failed to compact approvals store');

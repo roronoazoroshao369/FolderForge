@@ -39,6 +39,9 @@ published to npm, or released as a hosted artifact.
 - **Explicit browser setup.** Added `folderforge setup browser`, including `--with-deps`, machine-readable output, and a no-download `--dry-run` mode that resolves the installed package-local Playwright CLI.
 - **Cross-platform release matrix.** Added Ubuntu, macOS, and Windows CI coverage on Node 22 and Node 24, including tarball, stdio MCP, and authenticated HTTP smoke tests.
 - **Path and degradation compatibility.** Added spaces/Unicode package and stdio paths, Windows junction escape coverage, process-stop wakeups, runtime permission diagnostics, and explicit missing-Chromium warn/fail contracts.
+- **Approval confidentiality and exact retry matching.** Approval state now persists redacted arguments plus a canonical SHA-256 fingerprint, keeps mode `0600`, redacts audit/elicitation summaries, and preserves exact once/restart semantics.
+- **Plugin package integrity.** New installs/updates record and verify a deterministic SHA-256 package-tree digest; doctor and adapter startup reject tampering.
+- **Transactional plugin activation rollback.** Updates keep the old package/registry until the new facade loads, then restore the old enabled facade if activation fails.
 
 ### Fixed
 

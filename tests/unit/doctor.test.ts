@@ -8,6 +8,7 @@ import {
   runDoctor,
   type DoctorReport,
 } from '../../src/doctor/index.js';
+import { PluginManager } from '../../src/plugins/plugin-manager.js';
 
 const tempRoots: string[] = [];
 const passingPortProbe = async (host: string, port: number) => ({
@@ -194,6 +195,31 @@ describe('folderforge doctor', () => {
 
     expect(report.exitCode).toBe(1);
     expect(byId(report, 'playwright.chromium')?.status).toBe('fail');
+  });
+
+  it('detects tampering of an installed plugin package', async () => {
+    const root = tempProject();
+    const source = join(root, 'plugin-source');
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'server.mjs'), 'process.stdin.resume();\n');
+    writeFileSync(join(source, 'folderforge.plugin.json'), JSON.stringify({
+      schemaVersion: 1,
+      id: 'doctor-plugin',
+      name: 'Doctor Plugin',
+      version: '1.0.0',
+      compatibility: { folderforge: '*' },
+      runtime: { command: 'node', args: ['{pluginDir}/server.mjs'], facade: true },
+      permissions: { network: false, filesystem: 'none', env: [] },
+    }));
+    const manager = new PluginManager(root, '2.0.0-rc.1');
+    const installed = manager.install(source, false);
+    writeFileSync(join(installed.installDir, 'server.mjs'), 'tampered\n');
+
+    const report = await runDoctor({ projectRoot: root, portProbe: passingPortProbe });
+
+    expect(report.exitCode).toBe(1);
+    expect(byId(report, 'plugin.doctor-plugin')).toMatchObject({ status: 'fail' });
+    expect(byId(report, 'plugin.doctor-plugin')?.evidence).toMatch(/integrity mismatch/i);
   });
 
   it('emits stable JSON and exit 2 for invalid CLI arguments', async () => {

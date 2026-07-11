@@ -28,7 +28,10 @@ export class PolicyEngine {
             (config.workspace.defaultProject
                 ? resolve(config.workspace.defaultProject, '.folderforge', 'approvals.jsonl')
                 : undefined);
-        this.approvals = new ApprovalEngine(persistPath ? { persistPath } : {});
+        this.approvals = new ApprovalEngine({
+            ...(persistPath ? { persistPath } : {}),
+            sanitizeArgs: (args) => this.secret.redactValue(args),
+        });
         this.mode = config.policy.defaultMode;
         this.requireApproval = new Set(config.policy.requireApproval);
     }

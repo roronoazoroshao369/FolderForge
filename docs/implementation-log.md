@@ -372,6 +372,55 @@ using FolderForge itself to implement the AI/browser roadmap.
   Windows junction (directory symlink elsewhere) and require escape rejection.
   Managed-process tests verify stop wakes a long-poll without Unix-only commands.
 
+## Milestone F — approval and plugin security hardening
+
+### FF-035 — Approval evidence could retain raw secrets
+
+- Severity: high
+- Status: fixed and regression-tested
+- Symptom: approval JSONL stored raw arguments, while audit and elicitation
+  summaries serialized argument values without structured secret redaction.
+- Fix: exact retry matching now uses a canonical SHA-256 fingerprint; retained
+  arguments are recursively redacted with sensitive-key, regex, and entropy
+  rules. Approval state is mode `0600`; audit and prompt summaries share the safe
+  representation.
+- Evidence: persisted JSONL, audit summaries, and elicitation prompts exclude test
+  secrets while exact same arguments still consume the once approval after
+  restart.
+
+### FF-036 — Installed plugin bytes had no tamper detection
+
+- Severity: high
+- Status: fixed and regression-tested
+- Symptom: a copied local plugin could be modified after review/installation and
+  would still be loaded from the same registry record.
+- Fix: new installs/updates record a deterministic SHA-256 digest over sorted
+  relative paths and bytes. Inspect, adapter startup, and doctor recompute and
+  reject mismatches. Legacy records remain explicitly `unverified`.
+- Boundary: the digest detects change but does not authenticate publisher or
+  provenance, and a bare host executable is outside the package tree.
+
+### FF-037 — Post-replacement plugin activation failure was not transactional
+
+- Severity: high
+- Status: fixed and integration-tested
+- Symptom: update rollback covered invalid input before replacement, but a valid
+  package whose child MCP server failed during hot activation could replace the
+  old bytes and interrupt the enabled facade.
+- Fix: retain old package/registry until discovery succeeds; on activation error,
+  restore package, registry, runtime adapter, risk map, and old enabled facade.
+- Evidence: integration test updates to a valid manifest with a crashing child,
+  observes failure, confirms version rollback, and successfully calls the old
+  facade afterward.
+
+### FF-038 — Plugin security declarations lacked executable boundary tests
+
+- Severity: high
+- Status: fixed and integration-tested
+- Fix: a live child test receives only an allowlisted environment variable, sees
+  an undeclared parent secret as `null`, and exposes a CRITICAL sub-tool whose
+  execution counter remains at one only after explicit once approval.
+
 ### MCP-DX-006 — Compound shell and audit failures can surface generic text
 
 - Severity: medium
@@ -389,7 +438,7 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Typecheck: passed.
 - Lint (`tsc --noEmit`): passed.
 - Build: passed.
-- Final local unit/integration suite: 357/357 passed across 46 test files.
+- Final local unit/integration suite: 365/365 passed across 46 test files.
 - Production and full dependency audits: 0 vulnerabilities.
 - `npm pack` produced a 95-file candidate tarball containing the license, README,
   package metadata, and generated runtime; temporary installation passed CLI
@@ -405,8 +454,9 @@ using FolderForge itself to implement the AI/browser roadmap.
     console/network, error propagation, and audit correctness.
   - AI coding runtime: project analysis/context, transactional patch lifecycle,
     Git summary, and structured verification failures.
-  - Plugin ecosystem: hot lifecycle, risk facade, environment allowlist, health,
-    restart persistence, disable/update/uninstall, and failed-update recovery.
+  - Plugin ecosystem: package integrity, hot lifecycle, risk facade, environment
+    allowlist, health, restart persistence, disable/update/uninstall, and
+    pre/post-replacement failed-update recovery.
   - Governed workflows: role scope, dependency/reference execution, approval
     pause/resume, exact non-replay, reports, audit, and restart persistence.
   - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded

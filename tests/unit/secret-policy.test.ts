@@ -52,6 +52,23 @@ describe('SecretPolicy.redact', () => {
   });
 });
 
+describe('SecretPolicy.redactValue', () => {
+  it('redacts nested sensitive fields while preserving non-secret structure', () => {
+    const out = policy.redactValue({
+      token: 'plain-token-value',
+      nested: { apiKey: 'plain-api-value', path: 'src/index.ts' },
+      values: ['safe'],
+      opaque: 'A9z_kP2mQ7xV4nR8tY1uL6wC3dF0hJ5s',
+    });
+    expect(out).toEqual({
+      token: '[REDACTED]',
+      nested: { apiKey: '[REDACTED]', path: 'src/index.ts' },
+      values: ['safe'],
+      opaque: '[REDACTED]',
+    });
+  });
+});
+
 describe('SecretPolicy.redactEnv', () => {
   it('redacts known and heuristic secret env vars', () => {
     const out = policy.redactEnv({
