@@ -154,10 +154,11 @@ tools:
 - Supports file, search, shell, process, git, build, code-intelligence,
   memory, browser, and database workflows
 
-## Status (`2.0.0-rc.1` candidate)
+## Status (`2.0.0-rc.2` candidate)
 
-The **`2.0.0-rc.1`** candidate is committed and pushed on `main`. It has not
-been tagged, published to npm, or released. The audited native registry contains 269
+The **`2.0.0-rc.2`** candidate is committed and pushed on `main`. It has not
+been tagged, published to npm, or released; npm publication requires an
+authenticated release session, and cross-platform Actions evidence is still pending. The audited native registry contains 269
 tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
 42, and 269 native tools respectively before dynamic child/plugin additions.
 

@@ -116,8 +116,8 @@ try {
     JSON.stringify(
       {
         workspace: { defaultProject: project, allowedDirectories: [project] },
-        policy: { defaultMode: 'readonly' },
-        tools: { preset: 'vibe-lite', enabled: ['pkg_audit'] },
+        policy: { defaultMode: 'danger' },
+        tools: { preset: 'vibe-lite', enabled: ['pkg_audit', 'shell_exec'] },
         adapters: {
           serena: { enabled: false },
           playwright: { enabled: false },
@@ -226,6 +226,28 @@ try {
     throw new Error(`file_read smoke call failed: ${JSON.stringify(called)}`);
   }
 
+  const failedShell = await rpc(
+    `${base}/mcp`,
+    'tools/call',
+    {
+      name: 'shell_exec',
+      arguments: {
+        command: `node -e "console.log('wire-out'); console.error('wire-error'); process.exit(7)"`,
+      },
+    },
+    5
+  );
+  if (
+    failedShell?.isError !== true ||
+    failedShell?.structuredContent?.exitCode !== 7 ||
+    !String(failedShell?.structuredContent?.stdout ?? '').includes('wire-out') ||
+    !String(failedShell?.structuredContent?.stderr ?? '').includes('wire-error')
+  ) {
+    throw new Error(
+      `shell_exec structured failure smoke did not preserve wire evidence: ${JSON.stringify(failedShell)}`
+    );
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -233,7 +255,7 @@ try {
         version: initialized.serverInfo.version,
         advertisedTools: listed.tools.length,
         auth: '401-without-key / success-with-key',
-        toolCalls: ['pkg_audit', 'file_read'],
+        toolCalls: ['pkg_audit', 'file_read', 'shell_exec:error-evidence'],
       },
       null,
       2

@@ -211,7 +211,7 @@ describe('folderforge doctor', () => {
       runtime: { command: 'node', args: ['{pluginDir}/server.mjs'], facade: true },
       permissions: { network: false, filesystem: 'none', env: [] },
     }));
-    const manager = new PluginManager(root, '2.0.0-rc.1');
+    const manager = new PluginManager(root, '2.0.0-rc.2');
     const installed = manager.install(source, false);
     writeFileSync(join(installed.installDir, 'server.mjs'), 'tampered\n');
 

@@ -37,11 +37,14 @@ on Ubuntu/Node 22. See `compatibility.md` for the support contract.
 5. Review dependency audit output and document any accepted exception.
 6. Update `CHANGELOG.md`, migration notes, roadmap, and implementation log.
 7. Obtain explicit authorization before committing, tagging, pushing,
-   publishing to npm, or creating a hosted release.
+   publishing to npm, or creating a hosted release. Publish release candidates
+   with `--tag next`; reserve `latest` for a stable verdict.
 
-The current candidate target is `2.0.0-rc.1`. Its stabilization changes are
+The current candidate target is `2.0.0-rc.2`. Its stabilization changes are
 committed and pushed on `main`, but no tag, npm publish, or hosted release has
-been created. Repository preparation does not authorize those external actions.
+been created. The local environment is not authenticated to npm, and the full
+GitHub Actions matrix has not been observed, so publication/stable promotion are
+not yet evidenced.
 
 ## Current trust limitations
 

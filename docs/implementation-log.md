@@ -424,16 +424,16 @@ using FolderForge itself to implement the AI/browser roadmap.
 ### MCP-DX-006 — Compound shell and audit failures can surface generic text
 
 - Severity: medium
-- Status: partially fixed
-- Finding: the package-audit path is fixed in source. The currently connected
-  ForgeFolder instance can still collapse some compound shell failures to a
-  generic tool error, requiring a diagnostic wrapper to collect stdout/stderr.
-- Follow-up: verify the structured-error bridge from a rebuilt/current binary and
-  add a dedicated regression in the doctor/compatibility milestone.
+- Status: fixed and wire-regression-tested
+- Finding: older connected binaries could collapse compound shell failures to a
+  generic tool error even after the source package/audit path was corrected.
+- Fix: unit coverage preserves non-zero package and shell evidence, and the RC.2
+  authenticated HTTP smoke now calls a deliberate exit-7 `shell_exec` against the
+  rebuilt server and asserts `isError`, `exitCode`, `stdout`, and `stderr` over MCP.
 
 ## Verification record
 
-- Candidate version: `2.0.0-rc.1`; `package.json`, package-lock metadata, packed
+- Candidate version: `2.0.0-rc.2`; `package.json`, package-lock metadata, packed
   tarball, installed CLI, and live MCP `serverInfo.version` agree.
 - Typecheck: passed.
 - Lint (`tsc --noEmit`): passed.
@@ -448,7 +448,8 @@ using FolderForge itself to implement the AI/browser roadmap.
   `file_read` from a project/config path containing spaces and Unicode.
 - Authenticated HTTP MCP smoke passed unauthorized rejection, initialize,
   `tools/list` with the 50-tool `vibe-lite` invariant, and wire-level calls to
-  `pkg_audit` plus `file_read`.
+  `pkg_audit`, `file_read`, plus a deliberate non-zero `shell_exec` whose
+  structured error evidence remained intact.
 - Source-built HTTP MCP acceptance covered:
   - Browser foundation: native image blocks, viewport 390×844, interaction,
     console/network, error propagation, and audit correctness.
@@ -462,6 +463,7 @@ using FolderForge itself to implement the AI/browser roadmap.
   - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded
     disposable temp cleanup, and denial of non-prefixed temp deletion.
 
-Milestone checkpoints through compatibility hardening are committed and pushed
-on `main`. No tag, global reinstall, npm publish, hosted release, or stable
-release was performed.
+Milestone checkpoints through RC.2 preparation are committed and pushed on
+`main`. No tag, global reinstall, npm publish, hosted release, or stable release
+was performed. Cross-platform Actions observation and npm-registry RC validation
+remain required before the stable verdict.

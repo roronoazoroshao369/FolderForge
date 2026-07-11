@@ -4,11 +4,11 @@ Release history and production-readiness roadmap for FolderForge.
 
 ## Current release-candidate track
 
-The `2.0.0-rc.1` candidate is committed and pushed on `main`. Release gates
+The `2.0.0-rc.2` candidate is committed and pushed on `main`. Release gates
 require a clean production and full dependency audit, typecheck, lint,
-unit/integration tests, build, `npm pack`, tarball installation, CLI smoke, and
-authenticated HTTP MCP initialize/list/call smoke. No tag, npm publish, stable
-release, or hosted release has been created.
+unit/integration tests, build, `npm pack`, tarball installation, CLI/stdio smoke,
+and authenticated HTTP MCP initialize/list/call/error-evidence smoke. No tag,
+npm publish, stable release, or hosted release has been created.
 
 ## Done (2.0 RC Milestone B — doctor and preflight diagnostics)
 
@@ -88,6 +88,29 @@ release, or hosted release has been created.
 - Verification: typecheck, lint, build, 365/365 tests across 46 files, both npm
   audits with zero vulnerabilities, package smoke, stdio smoke, and authenticated
   HTTP smoke.
+
+## Prepared (2.0 RC Milestone G — RC.2 release rehearsal)
+
+- Bumped package and lockfile metadata from `2.0.0-rc.1` to `2.0.0-rc.2`.
+- Extended authenticated HTTP smoke with a deliberate non-zero `shell_exec` and
+  asserted `isError`, `exitCode`, `stdout`, and `stderr` over the MCP wire.
+- The exact RC.2 tree passed `npm run release:check`: typecheck, lint, 365/365
+  tests, build, both audits with zero vulnerabilities, 95-file tarball smoke,
+  stdio smoke, and authenticated HTTP success/error-evidence smoke. Package-content,
+  version-consistency, Git, and security reviews also pass locally.
+- Publication is intentionally not represented as complete: the current
+  environment has no authenticated npm session, and cross-platform Actions
+  evidence is not observable from this workspace.
+
+## Blocked (2.0 RC Milestone H — stable release verdict)
+
+- No `READY FOR 2.0 STABLE` verdict is issued while the six-entry GitHub Actions
+  matrix remains unobserved and RC.2 has not been installed from the npm registry.
+- RC.2 must be published under the `next` dist-tag, installed into a clean
+  project, and revalidated with CLI, doctor, package, stdio, and authenticated HTTP
+  checks before stable promotion.
+- A stable `2.0.0` version/tag and npm `latest` publish require a separate exact
+  stable-version release gate and an explicit final release decision.
 
 ## Done (0.1)
 
