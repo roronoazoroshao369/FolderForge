@@ -9,6 +9,12 @@ locally and has not been published.
 - Rebuild or reinstall FolderForge after switching versions so the CLI and
   generated `dist/` match `package.json`.
 - Confirm with `folderforge --version` before starting an MCP client.
+- FolderForge no longer downloads Chromium from an npm lifecycle script. Normal
+  installation is browser-download-free. Run `folderforge setup browser` only on
+  machines that need browser tools, or add `--with-deps` when supported Linux
+  operating-system packages are also required.
+- Run `folderforge doctor` after migration. A missing Chromium runtime is a
+  warning when Playwright is disabled and a failure when the adapter is enabled.
 
 ## Configuration and state paths
 

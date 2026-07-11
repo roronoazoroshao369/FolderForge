@@ -6,8 +6,8 @@ semantic versioning.
 
 ## [2.0.0-rc.1] - candidate prepared 2026-07-11 (not published)
 
-This candidate version exists only in the local working tree. No tag, push, npm
-publish, or hosted release has been performed.
+This candidate has not been tagged, published to npm, or released. Development
+checkpoints may exist on the stabilization branch.
 
 ### Added
 
@@ -35,11 +35,14 @@ publish, or hosted release has been performed.
 - **Plugin update availability.** Failed validation/copy before replacement restores the previous enabled plugin facade.
 - **Executable release gates.** Added dependency audits, package/tarball install and CLI smoke checks, plus authenticated HTTP MCP initialize/list/call smoke checks to the release workflow.
 - **Apache-2.0 license artifact.** Added the license file required by package metadata and enforced its presence in the packed tarball.
+- **Read-only doctor command.** Added stable human/JSON installation, configuration, dependency, port, plugin, and state diagnostics with exit codes 0/1/2.
+- **Explicit browser setup.** Added `folderforge setup browser`, including `--with-deps`, machine-readable output, and a no-download `--dry-run` mode that resolves the installed package-local Playwright CLI.
 
 ### Fixed
 
 - **Package-manager failure diagnostics.** Non-zero package/audit commands now keep exit code, stdout, and stderr while returning an actionable primary error.
 - **Release dependency findings.** Upgraded the Vitest/Vite test toolchain to remove the full-audit high/critical advisories.
+- **Install-time browser side effect.** Removed the automatic `postinstall` network download and mutable `npx --yes playwright` execution; browser setup is now explicit and package-local.
 - **Release documentation drift.** Corrected approval persistence semantics, tool preset counts, and the explicit non-sandbox boundary of local plugins.
 
 - **Godot bridge addon shipped (`addons/folderforge_bridge/`, wiring point #8).**

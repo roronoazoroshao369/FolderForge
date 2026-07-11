@@ -74,6 +74,16 @@ try {
     { cwd: temp }
   );
 
+  const installedPackageJson = JSON.parse(
+    readFileSync(
+      join(temp, 'node_modules', '@musashishao', 'folderforge', 'package.json'),
+      'utf8'
+    )
+  );
+  if (installedPackageJson.scripts?.postinstall !== undefined) {
+    throw new Error('Packed package still declares a postinstall lifecycle script.');
+  }
+
   const bin = join(
     temp,
     'node_modules',
@@ -87,8 +97,31 @@ try {
   }
 
   const help = run(bin, ['--help'], { cwd: temp }).stdout;
-  for (const flag of ['doctor', '--http', '--tools-preset', '--policy']) {
+  for (const flag of ['doctor', 'setup browser', '--http', '--tools-preset', '--policy']) {
     if (!help.includes(flag)) throw new Error(`CLI help is missing ${flag}.`);
+  }
+
+  const setupOutput = run(bin, ['setup', 'browser', '--dry-run', '--json'], { cwd: temp }).stdout;
+  const setup = JSON.parse(setupOutput);
+  if (
+    setup.schemaVersion !== 1 ||
+    setup.exitCode !== 0 ||
+    setup.browser !== 'chromium' ||
+    setup.dryRun !== true ||
+    !Array.isArray(setup.args)
+  ) {
+    throw new Error(`Browser setup dry-run returned an invalid report: ${setupOutput}`);
+  }
+  if (setup.command !== process.execPath || setup.args.slice(1).join(' ') !== 'install chromium') {
+    throw new Error(`Browser setup resolved an unexpected command: ${setupOutput}`);
+  }
+  const resolvedPlaywrightCli = setup.args[0];
+  if (
+    typeof resolvedPlaywrightCli !== 'string' ||
+    !resolvedPlaywrightCli.includes(`${join('node_modules', 'playwright')}`) ||
+    setupOutput.includes('npx')
+  ) {
+    throw new Error(`Browser setup did not use the installed package-local Playwright CLI: ${setupOutput}`);
   }
 
   const [httpPort, dashboardPort] = await Promise.all([freePort(), freePort()]);

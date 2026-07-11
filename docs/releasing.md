@@ -15,7 +15,9 @@ That command runs, in order:
 3. Production build.
 4. Production-only and full dependency audits.
 5. `npm pack`, tarball installation in a temporary project, and CLI
-   `--version`/`--help` smoke checks.
+   `--version`/`--help` smoke checks. The package smoke also rejects any
+   `postinstall` script, runs `doctor`, and verifies `setup browser --dry-run`
+   resolves the installed package-local Playwright CLI without downloading.
 6. Authenticated HTTP MCP smoke checks covering unauthorized rejection,
    `initialize`, `tools/list`, and `tools/call`.
 

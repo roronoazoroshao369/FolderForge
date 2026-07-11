@@ -8,7 +8,32 @@ The working tree is being prepared for `2.0.0-rc.1`. Release gates require a
 clean production and full dependency audit, typecheck, lint, unit/integration
 tests, build, `npm pack`, tarball installation, CLI smoke, and authenticated HTTP
 MCP initialize/list/call smoke. Version changes do not imply permission to
-commit, tag, push, publish, or create a hosted release.
+tag, publish, or create a hosted release.
+
+## Done (2.0 RC Milestone B — doctor and preflight diagnostics)
+
+- Added the read-only `folderforge doctor` command with stable human and JSON
+  output, deterministic findings, and exit codes `0` (healthy/warnings), `1`
+  (environment failure), and `2` (invalid invocation).
+- Covers Node/npm/dependency/version consistency, workspace access, Git, config,
+  ports, adapters, Playwright, plugins, approvals, audit logs, and workflow state.
+- Doctor never creates `.folderforge`, downloads a browser, or repairs state.
+- Unit and packed-tarball smoke coverage enforce the contract.
+
+## Done (2.0 RC Milestone C — explicit browser setup and install safety)
+
+- Removed the automatic Playwright Chromium `postinstall` download and the
+  mutable `npx --yes playwright` execution path. Standard npm/global/npx install
+  no longer downloads a browser.
+- Added explicit `folderforge setup browser` with optional `--with-deps`, stable
+  JSON evidence, and `--dry-run` for no-network CI/package verification.
+- Setup invokes Node directly on the Playwright CLI resolved from the installed
+  FolderForge dependency graph; no shell or package re-resolution is involved.
+- Package smoke rejects a `postinstall`, installs the tarball in a temporary
+  project, resolves the package-local CLI, runs doctor read-only, and confirms no
+  runtime state is created.
+- Verification: typecheck, lint, build, 342/342 tests across 44 files, both npm
+  audits with zero vulnerabilities, package smoke, and authenticated HTTP smoke.
 
 ## Done (0.1)
 

@@ -156,8 +156,8 @@ tools:
 
 ## Status (`2.0.0-rc.1` candidate)
 
-The repository is locally prepared as **`2.0.0-rc.1`**. It has not been tagged,
-pushed, published to npm, or released. The audited native registry contains 269
+The repository is prepared as **`2.0.0-rc.1`** on the stabilization branch. It
+has not been tagged, published to npm, or released. The audited native registry contains 269
 tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
 42, and 269 native tools respectively before dynamic child/plugin additions.
 
@@ -169,7 +169,7 @@ tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
   child facades, and dynamic plugin adapters.
 - **AI/browser runtime** - bounded code context, transactional edits,
   verification/report tools, and stable responsive browser wrappers.
-- **Release gates** - typecheck, lint, 328 unit/integration tests, build, both
+- **Release gates** - typecheck, lint, 342 unit/integration tests, build, both
   dependency audits, `npm pack`, temporary tarball install, CLI smoke, and live
   authenticated HTTP MCP initialize/list/call smoke.
 - **Trust boundary** - local plugin permission declarations are review/audit
@@ -264,6 +264,14 @@ curl -sS -X POST http://127.0.0.1:17331/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+### CLI commands
+
+| Command | Description |
+| --- | --- |
+| `folderforge doctor [--json]` | Run read-only installation, configuration, dependency, port, plugin, and state diagnostics |
+| `folderforge setup browser [--with-deps]` | Explicitly install package-compatible Playwright Chromium; may access the network |
+| `folderforge setup browser --dry-run --json` | Resolve the exact package-local setup command without downloading anything |
+
 ### All CLI options
 
 | Flag | Description |
@@ -318,10 +326,21 @@ Rules:
   built-in defaults.
 - CLI flags still override the file (e.g. `--port 3112` wins over the file's port).
 
-Playwright itself is installed as a dependency, and a `postinstall` hook fetches
-the Chromium binary during `npm install -g`, so browser testing works out of the
-box. If that download is blocked (offline / CI), run `npx playwright install`
-once on the machine.
+Playwright is installed as a package dependency, but FolderForge does **not**
+download a browser during `npm install`, global install, or `npx` startup. Browser
+installation is an explicit, network-capable setup step:
+
+```bash
+folderforge setup browser
+
+# Linux hosts that also need Playwright's operating-system packages
+folderforge setup browser --with-deps
+```
+
+The setup command resolves the Playwright CLI shipped with the installed
+FolderForge dependency graph; it does not invoke a mutable `npx` package. Run
+`folderforge doctor` to check whether Chromium is available. Non-browser tools
+continue to work when Chromium is intentionally absent.
 
 
 ## Authentication

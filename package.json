@@ -48,7 +48,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/main.js",
-    "postinstall": "node -e \"try{require('child_process').execSync('npx --yes playwright install chromium',{stdio:'inherit'})}catch(e){console.warn('[folderforge] Skipped Playwright browser download:',e&&e.message)}\"",
+    "setup:browser": "node dist/main.js setup browser",
     "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",

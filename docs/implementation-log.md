@@ -265,6 +265,37 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Remaining scope: operating-system and Node-version matrix coverage is tracked
   by the compatibility milestone before final 2.0.
 
+## Milestone C — install safety and explicit browser setup
+
+### FF-026 — Package installation performed an optional network download
+
+- Severity: high
+- Status: fixed and package-verified
+- Symptom: `npm install`, global installation, and `npx` startup could execute a
+  `postinstall` hook that ran `npx --yes playwright install chromium`.
+- Risk: installation unexpectedly required network access, silently tolerated
+  failure, and allowed mutable package resolution during a lifecycle script.
+- Fix: removed `postinstall`; added explicit `folderforge setup browser` with
+  `--with-deps`, stable JSON evidence, and a no-download `--dry-run`. The command
+  invokes Node directly on the Playwright CLI from FolderForge's installed
+  dependency graph, without a shell or `npx`.
+- Evidence: focused setup tests passed 7/7; packed-package smoke rejects any
+  `postinstall`, validates the package-local CLI path, runs doctor read-only, and
+  confirms no `.folderforge` state is created.
+
+### FF-027 — Playwright CLI subpath was blocked by package exports
+
+- Severity: medium
+- Status: fixed and package-verified
+- Symptom: the first built CLI dry-run failed because `playwright/cli` is not an
+  exported package subpath.
+- Root cause: source-level dependency resolution did not match Playwright's public
+  export map.
+- Fix: resolve the exported `playwright/package.json`, derive the adjacent
+  `cli.js`, and verify that file exists before execution.
+- Evidence: the source-built CLI and temporary tarball installation both resolve
+  `node_modules/playwright/cli.js` and return exit 0 in dry-run mode.
+
 ### MCP-DX-006 — Compound shell and audit failures can surface generic text
 
 - Severity: medium
@@ -282,11 +313,12 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Typecheck: passed.
 - Lint (`tsc --noEmit`): passed.
 - Build: passed.
-- Final unit/integration suite: 328/328 passed across 42 test files.
+- Final unit/integration suite: 342/342 passed across 44 test files.
 - Production and full dependency audits: 0 vulnerabilities.
-- `npm pack` produced a 91-file candidate tarball containing the license, README,
+- `npm pack` produced a 93-file candidate tarball containing the license, README,
   package metadata, and generated runtime; temporary installation passed CLI
-  version/help checks and cleaned its artifacts.
+  version/help, doctor, no-postinstall, and browser-setup dry-run checks and
+  cleaned its artifacts.
 - Authenticated HTTP MCP smoke passed unauthorized rejection, initialize,
   `tools/list` with the 50-tool `vibe-lite` invariant, and wire-level calls to
   `pkg_audit` plus `file_read`.
@@ -302,5 +334,5 @@ using FolderForge itself to implement the AI/browser roadmap.
   - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded
     disposable temp cleanup, and denial of non-prefixed temp deletion.
 
-No commit, tag, global reinstall, or push was performed in this implementation
-session.
+No tag, global reinstall, npm publish, or hosted release was performed. Milestone
+checkpoints may be committed and pushed only to the stabilization branch.

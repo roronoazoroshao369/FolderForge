@@ -10,6 +10,7 @@ import { logger } from './core/logger.js';
 import { randomBytes } from 'node:crypto';
 import { readFolderForgeVersion } from './core/version.js';
 import { executeDoctorCli } from './doctor/index.js';
+import { executeBrowserSetupCli } from './setup/browser.js';
 
 const VERSION = readFolderForgeVersion();
 
@@ -139,6 +140,7 @@ function printHelp(): void {
       '',
       'Commands:',
       '  doctor                 Run read-only installation and workspace diagnostics',
+      '  setup browser          Install package-compatible Playwright Chromium (explicit opt-in)',
       '',
       'Options:',
       '  -p, --project <dir>      Project root to activate (default: cwd)',
@@ -168,6 +170,12 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] === 'doctor') {
     const result = await executeDoctorCli(argv.slice(1));
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === 'setup') {
+    const result = executeBrowserSetupCli(argv.slice(1));
     process.stdout.write(result.output);
     process.exitCode = result.exitCode;
     return;
