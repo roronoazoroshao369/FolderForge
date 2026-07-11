@@ -3,6 +3,7 @@ import { resolve, isAbsolute, dirname } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { FolderForgeConfig } from './types.js';
 import { logger } from './logger.js';
+import { defaultShell } from './shell.js';
 
 const DEFAULT_BLOCKED = [
   'rm -rf /',
@@ -57,7 +58,7 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
       blockedCommands: [...DEFAULT_BLOCKED],
     },
     terminal: {
-      shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
+      shell: defaultShell(),
       defaultTimeoutMs: 120000,
       maxOutputBytes: 200000,
       envPolicy: 'redact',

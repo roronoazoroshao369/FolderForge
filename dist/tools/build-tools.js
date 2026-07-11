@@ -3,12 +3,13 @@ import { defineTool } from './registry.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
 import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
+import { shellCommandArgs } from '../core/shell.js';
 async function runScript(ctx, key) {
     const cmds = detectCommands(ctx.projectRoot);
     const command = cmds.scripts[key];
     if (!command)
         return { ok: false, error: `No ${key} command detected for this project.` };
-    const sub = await execa(ctx.config.terminal.shell, ['-lc', command], {
+    const sub = await execa(ctx.config.terminal.shell, shellCommandArgs(ctx.config.terminal.shell, command), {
         cwd: ctx.projectRoot,
         timeout: ctx.config.terminal.defaultTimeoutMs,
         reject: false,

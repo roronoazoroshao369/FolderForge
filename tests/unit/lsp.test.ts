@@ -16,6 +16,8 @@ import {
   DEFAULT_LANGUAGE_SERVERS,
 } from '../../src/managers/lsp-manager.js';
 import { pathToFileURL } from 'node:url';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 /**
  * LSP transport + normalization tests (Gap 1). These exercise the framing and
@@ -102,11 +104,11 @@ describe('LSP payload normalization', () => {
 
   it('normalizes a location to a 1-based file/line/column', () => {
     const loc = {
-      uri: pathToFileURL('/tmp/x.ts').href,
+      uri: pathToFileURL(join(tmpdir(), 'x.ts')).href,
       range: { start: { line: 9, character: 4 } },
     };
     const n = normalizeLocation(loc);
-    expect(n).toEqual({ file: '/tmp/x.ts', line: 10, column: 5 });
+    expect(n).toEqual({ file: join(tmpdir(), 'x.ts'), line: 10, column: 5 });
   });
 
   it('maps diagnostic severities', () => {
@@ -117,11 +119,11 @@ describe('LSP payload normalization', () => {
   });
 
   it('normalizes diagnostics into the shared error-item shape', () => {
-    const uri = pathToFileURL('/tmp/y.ts').href;
+    const uri = pathToFileURL(join(tmpdir(), 'y.ts')).href;
     const out = normalizeDiagnostics(uri, [
       { severity: 1, message: 'boom', code: 'TS1', range: { start: { line: 0, character: 0 } } },
     ]);
-    expect(out[0]).toMatchObject({ file: '/tmp/y.ts', line: 1, column: 1, severity: 'error', message: 'boom', code: 'TS1' });
+    expect(out[0]).toMatchObject({ file: join(tmpdir(), 'y.ts'), line: 1, column: 1, severity: 'error', message: 'boom', code: 'TS1' });
   });
 });
 
@@ -137,7 +139,7 @@ describe('LspManager routing', () => {
     const mgr = new LspManager({ enabled: false, requestTimeoutMs: 1000 });
     expect(mgr.isEnabled()).toBe(false);
     const def = DEFAULT_LANGUAGE_SERVERS[0]!;
-    expect(await mgr.ensure(def, '/tmp')).toBeNull();
+    expect(await mgr.ensure(def, tmpdir())).toBeNull();
   });
 
   it('returns null (graceful fallback) when the binary is missing', async () => {
@@ -149,6 +151,6 @@ describe('LspManager routing', () => {
       ],
     });
     const def = mgr.serverForPath('a.zz')!;
-    expect(await mgr.ensure(def, '/tmp')).toBeNull();
+    expect(await mgr.ensure(def, tmpdir())).toBeNull();
   });
 });

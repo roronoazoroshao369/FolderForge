@@ -35,6 +35,20 @@ tag, publish, or create a hosted release.
 - Verification: typecheck, lint, build, 342/342 tests across 44 files, both npm
   audits with zero vulnerabilities, package smoke, and authenticated HTTP smoke.
 
+## In verification (2.0 RC Milestone D — compatibility matrix)
+
+- Added a six-entry CI matrix: Ubuntu, macOS, and Windows on Node 22 and Node 24.
+- Every entry runs typecheck, lint, tests, build, packed-tarball smoke, and
+  authenticated HTTP MCP smoke; dependency audits run once on Ubuntu/Node 22.
+- Replaced POSIX-only package scripts with platform-neutral Node helpers.
+- Centralized shell invocation for cmd.exe, PowerShell, POSIX shells, and Git Bash;
+  fixed managed processes, build tools, project verification, and Godot path
+  quoting.
+- Converted filesystem/process tests away from hard-coded `/tmp`, `/bin/bash`, and
+  `sleep`.
+- Local verification: 350/350 tests across 46 files, build/clean, package smoke,
+  HTTP smoke, and both audits. Cross-platform CI evidence is pending.
+
 ## Done (0.1)
 
 - Core config loader with YAML merge and path normalization.

@@ -4,17 +4,22 @@ import type { ToolDefinition, ToolContext } from '../core/types.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
 import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
+import { shellCommandArgs } from '../core/shell.js';
 
 async function runScript(ctx: ToolContext, key: 'test' | 'lint' | 'typecheck' | 'build') {
   const cmds = detectCommands(ctx.projectRoot);
   const command = cmds.scripts[key];
   if (!command) return { ok: false, error: `No ${key} command detected for this project.` };
-  const sub = await execa(ctx.config.terminal.shell, ['-lc', command], {
-    cwd: ctx.projectRoot,
-    timeout: ctx.config.terminal.defaultTimeoutMs,
-    reject: false,
-    maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
-  });
+  const sub = await execa(
+    ctx.config.terminal.shell,
+    shellCommandArgs(ctx.config.terminal.shell, command),
+    {
+      cwd: ctx.projectRoot,
+      timeout: ctx.config.terminal.defaultTimeoutMs,
+      reject: false,
+      maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
+    }
+  );
   const max = ctx.config.terminal.maxOutputBytes;
   const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, max));
   const stderr = ctx.container.policy.secret.redact((sub.stderr ?? '').slice(0, max));

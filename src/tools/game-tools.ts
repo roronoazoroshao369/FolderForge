@@ -1,5 +1,6 @@
 import { defineTool } from './registry.js';
 import type { ToolDefinition, ToolContext } from '../core/types.js';
+import { defaultShell, quoteShellArg } from '../core/shell.js';
 import { GodotCli } from '../adapters/godot/cli.js';
 import { GodotRuntime } from '../adapters/godot/runtime.js';
 
@@ -77,11 +78,6 @@ function projectRoot(ctx: ToolContext, args: Record<string, unknown>): string {
   return typeof p === 'string' && p.length ? p : ctx.projectRoot;
 }
 
-/** Shell-quote a single argument for the process-manager command string. */
-function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
 /**
  * Launch the Godot binary as a managed process (PROC channel). Builds the
  * appropriate CLI invocation for the given mode, starts it through the shared
@@ -97,32 +93,33 @@ async function launchGodot(
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   const root = projectRoot(ctx, args);
   const bin = ctx.container.config.adapters?.godot?.godotPath || 'godot';
-  const parts: string[] = [shq(bin)];
+  const shell = ctx.config?.terminal?.shell ?? ctx.container.config?.terminal?.shell ?? defaultShell();
+  const quote = (value: string) => quoteShellArg(shell, value);
+  const parts: string[] = [quote(bin)];
   switch (mode) {
     case 'editor':
-      parts.push('--editor', '--path', shq(root));
+      parts.push('--editor', '--path', quote(root));
       break;
     case 'run':
-      parts.push('--path', shq(root));
-      if (typeof args.scene === 'string' && args.scene.length) parts.push(shq(args.scene));
+      parts.push('--path', quote(root));
+      if (typeof args.scene === 'string' && args.scene.length) parts.push(quote(args.scene));
       break;
     case 'import':
-      parts.push('--headless', '--path', shq(root), '--import');
+      parts.push('--headless', '--path', quote(root), '--import');
       break;
     case 'export-release':
     case 'export-debug':
       parts.push(
         '--headless',
         '--path',
-        shq(root),
+        quote(root),
         mode === 'export-debug' ? '--export-debug' : '--export-release',
-        shq(extra.preset ?? ''),
-        shq(extra.out ?? '')
+        quote(extra.preset ?? ''),
+        quote(extra.out ?? '')
       );
       break;
   }
   const command = parts.join(' ');
-  const shell = ctx.config?.terminal?.shell ?? ctx.container.config?.terminal?.shell ?? '/bin/sh';
   const session = ctx.container.processes.start(command, root, shell);
   ctx.container.audit.record({ type: 'process_event', summary: `game ${mode}: ${session.sessionId}` });
   return { ok: true, data: { sessionId: session.sessionId, command, mode, status: session.status } };

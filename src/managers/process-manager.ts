@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { shellCommandArgs } from '../core/shell.js';
 
 export interface ProcessSession {
   sessionId: string;
@@ -28,7 +29,7 @@ export class ProcessManager {
 
   start(command: string, cwd: string, shell: string): ProcessSession {
     const sessionId = `proc_${randomUUID().slice(0, 8)}`;
-    const child = spawn(shell, ['-lc', command], {
+    const child = spawn(shell, shellCommandArgs(shell, command), {
       cwd,
       env: process.env,
     }) as ChildProcessWithoutNullStreams;

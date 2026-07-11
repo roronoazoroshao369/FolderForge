@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest';
+import { tmpdir } from 'node:os';
 import { ProcessManager } from '../../src/managers/process-manager.js';
+import { defaultShell } from '../../src/core/shell.js';
 
-const SHELL = '/bin/bash';
+const SHELL = defaultShell();
+const CWD = tmpdir();
+const delayedLine = `node -e "setTimeout(()=>console.log('later-line'),150)"`;
+const keepAlive = `node -e "setTimeout(()=>{},5000)"`;
 
 describe('ProcessManager streaming (readUntil)', () => {
   it('drains buffered output immediately', async () => {
     const pm = new ProcessManager();
-    const s = pm.start('echo hello-stream', '/tmp', SHELL);
+    const s = pm.start('echo hello-stream', CWD, SHELL);
     // Wait until exit so output is buffered.
     await new Promise((r) => setTimeout(r, 200));
     const out = await pm.readUntil(s.sessionId, 1000);
@@ -17,8 +22,7 @@ describe('ProcessManager streaming (readUntil)', () => {
 
   it('blocks then resolves when new output arrives', async () => {
     const pm = new ProcessManager();
-    // Emit a line after ~150ms.
-    const s = pm.start('sleep 0.15; echo later-line', '/tmp', SHELL);
+    const s = pm.start(delayedLine, CWD, SHELL);
     const started = Date.now();
     const out = await pm.readUntil(s.sessionId, 2000);
     expect(Date.now() - started).toBeGreaterThanOrEqual(100);
@@ -28,7 +32,7 @@ describe('ProcessManager streaming (readUntil)', () => {
 
   it('returns (possibly empty) after timeout without busy-waiting', async () => {
     const pm = new ProcessManager();
-    const s = pm.start('sleep 5', '/tmp', SHELL);
+    const s = pm.start(keepAlive, CWD, SHELL);
     const started = Date.now();
     const out = await pm.readUntil(s.sessionId, 200);
     const elapsed = Date.now() - started;
@@ -40,7 +44,7 @@ describe('ProcessManager streaming (readUntil)', () => {
 
   it('reports done once exited and drained', async () => {
     const pm = new ProcessManager();
-    const s = pm.start('echo a', '/tmp', SHELL);
+    const s = pm.start('echo a', CWD, SHELL);
     await new Promise((r) => setTimeout(r, 200));
     const first = await pm.readUntil(s.sessionId, 500);
     expect(first.output).toContain('a');
@@ -51,7 +55,7 @@ describe('ProcessManager streaming (readUntil)', () => {
 
   it('wakes immediately when the abort signal fires mid-wait (P6)', async () => {
     const pm = new ProcessManager();
-    const s = pm.start('sleep 5', '/tmp', SHELL);
+    const s = pm.start(keepAlive, CWD, SHELL);
     const ac = new AbortController();
     const started = Date.now();
     // Cancel after ~100ms; the long-poll should resolve well before timeoutMs.
@@ -65,7 +69,7 @@ describe('ProcessManager streaming (readUntil)', () => {
 
   it('returns immediately when the signal is already aborted (P6)', async () => {
     const pm = new ProcessManager();
-    const s = pm.start('sleep 5', '/tmp', SHELL);
+    const s = pm.start(keepAlive, CWD, SHELL);
     const ac = new AbortController();
     ac.abort();
     const started = Date.now();

@@ -169,15 +169,16 @@ tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
   child facades, and dynamic plugin adapters.
 - **AI/browser runtime** - bounded code context, transactional edits,
   verification/report tools, and stable responsive browser wrappers.
-- **Release gates** - typecheck, lint, 342 unit/integration tests, build, both
+- **Release gates** - typecheck, lint, 350 unit/integration tests, build, both
   dependency audits, `npm pack`, temporary tarball install, CLI smoke, and live
   authenticated HTTP MCP initialize/list/call smoke.
 - **Trust boundary** - local plugin permission declarations are review/audit
   metadata, not an OS sandbox. Untrusted plugin distribution remains disabled by
   product policy until hard isolation and signed provenance exist.
 
-See `docs/roadmap.md`, `docs/releasing.md`, and `docs/migration-2.0.md` for the
-release record, gates, and migration notes.
+See `docs/roadmap.md`, `docs/releasing.md`, `docs/compatibility.md`, and
+`docs/migration-2.0.md` for the release record, gates, compatibility contract,
+and migration notes.
 
 ### MCP protocol features (1.2)
 

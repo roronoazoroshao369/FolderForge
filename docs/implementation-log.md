@@ -296,6 +296,41 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Evidence: the source-built CLI and temporary tarball installation both resolve
   `node_modules/playwright/cli.js` and return exit 0 in dry-run mode.
 
+## Milestone D — cross-platform compatibility
+
+### FF-028 — Windows received POSIX shell arguments
+
+- Severity: high
+- Status: fixed locally; cross-platform CI verifying
+- Symptom: the default Windows shell was `cmd.exe`, but `shell_exec`, managed
+  processes, build tools, and project verification always passed `-lc`, which is
+  valid for POSIX shells but not for cmd.
+- Fix: added a shared shell invocation helper. cmd uses `/d /s /c`, PowerShell
+  uses `-Command`, and POSIX/Git Bash use `-lc`. Godot launch arguments now use
+  shell-specific literal quoting.
+- Evidence: focused shell/process/terminal/game tests pass locally; the six-entry
+  OS/Node CI matrix is the cross-platform acceptance gate.
+
+### FF-029 — Build and clean scripts were POSIX-only
+
+- Severity: high
+- Status: fixed locally; cross-platform CI verifying
+- Symptom: `npm run build` called `chmod +x`, and `npm run clean` called `rm -rf`,
+  causing Windows npm scripts to fail before runtime tests.
+- Fix: replaced both operations with Node scripts. Windows relies on npm's `.cmd`
+  bin shim; POSIX builds still set mode `0755`.
+- Evidence: clean/build, package smoke, and a regression contract test pass
+  locally.
+
+### FF-030 — Tests encoded Linux filesystem and command assumptions
+
+- Severity: medium
+- Status: fixed locally; cross-platform CI verifying
+- Symptom: process and LSP/setup tests hard-coded `/tmp`, `/bin/bash`, and `sleep`.
+- Fix: tests now use `tmpdir()`, the platform default shell, and Node-based delay
+  commands. The Godot process fixture uses `process.execPath`.
+- Evidence: full local suite passes 350/350 across 46 files.
+
 ### MCP-DX-006 — Compound shell and audit failures can surface generic text
 
 - Severity: medium
@@ -313,9 +348,9 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Typecheck: passed.
 - Lint (`tsc --noEmit`): passed.
 - Build: passed.
-- Final unit/integration suite: 342/342 passed across 44 test files.
+- Final local unit/integration suite: 350/350 passed across 46 test files.
 - Production and full dependency audits: 0 vulnerabilities.
-- `npm pack` produced a 93-file candidate tarball containing the license, README,
+- `npm pack` produced a 94-file candidate tarball containing the license, README,
   package metadata, and generated runtime; temporary installation passed CLI
   version/help, doctor, no-postinstall, and browser-setup dry-run checks and
   cleaned its artifacts.

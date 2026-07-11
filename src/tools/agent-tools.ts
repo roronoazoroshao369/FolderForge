@@ -10,6 +10,7 @@ import { detectCommands } from '../workspace/project-detector.js';
 import { defineTool } from './registry.js';
 import { simpleDiff } from './diff-util.js';
 import { parseErrors } from './error-parser.js';
+import { shellCommandArgs } from '../core/shell.js';
 import {
   CHANGE_SUMMARY_OUTPUT_SCHEMA,
   CODE_CONTEXT_OUTPUT_SCHEMA,
@@ -246,12 +247,16 @@ async function projectVerify(
     }
     await ctx.control?.reportProgress?.(index, checks.length, `Running ${check}: ${command}`);
     const started = Date.now();
-    const sub = await execa(ctx.config.terminal.shell, ['-lc', command], {
-      cwd: ctx.projectRoot,
-      timeout,
-      reject: false,
-      maxBuffer: maxOutput * 4,
-    });
+    const sub = await execa(
+      ctx.config.terminal.shell,
+      shellCommandArgs(ctx.config.terminal.shell, command),
+      {
+        cwd: ctx.projectRoot,
+        timeout,
+        reject: false,
+        maxBuffer: maxOutput * 4,
+      }
+    );
     const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, maxOutput));
     const stderr = ctx.container.policy.secret.redact((sub.stderr ?? '').slice(0, maxOutput));
     const success = sub.exitCode === 0;

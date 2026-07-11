@@ -37,12 +37,14 @@ checkpoints may exist on the stabilization branch.
 - **Apache-2.0 license artifact.** Added the license file required by package metadata and enforced its presence in the packed tarball.
 - **Read-only doctor command.** Added stable human/JSON installation, configuration, dependency, port, plugin, and state diagnostics with exit codes 0/1/2.
 - **Explicit browser setup.** Added `folderforge setup browser`, including `--with-deps`, machine-readable output, and a no-download `--dry-run` mode that resolves the installed package-local Playwright CLI.
+- **Cross-platform release matrix.** Added Ubuntu, macOS, and Windows CI coverage on Node 22 and Node 24, including tarball and authenticated HTTP smoke tests.
 
 ### Fixed
 
 - **Package-manager failure diagnostics.** Non-zero package/audit commands now keep exit code, stdout, and stderr while returning an actionable primary error.
 - **Release dependency findings.** Upgraded the Vitest/Vite test toolchain to remove the full-audit high/critical advisories.
 - **Install-time browser side effect.** Removed the automatic `postinstall` network download and mutable `npx --yes playwright` execution; browser setup is now explicit and package-local.
+- **Windows shell and package scripts.** Replaced POSIX-only `chmod`/`rm -rf` lifecycle commands and stopped passing `-lc` to `cmd.exe`; shell, managed-process, verification, and Godot launch paths now use platform-specific invocation and quoting.
 - **Release documentation drift.** Corrected approval persistence semantics, tool preset counts, and the explicit non-sandbox boundary of local plugins.
 
 - **Godot bridge addon shipped (`addons/folderforge_bridge/`, wiring point #8).**

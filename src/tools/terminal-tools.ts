@@ -2,6 +2,7 @@ import { execa } from 'execa';
 import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
 import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
+import { shellCommandArgs } from '../core/shell.js';
 
 export function terminalTools(): ToolDefinition[] {
   return [
@@ -34,13 +35,17 @@ export function terminalTools(): ToolDefinition[] {
 
         const started = Date.now();
         try {
-          const sub = await execa(ctx.config.terminal.shell, ['-lc', command], {
-            cwd,
-            timeout,
-            reject: false,
-            all: false,
-            maxBuffer: maxBytes * 4,
-          });
+          const sub = await execa(
+            ctx.config.terminal.shell,
+            shellCommandArgs(ctx.config.terminal.shell, command),
+            {
+              cwd,
+              timeout,
+              reject: false,
+              all: false,
+              maxBuffer: maxBytes * 4,
+            }
+          );
           const redact = (s: string) =>
             ctx.container.policy.secret.redact((s ?? '').slice(0, maxBytes));
           const data = {

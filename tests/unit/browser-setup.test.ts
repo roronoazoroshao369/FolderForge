@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { executeBrowserSetupCli, type BrowserSetupReport } from '../../src/setup/browser.js';
 
-const cliPath = '/opt/folderforge/node_modules/playwright/cli.js';
+const projectDir = join(tmpdir(), 'folderforge-browser-setup-project');
+const cliPath = join(projectDir, 'node_modules', 'playwright', 'cli.js');
 
 function parseReport(output: string): BrowserSetupReport {
   return JSON.parse(output) as BrowserSetupReport;
@@ -13,7 +16,7 @@ describe('folderforge setup browser', () => {
     const result = executeBrowserSetupCli(['browser', '--dry-run', '--json'], {
       resolvePlaywrightCli: () => cliPath,
       run,
-      cwd: '/tmp/project',
+      cwd: projectDir,
       env: { PATH: '/usr/bin' },
     });
     const report = parseReport(result.output);
@@ -52,7 +55,7 @@ describe('folderforge setup browser', () => {
     const result = executeBrowserSetupCli(['browser', '--json'], {
       resolvePlaywrightCli: () => cliPath,
       run,
-      cwd: '/tmp/project',
+      cwd: projectDir,
       env,
     });
     const report = parseReport(result.output);
@@ -62,7 +65,7 @@ describe('folderforge setup browser', () => {
     expect(run).toHaveBeenCalledWith(
       process.execPath,
       [cliPath, 'install', 'chromium'],
-      { cwd: '/tmp/project', env }
+      { cwd: projectDir, env }
     );
   });
 

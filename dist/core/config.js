@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, isAbsolute, dirname } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { logger } from './logger.js';
+import { defaultShell } from './shell.js';
 const DEFAULT_BLOCKED = [
     'rm -rf /',
     'sudo rm',
@@ -53,7 +54,7 @@ export function defaultConfig(projectRoot) {
             blockedCommands: [...DEFAULT_BLOCKED],
         },
         terminal: {
-            shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/bash',
+            shell: defaultShell(),
             defaultTimeoutMs: 120000,
             maxOutputBytes: 200000,
             envPolicy: 'redact',

@@ -5,7 +5,8 @@ locally and has not been published.
 
 ## Runtime requirements
 
-- Node.js 22 or newer is required.
+- Node.js 22 or newer is required. The release matrix covers Node 22 and Node 24
+  on Ubuntu, macOS, and Windows.
 - Rebuild or reinstall FolderForge after switching versions so the CLI and
   generated `dist/` match `package.json`.
 - Confirm with `folderforge --version` before starting an MCP client.
@@ -15,6 +16,9 @@ locally and has not been published.
   operating-system packages are also required.
 - Run `folderforge doctor` after migration. A missing Chromium runtime is a
   warning when Playwright is disabled and a failure when the adapter is enabled.
+- Windows shell execution now uses `cmd.exe /d /s /c` by default; PowerShell and
+  POSIX shells use their native command switches. Existing explicit
+  `terminal.shell` overrides remain supported.
 
 ## Configuration and state paths
 

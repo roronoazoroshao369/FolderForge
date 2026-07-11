@@ -1225,8 +1225,9 @@ describe('game tools integration (Godot Step 5c - project mgmt + CLI tier)', () 
 
   it('launches and stops a managed Godot process (PROC channel)', async () => {
     const { container, registry } = setup(ws, 'danger');
-    // Point the "godot" binary at a harmless long-runner so launch is observable.
-    container.config.adapters!.godot!.godotPath = 'sleep 30; echo';
+    // Use the current executable as a harmless cross-platform stand-in. It may
+    // reject Godot-specific flags, but process registration/streaming remains observable.
+    container.config.adapters!.godot!.godotPath = process.execPath;
     const launched = data<{ sessionId: string; mode: string }>(
       await registry.call('game_run_project', { projectPath: ws })
     );

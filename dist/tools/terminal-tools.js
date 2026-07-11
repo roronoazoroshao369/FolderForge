@@ -1,6 +1,7 @@
 import { execa } from 'execa';
 import { defineTool } from './registry.js';
 import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
+import { shellCommandArgs } from '../core/shell.js';
 export function terminalTools() {
     return [
         defineTool({
@@ -31,7 +32,7 @@ export function terminalTools() {
                 const maxBytes = ctx.config.terminal.maxOutputBytes;
                 const started = Date.now();
                 try {
-                    const sub = await execa(ctx.config.terminal.shell, ['-lc', command], {
+                    const sub = await execa(ctx.config.terminal.shell, shellCommandArgs(ctx.config.terminal.shell, command), {
                         cwd,
                         timeout,
                         reject: false,

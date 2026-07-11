@@ -21,9 +21,9 @@ That command runs, in order:
 6. Authenticated HTTP MCP smoke checks covering unauthorized rejection,
    `initialize`, `tools/list`, and `tools/call`.
 
-CI runs the same release gates on Ubuntu with Node 22. Cross-platform and
-multi-Node matrix coverage belongs to the compatibility milestone and must be
-added before a final 2.0 release.
+CI runs source, test, build, tarball, and authenticated HTTP smoke gates on
+Ubuntu, macOS, and Windows with Node 22 and Node 24. Dependency audits run once
+on Ubuntu/Node 22. See `compatibility.md` for the support contract.
 
 ## Release-candidate procedure
 
