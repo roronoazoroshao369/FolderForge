@@ -35,6 +35,16 @@ describe('package and CI compatibility contract', () => {
     expect(workflowText).toContain('npm run smoke:stdio');
   });
 
+  it('runs npm and the installed CLI through Node while still requiring the bin shim', () => {
+    const smoke = readFileSync(join(root, 'scripts', 'smoke-package.mjs'), 'utf8');
+    expect(smoke).toContain('process.env.npm_execpath');
+    expect(smoke).toContain('run(process.execPath, [npmExecPath, ...args]');
+    expect(smoke).toContain("join(installedRoot, 'dist', 'main.js')");
+    expect(smoke).toContain('existsSync(binShim)');
+    expect(smoke).toContain('run(process.execPath, [installedCli, ...args]');
+    expect(smoke).not.toContain('commandInvocation');
+  });
+
   it('tests both supported LTS lines on Linux, macOS, and Windows', () => {
     const workflow = parseYaml(readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')) as WorkflowMatrix;
     const matrix = workflow.jobs?.compatibility?.strategy?.matrix;

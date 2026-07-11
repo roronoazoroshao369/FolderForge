@@ -4,23 +4,21 @@ import { basename, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
-import { commandInvocation } from './command-invocation.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmExecPath = process.env.npm_execpath;
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const temp = mkdtempSync(join(tmpdir(), 'folderforge pack ünicode-'));
 let tarballPath;
 
 function run(command, args, options = {}) {
   const env = { ...process.env, ...options.env };
-  const invocation = commandInvocation(command, args, process.platform, env);
-  const result = spawnSync(invocation.command, invocation.args, {
+  const result = spawnSync(command, args, {
     cwd: options.cwd ?? root,
     env,
     encoding: 'utf8',
     stdio: options.capture === false ? 'inherit' : 'pipe',
-    ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
   if (result.status !== 0 || result.error !== undefined) {
     throw new Error(
@@ -29,6 +27,16 @@ function run(command, args, options = {}) {
     );
   }
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+function runNpm(args, options = {}) {
+  if (npmExecPath && existsSync(npmExecPath)) {
+    return run(process.execPath, [npmExecPath, ...args], options);
+  }
+  if (process.platform === 'win32') {
+    throw new Error('npm_execpath is required for Windows package smoke. Run via npm run smoke:package.');
+  }
+  return run(npm, args, options);
 }
 
 function freePort() {
@@ -48,7 +56,7 @@ function freePort() {
 }
 
 try {
-  const packed = run(npm, ['pack', '--json', '--ignore-scripts']);
+  const packed = runNpm(['pack', '--json', '--ignore-scripts']);
   const jsonStart = packed.stdout.indexOf('[');
   const jsonEnd = packed.stdout.lastIndexOf(']');
   if (jsonStart < 0 || jsonEnd < jsonStart) {
@@ -72,40 +80,46 @@ try {
     join(temp, 'package.json'),
     JSON.stringify({ name: 'folderforge-package-smoke', version: '0.0.0', private: true }, null, 2)
   );
-  run(
-    npm,
+  runNpm(
     ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarballPath],
     { cwd: temp }
   );
 
+  const installedRoot = join(temp, 'node_modules', '@musashishao', 'folderforge');
   const installedPackageJson = JSON.parse(
-    readFileSync(
-      join(temp, 'node_modules', '@musashishao', 'folderforge', 'package.json'),
-      'utf8'
-    )
+    readFileSync(join(installedRoot, 'package.json'), 'utf8')
   );
   if (installedPackageJson.scripts?.postinstall !== undefined) {
     throw new Error('Packed package still declares a postinstall lifecycle script.');
   }
 
-  const bin = join(
+  const binShim = join(
     temp,
     'node_modules',
     '.bin',
     process.platform === 'win32' ? 'folderforge.cmd' : 'folderforge'
   );
-  const version = run(bin, ['--version'], { cwd: temp }).stdout.trim();
+  if (!existsSync(binShim)) {
+    throw new Error(`npm did not create the expected FolderForge bin shim: ${binShim}`);
+  }
+  const installedCli = join(installedRoot, 'dist', 'main.js');
+  if (!existsSync(installedCli)) {
+    throw new Error(`Packed package is missing its installed CLI: ${installedCli}`);
+  }
+  const runCli = (args) => run(process.execPath, [installedCli, ...args], { cwd: temp });
+
+  const version = runCli(['--version']).stdout.trim();
   const expected = `folderforge ${packageJson.version}`;
   if (version !== expected) {
     throw new Error(`CLI version mismatch: expected "${expected}", got "${version}".`);
   }
 
-  const help = run(bin, ['--help'], { cwd: temp }).stdout;
+  const help = runCli(['--help']).stdout;
   for (const flag of ['doctor', 'setup browser', '--http', '--tools-preset', '--policy']) {
     if (!help.includes(flag)) throw new Error(`CLI help is missing ${flag}.`);
   }
 
-  const setupOutput = run(bin, ['setup', 'browser', '--dry-run', '--json'], { cwd: temp }).stdout;
+  const setupOutput = runCli(['setup', 'browser', '--dry-run', '--json']).stdout;
   const setup = JSON.parse(setupOutput);
   if (
     setup.schemaVersion !== 1 ||
@@ -133,7 +147,7 @@ try {
     join(temp, 'folderforge.yaml'),
     `server:\n  http:\n    host: 127.0.0.1\n    port: ${httpPort}\n  dashboard:\n    host: 127.0.0.1\n    port: ${dashboardPort}\n`
   );
-  const doctorOutput = run(bin, ['doctor', '--json', '--project', temp], { cwd: temp }).stdout;
+  const doctorOutput = runCli(['doctor', '--json', '--project', temp]).stdout;
   const doctor = JSON.parse(doctorOutput);
   if (doctor.schemaVersion !== 1 || doctor.exitCode !== 0 || !Array.isArray(doctor.findings)) {
     throw new Error(`Doctor smoke returned an invalid report: ${doctorOutput}`);

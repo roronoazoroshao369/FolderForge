@@ -67,12 +67,13 @@ been created.
   22/24 passed, while macOS and Windows on Node 22/24 failed during tests. The
   failures exposed macOS path aliasing plus Windows doctor, temp-path, shell,
   plugin-cleanup, and Git-timing assumptions.
-- Run `29160360527` proved the macOS fixes, run `29160716052` proved Windows
-  process-tree cleanup, and run `29161066159` passed Windows tests before exposing
-  direct `.cmd` execution in package smoke. The package-smoke fix routes npm and
-  installed CLI wrappers through `ComSpec` with verbatim argv.
+- Runs `29160360527` and `29160716052` proved the macOS and Windows runtime
+  fixes. Runs `29161066159` and `29161451454` then passed Windows tests but failed
+  package smoke on npm/CLI wrapper execution. The direct-Node fix invokes npm's
+  JavaScript CLI and the installed FolderForge `dist/main.js` through
+  `process.execPath` while still requiring npm to create the expected bin shim.
 - The corrected tree passes the complete local release gate: typecheck, lint,
-  371/371 tests across 47 files, build, both zero-vulnerability audits, 96-file
+  369/369 tests across 46 files, build, both zero-vulnerability audits, 96-file
   package smoke, stdio smoke, and authenticated HTTP smoke. A fresh six-entry
   Actions run remains the acceptance gate.
 
@@ -119,10 +120,11 @@ been created.
 
 ## Blocked (2.0 RC Milestone H — stable release verdict)
 
-- No `READY FOR 2.0 STABLE` verdict is issued until the package-smoke wrapper fix
-  passes all six GitHub Actions jobs. Run `29161066159` already proves tests on
-  both Windows Node lines; the corrected tree must now prove tarball pack/install,
-  CLI, doctor, stdio, and HTTP gates without regressing Ubuntu or macOS.
+- No `READY FOR 2.0 STABLE` verdict is issued until the direct-Node package-smoke
+  fix passes all six GitHub Actions jobs. Runs `29161066159` and `29161451454`
+  already prove tests on both Windows Node lines; the corrected tree must now
+  prove tarball pack/install, CLI, doctor, stdio, and HTTP gates without
+  regressing Ubuntu or macOS.
 - RC.2 registry publication and clean-install validation are complete.
 - A stable `2.0.0` version/tag and npm `latest` publish require observable CI
   success, a separate exact stable-version release gate, and an explicit final

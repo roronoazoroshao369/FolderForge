@@ -17,8 +17,9 @@ semantic versioning.
   argv escaping for shared cmd callers, and terminate complete managed/child
   process trees on Windows so descendants cannot outlive their shell or keep
   temporary/plugin directories locked.
-- Route Windows `.cmd`/`.bat` wrappers in package smoke through `ComSpec` with
-  verbatim argv, including npm and installed CLI shims in Unicode/space paths.
+- Run the npm CLI and installed FolderForge `dist/main.js` directly through Node
+  during package smoke while still requiring npm to create the expected bin shim;
+  this avoids Windows wrapper quoting without weakening artifact validation.
 - Use script-file execution for HTTP structured-error smoke and upgrade the CI
   checkout action to its Node 24-compatible release.
 
