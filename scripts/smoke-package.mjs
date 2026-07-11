@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:net';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -24,6 +25,22 @@ function run(command, args, options = {}) {
     );
   }
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+}
+
+function freePort() {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close();
+        reject(new Error('Could not allocate a temporary TCP port.'));
+        return;
+      }
+      server.close((error) => (error ? reject(error) : resolvePort(address.port)));
+    });
+  });
 }
 
 try {
@@ -70,8 +87,27 @@ try {
   }
 
   const help = run(bin, ['--help'], { cwd: temp }).stdout;
-  for (const flag of ['--http', '--tools-preset', '--policy']) {
+  for (const flag of ['doctor', '--http', '--tools-preset', '--policy']) {
     if (!help.includes(flag)) throw new Error(`CLI help is missing ${flag}.`);
+  }
+
+  const [httpPort, dashboardPort] = await Promise.all([freePort(), freePort()]);
+  writeFileSync(
+    join(temp, 'folderforge.yaml'),
+    `server:\n  http:\n    host: 127.0.0.1\n    port: ${httpPort}\n  dashboard:\n    host: 127.0.0.1\n    port: ${dashboardPort}\n`
+  );
+  const doctorOutput = run(bin, ['doctor', '--json', '--project', temp], { cwd: temp }).stdout;
+  const doctor = JSON.parse(doctorOutput);
+  if (doctor.schemaVersion !== 1 || doctor.exitCode !== 0 || !Array.isArray(doctor.findings)) {
+    throw new Error(`Doctor smoke returned an invalid report: ${doctorOutput}`);
+  }
+  for (const id of ['runtime.node', 'config.discovery', 'playwright.chromium', 'version.consistency']) {
+    if (!doctor.findings.some((finding) => finding.id === id)) {
+      throw new Error(`Doctor report is missing required finding: ${id}`);
+    }
+  }
+  if (existsSync(join(temp, '.folderforge'))) {
+    throw new Error('Doctor created .folderforge state during a read-only package smoke.');
   }
 
   console.log(

@@ -9,6 +9,7 @@ import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
 import { randomBytes } from 'node:crypto';
 import { readFolderForgeVersion } from './core/version.js';
+import { executeDoctorCli } from './doctor/index.js';
 
 const VERSION = readFolderForgeVersion();
 
@@ -134,7 +135,10 @@ function printHelp(): void {
     [
       'FolderForge - local development control plane for AI coding agents',
       '',
-      'Usage: folderforge [options]',
+      'Usage: folderforge [command] [options]',
+      '',
+      'Commands:',
+      '  doctor                 Run read-only installation and workspace diagnostics',
       '',
       'Options:',
       '  -p, --project <dir>      Project root to activate (default: cwd)',
@@ -161,7 +165,15 @@ function printHelp(): void {
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === 'doctor') {
+    const result = await executeDoctorCli(argv.slice(1));
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+
+  const args = parseArgs(argv);
 
   // First-run convenience: if the user did not point at an explicit --config and
   // the project has no config file yet, write a full batteries-included config
