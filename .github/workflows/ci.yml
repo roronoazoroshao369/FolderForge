@@ -55,6 +55,9 @@ jobs:
       - name: Pack, install tarball, and smoke CLI
         run: npm run smoke:package
 
+      - name: Smoke stdio MCP with spaces and Unicode
+        run: npm run smoke:stdio
+
       - name: Smoke authenticated HTTP MCP
         run: npm run smoke:http
 

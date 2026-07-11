@@ -8,7 +8,7 @@ import { createServer } from 'node:net';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-const temp = mkdtempSync(join(tmpdir(), 'folderforge-pack-smoke-'));
+const temp = mkdtempSync(join(tmpdir(), 'folderforge pack ünicode-'));
 let tarballPath;
 
 function run(command, args, options = {}) {
@@ -143,6 +143,10 @@ try {
     throw new Error('Doctor created .folderforge state during a read-only package smoke.');
   }
 
+  if (!temp.includes(' ') || !temp.includes('ü')) {
+    throw new Error(`Package smoke path did not preserve spaces and Unicode: ${temp}`);
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -151,6 +155,8 @@ try {
         version: packageJson.version,
         files: entry.files.length,
         installedTo: temp,
+        pathHasSpaces: temp.includes(' '),
+        pathHasUnicode: temp.includes('ü'),
       },
       null,
       2

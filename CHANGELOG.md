@@ -37,7 +37,8 @@ published to npm, or released as a hosted artifact.
 - **Apache-2.0 license artifact.** Added the license file required by package metadata and enforced its presence in the packed tarball.
 - **Read-only doctor command.** Added stable human/JSON installation, configuration, dependency, port, plugin, and state diagnostics with exit codes 0/1/2.
 - **Explicit browser setup.** Added `folderforge setup browser`, including `--with-deps`, machine-readable output, and a no-download `--dry-run` mode that resolves the installed package-local Playwright CLI.
-- **Cross-platform release matrix.** Added Ubuntu, macOS, and Windows CI coverage on Node 22 and Node 24, including tarball and authenticated HTTP smoke tests.
+- **Cross-platform release matrix.** Added Ubuntu, macOS, and Windows CI coverage on Node 22 and Node 24, including tarball, stdio MCP, and authenticated HTTP smoke tests.
+- **Path and degradation compatibility.** Added spaces/Unicode package and stdio paths, Windows junction escape coverage, process-stop wakeups, runtime permission diagnostics, and explicit missing-Chromium warn/fail contracts.
 
 ### Fixed
 

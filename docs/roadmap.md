@@ -57,7 +57,11 @@ release, or hosted release has been created.
   quoting.
 - Converted filesystem/process tests away from hard-coded `/tmp`, `/bin/bash`, and
   `sleep`.
-- Local verification: 350/350 tests across 46 files, build/clean, package smoke,
+- Added stdio MCP initialize/list/call smoke and tarball installation in paths with
+  spaces and Unicode.
+- Added deterministic coverage for Windows junction escapes, managed-process stop
+  wakeups, unusable/read-only runtime state, and Chromium-missing degradation.
+- Local verification: full source suite, build/clean, package smoke, stdio smoke,
   HTTP smoke, and both audits. Cross-platform CI evidence is pending.
 
 ## Done (0.1)

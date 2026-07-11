@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -129,6 +129,71 @@ describe('folderforge doctor', () => {
 
     expect(report.exitCode).toBe(1);
     expect(byId(report, 'state.audit')?.status).toBe('fail');
+  });
+
+
+  it('fails when the runtime state path exists as a file', async () => {
+    const root = tempProject();
+    writeFileSync(join(root, '.folderforge'), 'not a directory\n');
+
+    const report = await runDoctor({ projectRoot: root, portProbe: passingPortProbe });
+
+    expect(report.exitCode).toBe(1);
+    expect(byId(report, 'runtime.directories')).toMatchObject({
+      status: 'fail',
+      summary: 'Runtime state location is not writable.',
+    });
+    expect(byId(report, 'runtime.directories')?.evidence).toContain('not a directory');
+  });
+
+  it.skipIf(process.platform === 'win32')('reports permission denied for a read-only runtime directory', async () => {
+    const root = tempProject();
+    const stateRoot = join(root, '.folderforge');
+    mkdirSync(stateRoot, { recursive: true });
+    chmodSync(stateRoot, 0o555);
+    try {
+      const report = await runDoctor({ projectRoot: root, portProbe: passingPortProbe });
+      expect(report.exitCode).toBe(1);
+      expect(byId(report, 'runtime.directories')?.status).toBe('fail');
+    } finally {
+      chmodSync(stateRoot, 0o755);
+    }
+  });
+
+  it('warns for missing Chromium when Playwright is disabled', async () => {
+    const root = tempProject();
+    writeFileSync(join(root, 'folderforge.yaml'), 'adapters:\n  playwright:\n    enabled: false\n');
+
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      playwrightProbe: () => ({
+        packagePath: join(root, 'node_modules', 'playwright', 'index.js'),
+        executablePath: join(root, 'missing-browser', 'chromium'),
+        exists: false,
+      }),
+    });
+
+    expect(report.exitCode).toBe(0);
+    expect(byId(report, 'playwright.chromium')?.status).toBe('warn');
+  });
+
+  it('fails for missing Chromium when Playwright is enabled', async () => {
+    const root = tempProject();
+    writeFileSync(join(root, 'folderforge.yaml'), 'adapters:\n  playwright:\n    enabled: true\n');
+
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      playwrightProbe: () => ({
+        packagePath: join(root, 'node_modules', 'playwright', 'index.js'),
+        executablePath: join(root, 'missing-browser', 'chromium'),
+        exists: false,
+      }),
+    });
+
+    expect(report.exitCode).toBe(1);
+    expect(byId(report, 'playwright.chromium')?.status).toBe('fail');
   });
 
   it('emits stable JSON and exit 2 for invalid CLI arguments', async () => {

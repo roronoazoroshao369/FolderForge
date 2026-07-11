@@ -48,6 +48,7 @@ export interface DoctorOptions {
   now?: number;
   env?: NodeJS.ProcessEnv;
   portProbe?: (host: string, port: number) => Promise<{ ok: boolean; evidence: string }>;
+  playwrightProbe?: () => { packagePath: string; executablePath: string; exists: boolean };
 }
 
 export interface DoctorCliResult {
@@ -482,9 +483,13 @@ function checkWorkspaceAndGit(projectRoot: string, env: NodeJS.ProcessEnv, findi
 function checkWritableRuntime(projectRoot: string, findings: DoctorFinding[]): void {
   const stateRoot = join(projectRoot, '.folderforge');
   try {
-    const target = existsSync(stateRoot) ? stateRoot : projectRoot;
+    const stateExists = existsSync(stateRoot);
+    if (stateExists && !statSync(stateRoot).isDirectory()) {
+      throw new Error('runtime state path exists but is not a directory');
+    }
+    const target = stateExists ? stateRoot : projectRoot;
     accessSync(target, constants.W_OK);
-    if (existsSync(stateRoot) && lstatSync(stateRoot).isSymbolicLink()) {
+    if (stateExists && lstatSync(stateRoot).isSymbolicLink()) {
       findings.push(
         finding(
           'runtime.directories',
@@ -502,7 +507,7 @@ function checkWritableRuntime(projectRoot: string, findings: DoctorFinding[]): v
           'pass',
           'info',
           'Runtime state location is writable.',
-          existsSync(stateRoot) ? stateRoot : `${projectRoot} (state directory not created)`
+          stateExists ? stateRoot : `${projectRoot} (state directory not created)`
         )
       );
     }
@@ -680,21 +685,30 @@ function checkAdapters(config: FolderForgeConfig, env: NodeJS.ProcessEnv, findin
   }
 }
 
-function checkPlaywright(config: FolderForgeConfig, findings: DoctorFinding[]): void {
+function defaultPlaywrightProbe(): { packagePath: string; executablePath: string; exists: boolean } {
+  const packagePath = requireFromDoctor.resolve('playwright');
+  const playwright = requireFromDoctor('playwright') as { chromium?: { executablePath: () => string } };
+  const executablePath = playwright.chromium?.executablePath();
+  if (!executablePath) throw new Error('playwright.chromium.executablePath is unavailable');
+  return { packagePath, executablePath, exists: existsSync(executablePath) };
+}
+
+function checkPlaywright(
+  config: FolderForgeConfig,
+  findings: DoctorFinding[],
+  probe: () => { packagePath: string; executablePath: string; exists: boolean } = defaultPlaywrightProbe
+): void {
   const enabled = config.adapters.playwright?.enabled === true;
   try {
-    const playwrightPath = requireFromDoctor.resolve('playwright');
-    const playwright = requireFromDoctor('playwright') as { chromium?: { executablePath: () => string } };
-    const executable = playwright.chromium?.executablePath();
-    if (!executable) throw new Error('playwright.chromium.executablePath is unavailable');
-    if (existsSync(executable)) {
+    const result = probe();
+    if (result.exists) {
       findings.push(
         finding(
           'playwright.chromium',
           'pass',
           'info',
           'Playwright and Chromium are available.',
-          `package=${playwrightPath}; chromium=${executable}`
+          `package=${result.packagePath}; chromium=${result.executablePath}`
         )
       );
     } else {
@@ -704,7 +718,7 @@ function checkPlaywright(config: FolderForgeConfig, findings: DoctorFinding[]): 
           enabled ? 'fail' : 'warn',
           enabled ? 'error' : 'warning',
           'Playwright is installed but the Chromium executable is missing.',
-          executable,
+          result.executablePath,
           'Run folderforge setup browser explicitly when browser tools are needed.'
         )
       );
@@ -1016,7 +1030,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   checkWritableRuntime(projectRoot, findings);
   await checkPorts(configResult.config, options.portProbe ?? defaultPortProbe, findings);
   checkAdapters(configResult.config, env, findings);
-  checkPlaywright(configResult.config, findings);
+  checkPlaywright(configResult.config, findings, options.playwrightProbe);
   checkPlugins(projectRoot, env, findings);
   checkState(projectRoot, now, findings);
 

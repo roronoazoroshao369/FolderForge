@@ -53,6 +53,18 @@ describe('ProcessManager streaming (readUntil)', () => {
     expect(second.output).toBe('');
   });
 
+  it('wakes a long-poll when a managed process is stopped', async () => {
+    const pm = new ProcessManager();
+    const s = pm.start(keepAlive, CWD, SHELL);
+    const started = Date.now();
+    const pending = pm.readUntil(s.sessionId, 5000);
+    setTimeout(() => pm.stop(s.sessionId), 100);
+    const out = await pending;
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(out.status).toBe('killed');
+    expect(out.done).toBe(true);
+  });
+
   it('wakes immediately when the abort signal fires mid-wait (P6)', async () => {
     const pm = new ProcessManager();
     const s = pm.start(keepAlive, CWD, SHELL);

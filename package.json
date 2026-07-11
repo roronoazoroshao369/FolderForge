@@ -55,8 +55,9 @@
     "verify": "npm run typecheck && npm run lint && npm test && npm run build",
     "smoke:package": "node scripts/smoke-package.mjs",
     "smoke:http": "node scripts/smoke-http.mjs",
-    "release:check": "npm run verify && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:http",
-    "prepublishOnly": "npm run release:check"
+    "release:check": "npm run verify && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:stdio && npm run smoke:http",
+    "prepublishOnly": "npm run release:check",
+    "smoke:stdio": "node scripts/smoke-stdio.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

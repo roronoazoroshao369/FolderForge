@@ -18,7 +18,9 @@ That command runs, in order:
    `--version`/`--help` smoke checks. The package smoke also rejects any
    `postinstall` script, runs `doctor`, and verifies `setup browser --dry-run`
    resolves the installed package-local Playwright CLI without downloading.
-6. Authenticated HTTP MCP smoke checks covering unauthorized rejection,
+6. Stdio MCP smoke checks covering initialization, `tools/list`, and `file_read`
+   from a project path containing spaces and Unicode.
+7. Authenticated HTTP MCP smoke checks covering unauthorized rejection,
    `initialize`, `tools/list`, and `tools/call`.
 
 CI runs source, test, build, tarball, and authenticated HTTP smoke gates on

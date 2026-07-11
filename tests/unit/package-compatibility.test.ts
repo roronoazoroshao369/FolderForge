@@ -25,6 +25,16 @@ describe('package and CI compatibility contract', () => {
     expect(pkg.scripts.clean).not.toMatch(/\brm\s+-rf\b/);
   });
 
+  it('keeps stdio package smoke in release and compatibility gates', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    const workflowText = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
+    expect(pkg.scripts['smoke:stdio']).toBe('node scripts/smoke-stdio.mjs');
+    expect(pkg.scripts['release:check']).toContain('npm run smoke:stdio');
+    expect(workflowText).toContain('npm run smoke:stdio');
+  });
+
   it('tests both supported LTS lines on Linux, macOS, and Windows', () => {
     const workflow = parseYaml(readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')) as WorkflowMatrix;
     const matrix = workflow.jobs?.compatibility?.strategy?.matrix;

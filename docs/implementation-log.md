@@ -343,7 +343,34 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Symptom: process and LSP/setup tests hard-coded `/tmp`, `/bin/bash`, and `sleep`.
 - Fix: tests now use `tmpdir()`, the platform default shell, and Node-based delay
   commands. The Godot process fixture uses `process.execPath`.
-- Evidence: full local suite passes 350/350 across 46 files.
+- Evidence: full local suite passes 357/357 across 46 files.
+
+### FF-032 — Release gates did not exercise stdio MCP end to end
+
+- Severity: high
+- Status: fixed locally; cross-platform CI verifying
+- Symptom: package and HTTP smoke covered the distributable and network transport,
+  but no release gate initialized the server and called a tool over stdio.
+- Fix: added an SDK-based stdio smoke that verifies server version, `tools/list`,
+  and `file_read` in a project/config path containing spaces and Unicode.
+- Evidence: local smoke reports 42 readonly tools and a successful file read.
+
+### FF-033 — Runtime-state diagnostics accepted a file as `.folderforge`
+
+- Severity: medium
+- Status: fixed and regression-tested
+- Symptom: doctor checked write access but did not require `.folderforge` to be a
+  directory, so an unusable state path could be reported healthy.
+- Fix: doctor now fails when the state path is not a directory; deterministic
+  tests also cover POSIX permission denial and missing Chromium warn/fail behavior.
+
+### FF-034 — Compatibility tests missed junction and Unicode path behavior
+
+- Severity: high for Windows release confidence
+- Status: fixed locally; cross-platform CI verifying
+- Fix: package and stdio smoke use Unicode/space paths; PathPolicy tests use a
+  Windows junction (directory symlink elsewhere) and require escape rejection.
+  Managed-process tests verify stop wakes a long-poll without Unix-only commands.
 
 ### MCP-DX-006 — Compound shell and audit failures can surface generic text
 
@@ -362,12 +389,14 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Typecheck: passed.
 - Lint (`tsc --noEmit`): passed.
 - Build: passed.
-- Final local unit/integration suite: 350/350 passed across 46 test files.
+- Final local unit/integration suite: 357/357 passed across 46 test files.
 - Production and full dependency audits: 0 vulnerabilities.
-- `npm pack` produced a 94-file candidate tarball containing the license, README,
+- `npm pack` produced a 95-file candidate tarball containing the license, README,
   package metadata, and generated runtime; temporary installation passed CLI
   version/help, doctor, no-postinstall, and browser-setup dry-run checks and
   cleaned its artifacts.
+- Stdio MCP smoke passed initialize, `tools/list` with 42 readonly tools, and
+  `file_read` from a project/config path containing spaces and Unicode.
 - Authenticated HTTP MCP smoke passed unauthorized rejection, initialize,
   `tools/list` with the 50-tool `vibe-lite` invariant, and wire-level calls to
   `pkg_audit` plus `file_read`.

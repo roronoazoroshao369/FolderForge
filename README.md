@@ -169,9 +169,9 @@ tools; the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50,
   child facades, and dynamic plugin adapters.
 - **AI/browser runtime** - bounded code context, transactional edits,
   verification/report tools, and stable responsive browser wrappers.
-- **Release gates** - typecheck, lint, 350 unit/integration tests, build, both
-  dependency audits, `npm pack`, temporary tarball install, CLI smoke, and live
-  authenticated HTTP MCP initialize/list/call smoke.
+- **Release gates** - typecheck, lint, 357 unit/integration tests, build, both
+  dependency audits, `npm pack`, temporary tarball install, CLI/stdio smoke, and
+  live authenticated HTTP MCP initialize/list/call smoke.
 - **Trust boundary** - local plugin permission declarations are review/audit
   metadata, not an OS sandbox. Untrusted plugin distribution remains disabled by
   product policy until hard isolation and signed provenance exist.

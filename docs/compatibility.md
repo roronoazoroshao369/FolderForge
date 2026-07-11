@@ -17,11 +17,18 @@ Every matrix entry installs with lifecycle scripts disabled and runs:
 1. Typecheck and lint.
 2. Unit and integration tests.
 3. Production build.
-4. Packed-tarball install and CLI/doctor/browser-setup smoke.
-5. Authenticated HTTP MCP smoke.
+4. Packed-tarball install and CLI/doctor/browser-setup smoke in a path containing spaces and Unicode.
+5. Stdio MCP initialize, `tools/list`, and `file_read` smoke in a Unicode/space project path.
+6. Authenticated HTTP MCP initialize/list/call smoke.
 
 Dependency audits run once on Ubuntu with Node 22 to avoid duplicating the same
-registry query across all six jobs.
+registry query across all six jobs. The source suite also covers Windows junction
+escape rejection, portable process termination/wakeup, read-only runtime-state
+diagnostics, and missing-browser degradation with Playwright enabled and disabled.
+
+The matrix is implemented and pushed. Local Node 22 gates pass; conclusions for
+macOS, Windows, and Node 24 remain pending until the private Actions run is
+observable.
 
 ## Shell behavior
 

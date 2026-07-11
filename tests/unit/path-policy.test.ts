@@ -1,16 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { PathPolicy } from '../../src/policy/path-policy.js';
 import { PathEscapeError } from '../../src/core/errors.js';
 
 let root: string;
 
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), 'ff-path-'));
+  root = mkdtempSync(join(tmpdir(), 'ff path ünicode-'));
   mkdirSync(join(root, 'src'), { recursive: true });
   writeFileSync(join(root, 'src', 'index.ts'), 'export const x = 1;\n');
+  writeFileSync(join(root, 'src', 'space ünicode.ts'), 'export const ü = 1;\n');
   writeFileSync(join(root, '.env'), 'SECRET=1\n');
 });
 
@@ -35,12 +36,20 @@ describe('PathPolicy', () => {
 
   it('rejects traversal outside the allowed root', () => {
     const policy = new PathPolicy([root], denied);
-    expect(() => policy.resolveSafe('../../etc/passwd', root)).toThrow(PathEscapeError);
+    expect(() => policy.resolveSafe(join('..', '..', 'outside.txt'), root)).toThrow(PathEscapeError);
   });
 
   it('rejects absolute paths outside the allowed root', () => {
     const policy = new PathPolicy([root], denied);
-    expect(() => policy.resolveSafe('/etc/hosts', root)).toThrow(PathEscapeError);
+    const outside = resolve(dirname(root), 'outside.txt');
+    expect(() => policy.resolveSafe(outside, root)).toThrow(PathEscapeError);
+  });
+
+  it('preserves spaces and Unicode inside the workspace', () => {
+    const policy = new PathPolicy([root], denied);
+    expect(policy.resolveSafe(join('src', 'space ünicode.ts'), root)).toBe(
+      resolve(root, 'src', 'space ünicode.ts')
+    );
   });
 
   it('blocks denied globs (.env)', () => {
@@ -60,15 +69,16 @@ describe('PathPolicy', () => {
     expect(policy.isInsideAllowed(resolve(root, '..', 'outside.ts'))).toBe(false);
   });
 
-  it('rejects symlinks that escape the workspace boundary', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'ff-out-'));
+  it('rejects symlink or Windows junction escapes from the workspace boundary', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'ff outside ü-'));
     writeFileSync(join(outside, 'target.txt'), 'leak\n');
     const link = join(root, 'escape-link');
     try {
-      symlinkSync(join(outside, 'target.txt'), link);
+      symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
       const policy = new PathPolicy([root], denied);
-      expect(() => policy.resolveSafe('escape-link', root)).toThrow(PathEscapeError);
+      expect(() => policy.resolveSafe(join('escape-link', 'target.txt'), root)).toThrow(PathEscapeError);
     } finally {
+      rmSync(link, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
     }
   });
