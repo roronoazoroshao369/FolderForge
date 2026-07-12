@@ -25,6 +25,9 @@ published under npm `latest`, or released as a hosted artifact.
 - Run the npm CLI and installed FolderForge `dist/main.js` directly through Node
   during package smoke while still requiring npm to create the expected bin shim;
   this avoids Windows wrapper quoting without weakening artifact validation.
+- Replace fixed scheduler sleeps in process-stream exit tests with bounded
+  observation of the real managed-process exit event, eliminating a loaded-runner
+  race without changing runtime semantics.
 - Use script-file execution for HTTP structured-error smoke and upgrade the CI
   checkout action to its Node 24-compatible release.
 

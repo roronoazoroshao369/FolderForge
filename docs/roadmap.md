@@ -116,17 +116,19 @@ created yet.
   CLI/version/help, browser setup dry-run, doctor human/JSON, stdio MCP, and
   authenticated HTTP MCP success/error-evidence validation.
 
-## Done (2.0 RC Milestone H — READY FOR 2.0 STABLE)
+## In verification (2.0 RC Milestone H — exact stable commit)
 
 - The release-candidate registry validation and six-entry compatibility matrix are
   complete; GitHub Actions run `29161853457` passed 6/6 jobs.
-- Package and lock metadata target `2.0.0`. The exact stable-version
+- Package and lock metadata target `2.0.0`. The exact local stable-version
   `npm run release:check` passed 369/369 tests across 46 files, build, both
   zero-vulnerability audits, 96-file tarball installation, stdio MCP, and
   authenticated HTTP MCP success/error-evidence smoke.
-- Version, package-content, Git, and security reviews are clean. Verdict:
-  **READY FOR 2.0 STABLE**. Stable tag `v2.0.0` and npm `latest` publication are
-  the remaining release operations.
+- GitHub Actions run `29162281086` on the first exact stable commit exposed one
+  scheduler-dependent process-stream test on Ubuntu/Node 22. The test now waits
+  for the real exit event and passed 20/20 local stress runs. A fresh six-entry run
+  on this corrected exact stable commit remains required before restoring the
+  `READY FOR 2.0 STABLE` verdict and creating tag `v2.0.0`.
 
 ## Done (0.1)
 

@@ -12,12 +12,22 @@ const nodeCommand = (source: string): string =>
 const delayedLine = nodeCommand("setTimeout(()=>console.log('later-line'),150)");
 const keepAlive = nodeCommand('setTimeout(()=>{},5000)');
 
+async function waitForExit(pm: ProcessManager, sessionId: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const session = pm.list().find((item) => item.sessionId === sessionId);
+    if (session?.status !== 'running') return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Managed process did not exit within ${timeoutMs}ms: ${sessionId}`);
+}
+
 describe('ProcessManager streaming (readUntil)', () => {
   it('drains buffered output immediately', async () => {
     const pm = new ProcessManager();
     const s = pm.start('echo hello-stream', CWD, SHELL);
-    // Wait until exit so output is buffered.
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for the real exit event instead of assuming a fixed scheduler delay.
+    await waitForExit(pm, s.sessionId);
     const out = await pm.readUntil(s.sessionId, 1000);
     expect(out.output).toContain('hello-stream');
     expect(out.done).toBe(true);
@@ -49,7 +59,7 @@ describe('ProcessManager streaming (readUntil)', () => {
   it('reports done once exited and drained', async () => {
     const pm = new ProcessManager();
     const s = pm.start('echo a', CWD, SHELL);
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForExit(pm, s.sessionId);
     const first = await pm.readUntil(s.sessionId, 500);
     expect(first.output).toContain('a');
     const second = await pm.readUntil(s.sessionId, 200);
