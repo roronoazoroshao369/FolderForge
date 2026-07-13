@@ -497,11 +497,12 @@ using FolderForge itself to implement the AI/browser roadmap.
   - Self-hosting DX: non-zero shell evidence, nearest patch diagnostics, bounded
     disposable temp cleanup, and denial of non-prefixed temp deletion.
 
-Milestone checkpoints through the RC.2 compatibility verdict are complete.
-GitHub Actions run `29161853457` passed 6/6 compatibility jobs, and the corrected
-`2.0.0` working tree passes the complete local release gate. GitHub Actions run
-`29162281086` exposed a scheduler-dependent process-stream test on the first exact
-stable commit; the corrected test passed 20/20 local stress runs, but a fresh
-six-entry CI run on the corrected commit remains required before restoring the
-stable-readiness verdict. The stable tag, npm `latest` publication, hosted release,
-and post-publish registry validation remain unperformed.
+Milestone checkpoints through the stable-release verdict are complete. The exact
+`2.0.0` candidate passed the complete local release gate, and corrected commit
+`6cde6708201873647b8f682cd6918fa86e520f24` passed GitHub Actions runs
+`29215028974` and `29215294614` across all six Ubuntu/macOS/Windows × Node 22/24
+jobs. The obsolete fix/release branches were deleted locally and from `origin`,
+leaving only `main`. npm `latest` resolves to `2.0.0`; a clean registry install
+reported version `2.0.0`, no `postinstall`, a working CLI, and successful read-only
+`doctor --json` validation. The stable Git tag and hosted GitHub release remain to
+be created.

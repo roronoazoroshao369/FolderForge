@@ -116,19 +116,23 @@ created yet.
   CLI/version/help, browser setup dry-run, doctor human/JSON, stdio MCP, and
   authenticated HTTP MCP success/error-evidence validation.
 
-## In verification (2.0 RC Milestone H — exact stable commit)
+## Done (2.0 RC Milestone H — READY FOR 2.0 STABLE)
 
-- The release-candidate registry validation and six-entry compatibility matrix are
-  complete; GitHub Actions run `29161853457` passed 6/6 jobs.
-- Package and lock metadata target `2.0.0`. The exact local stable-version
+- Package and lock metadata target `2.0.0`. The exact stable-version
   `npm run release:check` passed 369/369 tests across 46 files, build, both
   zero-vulnerability audits, 96-file tarball installation, stdio MCP, and
   authenticated HTTP MCP success/error-evidence smoke.
 - GitHub Actions run `29162281086` on the first exact stable commit exposed one
-  scheduler-dependent process-stream test on Ubuntu/Node 22. The test now waits
-  for the real exit event and passed 20/20 local stress runs. A fresh six-entry run
-  on this corrected exact stable commit remains required before restoring the
-  `READY FOR 2.0 STABLE` verdict and creating tag `v2.0.0`.
+  scheduler-dependent process-stream test on Ubuntu/Node 22. The corrected test
+  waits for the real exit event and passed 20/20 local stress runs.
+- Corrected commit `6cde6708201873647b8f682cd6918fa86e520f24` passed GitHub
+  Actions runs `29215028974` and `29215294614`, each across all six
+  Ubuntu/macOS/Windows × Node 22/24 jobs. The obsolete fix/release branches were
+  removed locally and from `origin`, leaving `main` as the only branch.
+- npm `latest` resolves to `2.0.0`. A clean registry installation reported the
+  expected version, no `postinstall`, a working CLI, and successful read-only
+  `doctor --json` validation. Verdict: **2.0.0 STABLE PUBLISHED**. The stable Git
+  tag and hosted GitHub release remain explicit release operations.
 
 ## Done (0.1)
 
