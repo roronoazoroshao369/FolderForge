@@ -2,6 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { logger } from '../core/logger.js';
+export class ApprovalResolutionError extends Error {
+    code;
+    constructor(code, message) {
+        super(message);
+        this.code = code;
+        this.name = 'ApprovalResolutionError';
+    }
+}
 function canonical(value) {
     if (Array.isArray(value))
         return `[${value.map(canonical).join(',')}]`;
@@ -38,12 +46,11 @@ function boundedEvidence(value, depth = 0) {
     return value;
 }
 /**
- * Approval queue. The dashboard reads/resolves these.
+ * Approval queue. Only the admin control plane may resolve requests.
  *
- * Session-scoped approvals remember the tool name so repeated calls pass within
- * the same session. When constructed with a `persistPath`, every state change is
- * appended to an append-only JSONL log and replayed on startup so pending and
- * resolved approvals survive a restart.
+ * Every request is bound to its requester principal, exact canonical arguments,
+ * and an expiry. A session allowance is scoped to requester + tool; a once
+ * allowance is scoped to requester + tool + arguments and consumed exactly once.
  */
 export class ApprovalEngine {
     requests = new Map();
@@ -51,14 +58,19 @@ export class ApprovalEngine {
     persistPath;
     restoreSession;
     sanitizeArgs;
+    approvalTtlMs;
+    now;
     constructor(opts = {}) {
         this.persistPath = opts.persistPath;
         this.restoreSession = opts.restoreSession ?? false;
         this.sanitizeArgs = opts.sanitizeArgs ?? ((args) => JSON.parse(JSON.stringify(args)));
+        this.approvalTtlMs = opts.approvalTtlMs ?? 15 * 60 * 1000;
+        this.now = opts.now ?? Date.now;
         if (this.persistPath)
             this.load();
     }
-    create(tool, args, risk, reason) {
+    create(tool, args, risk, reason, requesterId = 'agent:unknown') {
+        const createdAt = this.now();
         const req = {
             id: `appr_${randomUUID().slice(0, 8)}`,
             tool,
@@ -67,21 +79,24 @@ export class ApprovalEngine {
             risk,
             reason,
             state: 'pending',
-            createdAt: Date.now(),
+            requesterId,
+            createdAt,
+            expiresAt: createdAt + this.approvalTtlMs,
             scope: 'once',
         };
         this.requests.set(req.id, req);
         this.append(req);
         return req;
     }
-    isSessionAllowed(tool) {
-        return this.sessionAllowed.has(tool);
+    isSessionAllowed(tool, requesterId = 'agent:unknown') {
+        return this.sessionAllowed.has(this.sessionKey(tool, requesterId));
     }
-    /** Consume one approved one-shot request matching the exact tool and args. */
-    consumeOnce(tool, args) {
+    /** Consume one approved request matching requester, exact tool, and exact args. */
+    consumeOnce(tool, args, requesterId = 'agent:unknown') {
         const requestedFingerprint = fingerprint(args);
         const match = [...this.requests.values()]
-            .filter((request) => request.tool === tool &&
+            .filter((request) => request.requesterId === requesterId &&
+            request.tool === tool &&
             request.state === 'approved' &&
             request.scope === 'once' &&
             request.consumedAt === undefined &&
@@ -89,44 +104,67 @@ export class ApprovalEngine {
             .sort((a, b) => a.createdAt - b.createdAt)[0];
         if (!match)
             return false;
-        match.consumedAt = Date.now();
+        match.consumedAt = this.now();
         this.append(match);
         return true;
     }
-    approve(id, scope = 'once') {
+    approve(id, scope = 'once', approverId = 'admin:unknown') {
         const req = this.requests.get(id);
-        if (!req || req.state !== 'pending')
+        if (!req)
+            return undefined;
+        this.expireIfNeeded(req);
+        if (req.state === 'expired') {
+            throw new ApprovalResolutionError('expired', `Approval ${id} expired at ${new Date(req.expiresAt).toISOString()}.`);
+        }
+        if (req.state !== 'pending')
             return req;
+        if (req.requesterId === approverId) {
+            throw new ApprovalResolutionError('self_approval', `Principal ${approverId} cannot approve its own request ${id}.`);
+        }
         req.state = 'approved';
         req.scope = scope;
-        req.resolvedAt = Date.now();
-        if (scope === 'session')
-            this.sessionAllowed.add(req.tool);
+        req.approverId = approverId;
+        req.resolvedAt = this.now();
+        if (scope === 'session') {
+            this.sessionAllowed.add(this.sessionKey(req.tool, req.requesterId));
+        }
         this.append(req);
         return req;
     }
-    deny(id) {
+    deny(id, approverId = 'admin:unknown') {
         const req = this.requests.get(id);
-        if (!req || req.state !== 'pending')
+        if (!req)
+            return undefined;
+        this.expireIfNeeded(req);
+        if (req.state === 'expired') {
+            throw new ApprovalResolutionError('expired', `Approval ${id} expired at ${new Date(req.expiresAt).toISOString()}.`);
+        }
+        if (req.state !== 'pending')
             return req;
         req.state = 'denied';
-        req.resolvedAt = Date.now();
+        req.approverId = approverId;
+        req.resolvedAt = this.now();
         this.append(req);
         return req;
     }
     get(id) {
-        return this.requests.get(id);
+        const req = this.requests.get(id);
+        if (req)
+            this.expireIfNeeded(req);
+        return req;
     }
     pending() {
+        this.expirePending();
         return [...this.requests.values()].filter((r) => r.state === 'pending');
     }
     all() {
+        this.expirePending();
         return [...this.requests.values()].sort((a, b) => b.createdAt - a.createdAt);
     }
     /**
      * Replay the persisted JSONL log. Each line is the latest snapshot of one
-     * request keyed by id, so later lines overwrite earlier ones. After loading
-     * we compact the file to one line per request to keep it from growing forever.
+     * request keyed by id, so later lines overwrite earlier ones. Legacy records
+     * receive a conservative requester id and expiry before atomic compaction.
      */
     load() {
         const path = this.persistPath;
@@ -148,10 +186,10 @@ export class ApprovalEngine {
             try {
                 const req = JSON.parse(trimmed);
                 if (req && typeof req.id === 'string' && req.args && typeof req.args === 'object') {
-                    // Migrate legacy records without retaining raw arguments: fingerprint
-                    // first, then sanitize before the next atomic compaction.
                     req.argsFingerprint ??= fingerprint(req.args);
                     req.args = this.sanitizeArgs(boundedEvidence(req.args));
+                    req.requesterId ??= 'legacy:unknown';
+                    req.expiresAt ??= req.createdAt + this.approvalTtlMs;
                     this.requests.set(req.id, req);
                     loaded++;
                 }
@@ -160,15 +198,31 @@ export class ApprovalEngine {
                 // Skip corrupt lines rather than failing startup.
             }
         }
+        this.expirePending(false);
         if (this.restoreSession) {
             for (const req of this.requests.values()) {
                 if (req.state === 'approved' && req.scope === 'session') {
-                    this.sessionAllowed.add(req.tool);
+                    this.sessionAllowed.add(this.sessionKey(req.tool, req.requesterId));
                 }
             }
         }
         logger.info({ path, loaded }, 'Loaded persisted approvals');
         this.compact();
+    }
+    expirePending(append = true) {
+        for (const req of this.requests.values())
+            this.expireIfNeeded(req, append);
+    }
+    expireIfNeeded(req, append = true) {
+        if (req.state !== 'pending' || this.now() < req.expiresAt)
+            return;
+        req.state = 'expired';
+        req.resolvedAt = this.now();
+        if (append)
+            this.append(req);
+    }
+    sessionKey(tool, requesterId) {
+        return `${requesterId}\u0000${tool}`;
     }
     /** Append the current snapshot of one request to the JSONL log. */
     append(req) {

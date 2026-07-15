@@ -6,6 +6,64 @@ export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export type PolicyMode = 'readonly' | 'safe' | 'dev' | 'danger';
 
+export type ToolAudience = 'agent' | 'admin';
+
+export type HttpAuthMode = 'none' | 'token' | 'oauth';
+export type OAuthClientRegistrationStrategy = 'cimd' | 'dcr' | 'predefined';
+
+export interface OAuthHttpAuthConfig {
+  /** Canonical public MCP resource URI, normally the public `/mcp` URL. */
+  resource: string;
+  /** Trusted external authorization-server issuer. */
+  issuer: string;
+  /** Minimal scopes advertised by protected-resource metadata. */
+  scopes: string[];
+  /** Scope required to list/call non-mutating tools. */
+  readScope: string;
+  /** Additional scope required before any mutating tool executes. */
+  writeScope: string;
+  /** ChatGPT client identification strategy expected from the external IdP. */
+  clientRegistration: OAuthClientRegistrationStrategy;
+  /** Optional trusted JWKS URI override. */
+  jwksUri?: string;
+  /** Additional exact JWKS host[:port] values trusted for cross-origin discovery. */
+  trustedJwksHosts?: string[];
+  /** Asymmetric JWT algorithms accepted by the resource server. */
+  algorithms?: string[];
+  /** Allowed JWT clock skew in seconds. */
+  clockToleranceSeconds?: number;
+  /** Discovery/JWKS request timeout in milliseconds. */
+  requestTimeoutMs?: number;
+  /** Remote JWKS cache lifetime in milliseconds. */
+  jwksCacheTtlMs?: number;
+  /** Minimum delay before retrying JWKS after an unknown key id. */
+  jwksCooldownMs?: number;
+  /**
+   * Development-only escape hatch. HTTP is accepted only when both issuer and
+   * resource are loopback URLs. Production OAuth always requires HTTPS.
+   */
+  allowInsecureHttpForDevelopment?: boolean;
+  /** Optional public documentation URL included in RFC 9728 metadata. */
+  resourceDocumentation?: string;
+}
+
+export interface HttpAuthConfig {
+  mode: HttpAuthMode;
+  oauth?: OAuthHttpAuthConfig;
+}
+
+export interface ToolPrincipal {
+  id: string;
+  role: 'agent' | 'admin' | 'system';
+  authMode?: HttpAuthMode | 'stdio';
+  /** OAuth scopes only; static token principals intentionally remain unscoped. */
+  scopes?: string[];
+  /** Challenge context used for tool-level OAuth step-up responses. */
+  resourceMetadataUrl?: string;
+  readScope?: string;
+  writeScope?: string;
+}
+
 export interface ServerConfig {
   name: string;
   transport: 'stdio' | 'http';
@@ -39,6 +97,8 @@ export interface ServerConfig {
     corsOrigins?: string[];
     /** Idle session lifetime in ms before an HTTP MCP session is expired. */
     sessionTtlMs?: number;
+    /** Explicit HTTP authentication mode. Omit to preserve legacy auto behaviour. */
+    auth?: HttpAuthConfig;
   };
   dashboard: {
     host: string;
@@ -62,6 +122,8 @@ export interface PolicyConfig {
   defaultMode: PolicyMode;
   requireApproval: string[];
   blockedCommands: string[];
+  /** Lifetime of a pending approval before it expires. */
+  approvalTtlMs: number;
 }
 
 export interface TerminalConfig {
@@ -227,6 +289,8 @@ export interface ToolDefinition {
   annotations?: ToolAnnotations;
   risk: RiskLevel;
   group: string;
+  /** Which control plane may invoke the tool. Defaults to agent. */
+  audience: ToolAudience;
   /** Whether the tool mutates state; used by readonly mode. */
   mutates: boolean;
   handler: ToolHandler;
@@ -267,6 +331,8 @@ export interface ElicitResult {
  *                     advertised the `elicitation` capability).
  */
 export interface ToolCallControl {
+  /** Authenticated caller identity supplied by the transport/admin plane. */
+  principal?: ToolPrincipal;
   /** Abort signal that fires when the client cancels this tool call. */
   signal?: AbortSignal;
   /** Emit an incremental progress notification for this call. */

@@ -4,11 +4,29 @@ Release history and production-readiness roadmap for FolderForge.
 
 ## Current stable track
 
-The `2.0.0` stable candidate is prepared from the published and registry-validated
-`2.0.0-rc.2` line. GitHub Actions run `29161853457` passed the complete
-Ubuntu/macOS/Windows × Node 22/24 matrix. Version and lock metadata now target
-`2.0.0`; no stable tag, npm `latest` promotion, or hosted release has been
-created yet.
+npm `latest` resolves to stable `2.0.0`, published on 2026-07-12 after the
+validated RC.2 line, complete local release gate, and Ubuntu/macOS/Windows ×
+Node 22/24 GitHub Actions matrix passed. Stable tagging and a hosted GitHub release
+remain separate operator-controlled actions.
+
+## Prepared (2.1.0 — OAuth and authorization boundary)
+
+- Package and lock metadata target `2.1.0`; the release is merged locally to
+  `main` and intentionally remains unpublished for the operator to publish.
+- Agent-facing MCP `tools/list` and `tools/call` exclude approval resolution and
+  runtime policy mutation tools while the internal frozen registry remains intact.
+- Approval requests carry requester/approver identity and expiry; self-approval,
+  expired approval, cross-principal allowance reuse, and wrong-argument replay are
+  rejected. Dashboard endpoints remain the admin plane.
+- HTTP MCP now supports explicit `none`, static `token`, and external-AS `oauth`
+  modes. OAuth includes RFC 9728 discovery/challenges, authorization-server
+  discovery, PKCE S256 capability validation, asymmetric JWT/JWKS verification,
+  exact audience binding, per-tool read/write scopes, and ChatGPT security schemes.
+- The complete local gate passes 385 tests across 49 files, zero-vulnerability
+  production/full audits, build, package installation/startup in OAuth mode,
+  stdio smoke, authenticated HTTP smoke, and npm publication dry-run.
+- Live ChatGPT acceptance remains an external deployment gate requiring public
+  HTTPS, an IdP tenant, and the operator's ChatGPT Developer Mode session.
 
 ## Done (2.0 RC Milestone B — doctor and preflight diagnostics)
 
@@ -504,3 +522,19 @@ Verification: `npm run typecheck && npm test && npm run build` all green
 escape guard, file/dir copy) and `tests/integration/git-ops.test.ts` (stash
 push/list/pop, fetch+pull against a bare remote, pull cancellation on declined
 elicitation).
+
+## OAuth resource-server milestone (2026-07-15)
+
+- [x] Explicit `none`, `token`, and `oauth` HTTP modes with CLI/env/YAML validation.
+- [x] External authorization-server discovery and PKCE S256/client-strategy checks.
+- [x] RFC 9728 path/root metadata and RFC 6750 discovery/scope challenges.
+- [x] JWT/JWKS signature, issuer, resource audience, time, algorithm, and scope validation.
+- [x] Per-tool read/write security schemes and pre-execution scope enforcement.
+- [x] Agent/admin boundary and API-key fallback regression coverage.
+- [x] Deterministic protocol, adversarial, JWKS rotation, and packed-package smoke.
+- [ ] Live ChatGPT Developer Mode acceptance against an operator-owned public HTTPS domain and IdP tenant (external gate; checklist in `docs/oauth.md`).
+
+Possible future adapters, not required for the initial resource-server milestone:
+opaque-token introspection with authenticated calls and fail-closed caching, and
+IdP-specific configuration recipes maintained independently of core protocol
+logic.

@@ -6,7 +6,7 @@ decides.
 
 ## Policy modes
 
-Set via `policy.defaultMode` or the `policy_set_mode` tool.
+Set at startup via `policy.defaultMode` or changed at runtime through the dashboard admin endpoint `POST /policy/mode`. The frozen `policy_set_mode` definition is admin-only and is not exposed to agent MCP clients.
 
 | Mode | Mutations | HIGH risk | CRITICAL |
 | --- | --- | --- | --- |
@@ -61,64 +61,69 @@ Anthropic, AWS, GitHub, Google, Slack tokens, private-key blocks, generic
 
 ## Approvals
 
-HIGH/CRITICAL (and any tool in `policy.requireApproval`) create a pending
-`ApprovalRequest` (`src/policy/approvals.ts`). Resolve them in the dashboard
-(`POST /approvals/:id/approve|deny`) or via approval tools.
+HIGH/CRITICAL actions (and tools listed in `policy.requireApproval`) create a
+pending `ApprovalRequest` (`src/policy/approvals.ts`). Agent-facing MCP clients
+may create and inspect requests but cannot approve, deny, or elevate policy.
+Resolution is restricted to the dashboard admin endpoints
+`POST /approvals/:id/approve|deny`.
+
+Every request records a requester principal and `expiresAt`; the default lifetime
+is `policy.approvalTtlMs = 900000` (15 minutes). The requester cannot approve its
+own request, even if the same credential is presented through another plane.
+A distinct admin principal is recorded as `approverId` when resolving it.
 
 Approvals are **persisted across restarts** in
 `<project>/.folderforge/approvals.jsonl` (or the explicit
-`FOLDERFORGE_APPROVALS_PATH` override). Pending and resolved requests survive a
-restart so the dashboard history stays intact. An approved `once` request is
-matched against the exact tool plus canonical arguments, consumed by one retry,
-and cannot be replayed. Exact matching uses a SHA-256 fingerprint of the
-canonical unredacted arguments; the JSONL record retains only recursively
-redacted argument evidence and is written mode `0600`. The fingerprint is an
-equality/integrity aid, not encryption or proof of origin. A `session` approval
-allows the tool for the current process only; it is not re-armed after restart.
-Audit summaries and interactive elicitation prompts use the same key-aware, regex,
-and entropy-based redaction path.
+`FOLDERFORGE_APPROVALS_PATH` override). A `once` approval matches requester,
+exact tool, and canonical arguments, is consumed by one retry, and cannot be
+replayed or used by another principal. Exact matching uses a SHA-256 fingerprint
+of the canonical unredacted arguments; persisted records retain only recursively
+redacted argument evidence and are written mode `0600`. A `session` approval is
+scoped to requester + tool for the current process and is not re-armed after
+restart. Audit summaries use the same key-aware, regex, and entropy-based
+redaction path.
 
-## MCP HTTP auth
+## MCP HTTP authentication
 
-The MCP HTTP transport (`src/server/transports/http.ts`) is credential-gated
-the same way the dashboard is. **When a credential is configured, every request
-to the MCP endpoint must present a matching one, or it gets a `401`.**
+`server.http.auth.mode` supports `none`, `token`, and `oauth`.
 
-Auth is enforced when **any** of these holds:
+- `none` is accepted only on loopback.
+- `token` accepts explicitly configured static credentials through
+  `Authorization: Bearer` or `X-API-Key`; comparisons are constant-time.
+- `oauth` accepts only a Bearer JWT from the configured external authorization
+  server. Static token/API-key configuration is rejected rather than used as a
+  fallback.
 
-- `server.http.token` or `server.http.apiKeys` is set;
-- the bind host is non-loopback (a credential becomes mandatory; if none is set
-  one is generated and logged once);
-- `server.http.requireAuth: true` (or the `--require-auth` flag) - forces auth
-  even on loopback.
+OAuth mode is a resource-server implementation, not a bundled identity
+provider. Startup discovers the explicitly configured issuer, requires PKCE
+`S256` support and the selected CIMD/DCR/predefined client strategy, validates
+endpoint schemes, and constrains discovered JWKS to the issuer host or an
+explicit trust configuration. Production issuer/resource/JWKS URLs require
+HTTPS. The unsafe HTTP escape hatch permits loopback URLs only.
 
-If auth is required but no credential resolves, **startup throws** rather than
-running open.
+Every OAuth request verifies signature, allowed asymmetric algorithm, exact
+issuer, exact resource audience, `exp`, `nbf`, access-token JWT type when present,
+and scopes. Missing/invalid tokens
+return `401` with RFC 9728 `resource_metadata`; insufficient transport scope
+returns `403` with `error="insufficient_scope"`, the required scope, and the
+same metadata URL. Tool-level step-up errors include
+`_meta["mcp/www_authenticate"]` for ChatGPT.
 
-Accepted credentials and how clients send them:
+Read-only tools require `folderforge:read`; mutating tools require both
+`folderforge:read` and `folderforge:write`. Enforcement occurs before the tool
+registry invokes the handler and is repeated inside the registry as defense in
+depth. OAuth principals always have role `agent`. They cannot advertise or call
+admin-only tools, approve their own requests, change policy mode, or inherit
+dashboard authority.
 
-- The primary `server.http.token` plus every entry in `server.http.apiKeys`.
-- A client may present any of them via **`Authorization: Bearer <cred>`** or
-  **`X-API-Key: <cred>`**.
-- Comparison is constant-time (`matchesAnyCredential` walks the whole list so
-  timing never reveals which credential matched).
-- Missing/invalid -> `401` with `WWW-Authenticate: Bearer realm="folderforge-mcp"`.
+FolderForge does not log or persist access/refresh tokens, authorization codes,
+client secrets, private keys, PKCE verifiers, or cookies. OAuth request failures
+return generic messages so crypto/discovery internals are not reflected to the
+client. Issuer/resource URLs may appear in startup logs because they are public
+metadata, not credentials.
 
-Config and CLI:
-
-```yaml
-server:
-  http:
-    token: "primary-admin-token"
-    apiKeys: ["client-a-key", "client-b-key"]
-    requireAuth: true
-```
-
-```bash
-folderforge --http --host 0.0.0.0 --token <secret> --api-key k1,k2 --require-auth
-```
-
-See the README "Authentication" section for end-to-end run + `curl` examples.
+See `docs/oauth.md` and `docs/adr-0004-oauth-resource-server.md` for deployment,
+threat-model, and ChatGPT setup details.
 
 ## Dashboard auth
 
@@ -126,8 +131,8 @@ The dashboard (`src/dashboard/server.ts`) is unauthenticated when bound to a
 loopback host (`127.0.0.1`, `::1`, `localhost`), since that is same-machine
 only. When bound to any **non-loopback** address it **requires a bearer token**:
 
-- Set it explicitly via `server.dashboard.token`, or
-- leave it unset and FolderForge generates one at startup and logs it once.
+- Set it explicitly via `server.dashboard.token`.
+- Startup fails on a non-loopback dashboard bind when the token is absent; no credential is generated or printed.
 
 Clients authenticate with `Authorization: Bearer <token>` or a `?token=<token>`
 query parameter; the comparison is constant-time. Missing/invalid tokens get a

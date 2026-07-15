@@ -1,9 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -11,9 +13,53 @@ const npmExecPath = process.env.npm_execpath;
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const temp = mkdtempSync(join(tmpdir(), 'folderforge pack ünicode-'));
 let tarballPath;
+let oauthChild;
+let oauthAuthorizationServer;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForHealth(url, child, getLogs) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`Packed OAuth CLI exited early:
+${getLogs()}`);
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {
+      // retry
+    }
+    await sleep(100);
+  }
+  throw new Error(`Packed OAuth CLI did not become healthy:
+${getLogs()}`);
+}
+
+async function stopChild(child) {
+  if (!child || child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  const exited = await Promise.race([
+    new Promise((resolve) => child.once('exit', () => resolve(true))),
+    sleep(3000).then(() => false),
+  ]);
+  if (!exited && child.exitCode === null) child.kill('SIGKILL');
+}
+
+function parseRpcResponse(text, contentType) {
+  if (contentType.includes('text/event-stream')) {
+    const data = text.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).filter(Boolean);
+    if (!data.length) throw new Error(`Empty packed OAuth MCP response: ${text}`);
+    return JSON.parse(data.at(-1));
+  }
+  return JSON.parse(text);
+}
 
 function run(command, args, options = {}) {
   const env = { ...process.env, ...options.env };
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) delete env[name];
+  }
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? root,
     env,
@@ -30,13 +76,21 @@ function run(command, args, options = {}) {
 }
 
 function runNpm(args, options = {}) {
+  const sanitizedOptions = {
+    ...options,
+    env: {
+      ...options.env,
+      npm_config_dry_run: undefined,
+      NPM_CONFIG_DRY_RUN: undefined,
+    },
+  };
   if (npmExecPath && existsSync(npmExecPath)) {
-    return run(process.execPath, [npmExecPath, ...args], options);
+    return run(process.execPath, [npmExecPath, ...args], sanitizedOptions);
   }
   if (process.platform === 'win32') {
     throw new Error('npm_execpath is required for Windows package smoke. Run via npm run smoke:package.');
   }
-  return run(npm, args, options);
+  return run(npm, args, sanitizedOptions);
 }
 
 function freePort() {
@@ -70,7 +124,15 @@ try {
 
   tarballPath = join(root, entry.filename);
   const packagedFiles = new Set(entry.files.map((file) => file.path));
-  for (const required of ['package.json', 'README.md', 'LICENSE', 'dist/main.js']) {
+  for (const required of [
+    'package.json',
+    'README.md',
+    'LICENSE',
+    'dist/main.js',
+    'dist/server/auth/oauth.js',
+    'docs/oauth.md',
+    'docs/adr-0004-oauth-resource-server.md',
+  ]) {
     if (!packagedFiles.has(required)) {
       throw new Error(`Packed tarball is missing required file: ${required}`);
     }
@@ -115,7 +177,18 @@ try {
   }
 
   const help = runCli(['--help']).stdout;
-  for (const flag of ['doctor', 'setup browser', '--http', '--tools-preset', '--policy']) {
+  for (const flag of [
+    'doctor',
+    'setup browser',
+    '--http',
+    '--tools-preset',
+    '--policy',
+    '--auth <mode>',
+    '--oauth-resource',
+    '--oauth-issuer',
+    '--oauth-resource-documentation',
+    '--unsafe-oauth-http',
+  ]) {
     if (!help.includes(flag)) throw new Error(`CLI help is missing ${flag}.`);
   }
 
@@ -165,6 +238,109 @@ try {
     throw new Error(`Package smoke path did not preserve spaces and Unicode: ${temp}`);
   }
 
+  // Start the CLI from the installed tarball in OAuth mode against a deterministic local AS.
+  const { privateKey, publicKey } = await generateKeyPair('RS256', { extractable: true });
+  const publicJwk = { ...(await exportJWK(publicKey)), kid: 'packed-key-1', alg: 'RS256', use: 'sig' };
+  const [issuerPort, oauthMcpPort] = await Promise.all([freePort(), freePort()]);
+  const issuer = `http://127.0.0.1:${issuerPort}`;
+  const oauthBase = `http://127.0.0.1:${oauthMcpPort}`;
+  const resource = `${oauthBase}/mcp`;
+  oauthAuthorizationServer = createHttpServer((req, res) => {
+    const path = new URL(req.url ?? '/', issuer).pathname;
+    if (path === '/.well-known/oauth-authorization-server') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/token`,
+        jwks_uri: `${issuer}/jwks`,
+        response_types_supported: ['code'],
+        grant_types_supported: ['authorization_code'],
+        code_challenge_methods_supported: ['S256'],
+        client_id_metadata_document_supported: true,
+        token_endpoint_auth_methods_supported: ['none'],
+      }));
+      return;
+    }
+    if (path === '/jwks') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ keys: [publicJwk] }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((resolve) => oauthAuthorizationServer.listen(issuerPort, '127.0.0.1', resolve));
+
+  let oauthLogs = '';
+  oauthChild = spawn(process.execPath, [
+    installedCli,
+    '--project', temp,
+    '--http',
+    '--host', '127.0.0.1',
+    '--port', String(oauthMcpPort),
+    '--no-dashboard',
+    '--tools-preset', 'readonly',
+    '--auth', 'oauth',
+    '--oauth-resource', resource,
+    '--oauth-issuer', issuer,
+    '--oauth-scopes', 'folderforge:read,folderforge:write',
+    '--oauth-client-registration', 'cimd',
+    '--oauth-algorithms', 'RS256',
+    '--oauth-resource-documentation', `${oauthBase}/oauth-docs`,
+    '--unsafe-oauth-http',
+  ], { cwd: temp, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const collectOauthLog = (chunk) => { oauthLogs = `${oauthLogs}${chunk.toString()}`.slice(-65536); };
+  oauthChild.stdout.on('data', collectOauthLog);
+  oauthChild.stderr.on('data', collectOauthLog);
+  await waitForHealth(`${oauthBase}/healthz`, oauthChild, () => oauthLogs);
+
+  const challenge = await fetch(`${resource}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  if (challenge.status !== 401 || !challenge.headers.get('www-authenticate')?.includes('resource_metadata=')) {
+    throw new Error(`Packed OAuth CLI did not return the RFC 9728 challenge: ${challenge.status}`);
+  }
+  const metadata = await fetch(`${oauthBase}/.well-known/oauth-protected-resource/mcp`);
+  const metadataBody = await metadata.json();
+  if (
+    metadata.status !== 200 ||
+    metadataBody.resource !== resource ||
+    metadataBody.resource_documentation !== `${oauthBase}/oauth-docs`
+  ) {
+    throw new Error(`Packed OAuth metadata mismatch: ${JSON.stringify(metadataBody)}`);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const accessToken = await new SignJWT({ scope: 'folderforge:read', client_id: 'packed-chatgpt' })
+    .setProtectedHeader({ alg: 'RS256', kid: 'packed-key-1', typ: 'at+jwt' })
+    .setIssuer(issuer)
+    .setAudience(resource)
+    .setSubject('packed-user')
+    .setIssuedAt(now)
+    .setExpirationTime(now + 300)
+    .sign(privateKey);
+  const listResponse = await fetch(resource, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json, text/event-stream',
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+  });
+  const listText = await listResponse.text();
+  const listMessage = parseRpcResponse(listText, listResponse.headers.get('content-type') ?? '');
+  if (!listResponse.ok || !Array.isArray(listMessage.result?.tools) || listMessage.result.tools.length === 0) {
+    throw new Error(`Packed OAuth tools/list failed: ${listResponse.status} ${listText}`);
+  }
+  if (oauthLogs.includes(accessToken)) throw new Error('Packed OAuth CLI leaked the access token into logs.');
+  await stopChild(oauthChild);
+  oauthChild = undefined;
+  await new Promise((resolve) => oauthAuthorizationServer.close(resolve));
+  oauthAuthorizationServer = undefined;
+
   console.log(
     JSON.stringify(
       {
@@ -175,12 +351,17 @@ try {
         installedTo: temp,
         pathHasSpaces: temp.includes(' '),
         pathHasUnicode: temp.includes('ü'),
+        oauth: 'packed-cli-startup / metadata / 401-challenge / signed-token-tools-list',
       },
       null,
       2
     )
   );
 } finally {
+  await stopChild(oauthChild);
+  if (oauthAuthorizationServer) {
+    await new Promise((resolve) => oauthAuthorizationServer.close(resolve));
+  }
   if (tarballPath) rmSync(tarballPath, { force: true });
   rmSync(temp, { recursive: true, force: true });
 }

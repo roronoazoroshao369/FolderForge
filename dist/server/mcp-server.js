@@ -1,12 +1,13 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../core/logger.js';
+import { buildBearerChallenge } from './auth/oauth.js';
 /**
  * Build an MCP {@link Server} backed by the FolderForge {@link ToolRegistry}.
  *
  * The server exposes exactly two capabilities:
- *  - `tools/list`  -> reads {@link ToolRegistry.listActive} (curated/active subset)
- *  - `tools/call`  -> delegates to {@link ToolRegistry.call} (policy + audit pipeline)
+ *  - `tools/list`  -> reads {@link ToolRegistry.listAgentActive} (agent-safe subset)
+ *  - `tools/call`  -> delegates to {@link ToolRegistry.callAgent} (policy + audit pipeline)
  *
  * `tools/list` additionally advertises, when present:
  *  - `outputSchema`  (MCP structured tool output, 2025-06-18)
@@ -34,7 +35,7 @@ export function createMcpServer(registry, info) {
             rootsLine,
     });
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-        const tools = registry.listActive().map((t) => {
+        const tools = registry.listAgentActive().map((t) => {
             const tool = {
                 name: t.name,
                 description: t.description,
@@ -49,6 +50,17 @@ export function createMcpServer(registry, info) {
             // hints only - never a security boundary.
             if (t.annotations) {
                 tool.annotations = t.annotations;
+            }
+            if (info.principal?.authMode === 'oauth') {
+                const scopes = t.mutates
+                    ? [info.principal.readScope, info.principal.writeScope].filter((scope) => Boolean(scope))
+                    : [info.principal.readScope].filter((scope) => Boolean(scope));
+                const securitySchemes = [
+                    { type: 'oauth2', scopes },
+                ];
+                const extended = tool;
+                extended.securitySchemes = securitySchemes;
+                extended._meta = { ...(extended._meta ?? {}), securitySchemes };
             }
             return tool;
         });
@@ -88,6 +100,7 @@ export function createMcpServer(registry, info) {
         // exactOptionalPropertyTypes an optional field cannot be assigned
         // `undefined` explicitly, so we omit absent capabilities entirely.
         const control = {
+            principal: info.principal ?? { id: 'agent:mcp', role: 'agent' },
             // P6 - cancellation: the SDK aborts `extra.signal` on a notifications/
             // cancelled for this request id. Handlers long-poll against it the same
             // way ProcessManager.readUntil waits on its own waiters.
@@ -95,8 +108,33 @@ export function createMcpServer(registry, info) {
             ...(reportProgress !== undefined ? { reportProgress } : {}),
             ...(elicit !== undefined ? { elicitInput: elicit } : {}),
         };
-        const result = await registry.call(name, (args ?? {}), control);
         const tool = registry.get(name);
+        const principal = info.principal;
+        if (tool && principal?.authMode === 'oauth') {
+            const requiredScopes = tool.mutates
+                ? [principal.readScope, principal.writeScope].filter((scope) => Boolean(scope))
+                : [principal.readScope].filter((scope) => Boolean(scope));
+            const hasScopes = requiredScopes.every((scope) => (principal.scopes ?? []).includes(scope));
+            if (!hasScopes && principal.resourceMetadataUrl) {
+                const challenge = buildBearerChallenge({
+                    resourceMetadataUrl: principal.resourceMetadataUrl,
+                    scopes: requiredScopes,
+                    error: 'insufficient_scope',
+                    errorDescription: `Tool ${name} requires scope${requiredScopes.length === 1 ? '' : 's'} ${requiredScopes.join(' ')}`,
+                });
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Authentication scope required before tool execution: ${requiredScopes.join(' ')}`,
+                        },
+                    ],
+                    isError: true,
+                    _meta: { 'mcp/www_authenticate': [challenge] },
+                };
+            }
+        }
+        const result = await registry.callAgent(name, (args ?? {}), control);
         return toCallToolResult(result, Boolean(tool?.outputSchema));
     });
     server.onerror = (err) => {

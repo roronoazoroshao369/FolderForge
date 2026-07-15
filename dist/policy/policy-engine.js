@@ -30,6 +30,7 @@ export class PolicyEngine {
                 : undefined);
         this.approvals = new ApprovalEngine({
             ...(persistPath ? { persistPath } : {}),
+            approvalTtlMs: config.policy.approvalTtlMs,
             sanitizeArgs: (args) => this.secret.redactValue(args),
         });
         this.mode = config.policy.defaultMode;
@@ -57,19 +58,18 @@ export class PolicyEngine {
      * @param mutates whether the call mutates state
      * @param args original args (recorded on approval requests)
      */
-    evaluate(toolName, risk, mutates, args) {
+    evaluate(toolName, risk, mutates, args, requesterId = 'agent:unknown') {
         // CRITICAL is denied in every mode except an explicit danger-mode approval.
         if (risk === 'CRITICAL') {
             if (this.mode !== 'danger') {
                 return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
             }
-            // A session-scoped approval (pre-granted via the dashboard/approval tools)
-            // lets the tool through without re-prompting on every call.
-            if (this.approvals.isSessionAllowed(toolName) ||
-                this.approvals.consumeOnce(toolName, args)) {
+            // An admin-approved allowance is bound to the requesting principal.
+            if (this.approvals.isSessionAllowed(toolName, requesterId) ||
+                this.approvals.consumeOnce(toolName, args, requesterId)) {
                 return { kind: 'allow', risk };
             }
-            return this.toApproval(toolName, risk, args, 'CRITICAL action requires explicit approval.');
+            return this.toApproval(toolName, risk, args, 'CRITICAL action requires explicit approval.', requesterId);
         }
         // readonly: any mutation is denied.
         if (this.mode === 'readonly' && mutates) {
@@ -83,17 +83,17 @@ export class PolicyEngine {
             if (this.mode === 'danger') {
                 return { kind: 'allow', risk };
             }
-            if (this.approvals.isSessionAllowed(toolName) ||
-                this.approvals.consumeOnce(toolName, args)) {
+            if (this.approvals.isSessionAllowed(toolName, requesterId) ||
+                this.approvals.consumeOnce(toolName, args, requesterId)) {
                 return { kind: 'allow', risk };
             }
-            return this.toApproval(toolName, risk, args, `${toolName} (${risk}) requires approval.`);
+            return this.toApproval(toolName, risk, args, `${toolName} (${risk}) requires approval.`, requesterId);
         }
         // MEDIUM allowed in safe/dev/danger; audited by caller.
         return { kind: 'allow', risk };
     }
-    toApproval(toolName, risk, args, reason) {
-        const req = this.approvals.create(toolName, args, risk, reason);
+    toApproval(toolName, risk, args, reason, requesterId) {
+        const req = this.approvals.create(toolName, args, risk, reason, requesterId);
         return { kind: 'approval', risk, approvalId: req.id, reason };
     }
     /**

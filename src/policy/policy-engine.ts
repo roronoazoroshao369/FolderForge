@@ -37,6 +37,7 @@ export class PolicyEngine {
         : undefined);
     this.approvals = new ApprovalEngine({
       ...(persistPath ? { persistPath } : {}),
+      approvalTtlMs: config.policy.approvalTtlMs,
       sanitizeArgs: (args) => this.secret.redactValue(args) as Record<string, unknown>,
     });
     this.mode = config.policy.defaultMode;
@@ -72,22 +73,28 @@ export class PolicyEngine {
     toolName: string,
     risk: RiskLevel,
     mutates: boolean,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    requesterId = 'agent:unknown'
   ): Decision {
     // CRITICAL is denied in every mode except an explicit danger-mode approval.
     if (risk === 'CRITICAL') {
       if (this.mode !== 'danger') {
         return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
       }
-      // A session-scoped approval (pre-granted via the dashboard/approval tools)
-      // lets the tool through without re-prompting on every call.
+      // An admin-approved allowance is bound to the requesting principal.
       if (
-        this.approvals.isSessionAllowed(toolName) ||
-        this.approvals.consumeOnce(toolName, args)
+        this.approvals.isSessionAllowed(toolName, requesterId) ||
+        this.approvals.consumeOnce(toolName, args, requesterId)
       ) {
         return { kind: 'allow', risk };
       }
-      return this.toApproval(toolName, risk, args, 'CRITICAL action requires explicit approval.');
+      return this.toApproval(
+        toolName,
+        risk,
+        args,
+        'CRITICAL action requires explicit approval.',
+        requesterId
+      );
     }
 
     // readonly: any mutation is denied.
@@ -106,12 +113,18 @@ export class PolicyEngine {
         return { kind: 'allow', risk };
       }
       if (
-        this.approvals.isSessionAllowed(toolName) ||
-        this.approvals.consumeOnce(toolName, args)
+        this.approvals.isSessionAllowed(toolName, requesterId) ||
+        this.approvals.consumeOnce(toolName, args, requesterId)
       ) {
         return { kind: 'allow', risk };
       }
-      return this.toApproval(toolName, risk, args, `${toolName} (${risk}) requires approval.`);
+      return this.toApproval(
+        toolName,
+        risk,
+        args,
+        `${toolName} (${risk}) requires approval.`,
+        requesterId
+      );
     }
 
     // MEDIUM allowed in safe/dev/danger; audited by caller.
@@ -122,9 +135,10 @@ export class PolicyEngine {
     toolName: string,
     risk: RiskLevel,
     args: Record<string, unknown>,
-    reason: string
+    reason: string,
+    requesterId: string
   ): Decision {
-    const req = this.approvals.create(toolName, args, risk, reason);
+    const req = this.approvals.create(toolName, args, risk, reason, requesterId);
     return { kind: 'approval', risk, approvalId: req.id, reason };
   }
 

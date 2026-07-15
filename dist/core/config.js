@@ -18,6 +18,123 @@ const DEFAULT_BLOCKED = [
     'kubectl delete',
     'terraform apply',
 ];
+export const DEFAULT_OAUTH_READ_SCOPE = 'folderforge:read';
+export const DEFAULT_OAUTH_WRITE_SCOPE = 'folderforge:write';
+export const DEFAULT_OAUTH_ALGORITHMS = ['RS256', 'PS256', 'ES256', 'EdDSA'];
+function csv(value) {
+    if (value === undefined)
+        return undefined;
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+function envBoolean(value) {
+    if (value === undefined)
+        return undefined;
+    if (['1', 'true', 'yes', 'on'].includes(value.toLowerCase()))
+        return true;
+    if (['0', 'false', 'no', 'off'].includes(value.toLowerCase()))
+        return false;
+    throw new Error(`Invalid boolean environment value: ${value}`);
+}
+function applyEnvironmentOverrides(cfg) {
+    const mode = process.env.FOLDERFORGE_HTTP_AUTH;
+    const resource = process.env.FOLDERFORGE_OAUTH_RESOURCE;
+    const issuer = process.env.FOLDERFORGE_OAUTH_ISSUER;
+    const scopes = csv(process.env.FOLDERFORGE_OAUTH_SCOPES);
+    const oauthRequested = Boolean(resource || issuer || scopes || mode === 'oauth');
+    if (mode) {
+        cfg.server.http.auth = { mode: mode };
+    }
+    if (process.env.FOLDERFORGE_HTTP_TOKEN !== undefined) {
+        cfg.server.http.token = process.env.FOLDERFORGE_HTTP_TOKEN;
+    }
+    const apiKeys = csv(process.env.FOLDERFORGE_HTTP_API_KEYS);
+    if (apiKeys)
+        cfg.server.http.apiKeys = apiKeys;
+    if (oauthRequested) {
+        const existing = cfg.server.http.auth?.oauth;
+        cfg.server.http.auth = {
+            mode: cfg.server.http.auth?.mode ?? 'oauth',
+            oauth: {
+                ...(existing ?? {}),
+                ...(resource !== undefined ? { resource } : {}),
+                ...(issuer !== undefined ? { issuer } : {}),
+                ...(scopes !== undefined ? { scopes } : {}),
+                ...(process.env.FOLDERFORGE_OAUTH_READ_SCOPE !== undefined
+                    ? { readScope: process.env.FOLDERFORGE_OAUTH_READ_SCOPE }
+                    : {}),
+                ...(process.env.FOLDERFORGE_OAUTH_WRITE_SCOPE !== undefined
+                    ? { writeScope: process.env.FOLDERFORGE_OAUTH_WRITE_SCOPE }
+                    : {}),
+                ...(process.env.FOLDERFORGE_OAUTH_CLIENT_REGISTRATION !== undefined
+                    ? { clientRegistration: process.env.FOLDERFORGE_OAUTH_CLIENT_REGISTRATION }
+                    : {}),
+                ...(process.env.FOLDERFORGE_OAUTH_JWKS_URI !== undefined
+                    ? { jwksUri: process.env.FOLDERFORGE_OAUTH_JWKS_URI }
+                    : {}),
+                ...(csv(process.env.FOLDERFORGE_OAUTH_TRUSTED_JWKS_HOSTS) !== undefined
+                    ? { trustedJwksHosts: csv(process.env.FOLDERFORGE_OAUTH_TRUSTED_JWKS_HOSTS) }
+                    : {}),
+                ...(csv(process.env.FOLDERFORGE_OAUTH_ALGORITHMS) !== undefined
+                    ? { algorithms: csv(process.env.FOLDERFORGE_OAUTH_ALGORITHMS) }
+                    : {}),
+                ...(envBoolean(process.env.FOLDERFORGE_OAUTH_ALLOW_INSECURE_HTTP) !== undefined
+                    ? { allowInsecureHttpForDevelopment: envBoolean(process.env.FOLDERFORGE_OAUTH_ALLOW_INSECURE_HTTP) }
+                    : {}),
+            },
+        };
+    }
+}
+export function applyHttpAuthDefaults(cfg) {
+    const auth = cfg.server.http.auth;
+    if (!auth || auth.mode !== 'oauth')
+        return;
+    const oauth = (auth.oauth ?? {});
+    const readScope = oauth.readScope || DEFAULT_OAUTH_READ_SCOPE;
+    const writeScope = oauth.writeScope || DEFAULT_OAUTH_WRITE_SCOPE;
+    auth.oauth = {
+        resource: oauth.resource ?? '',
+        issuer: oauth.issuer ?? '',
+        scopes: oauth.scopes?.length ? [...oauth.scopes] : [readScope, writeScope],
+        readScope,
+        writeScope,
+        clientRegistration: oauth.clientRegistration ?? 'cimd',
+        algorithms: oauth.algorithms?.length ? [...oauth.algorithms] : [...DEFAULT_OAUTH_ALGORITHMS],
+        clockToleranceSeconds: oauth.clockToleranceSeconds ?? 5,
+        requestTimeoutMs: oauth.requestTimeoutMs ?? 5_000,
+        jwksCacheTtlMs: oauth.jwksCacheTtlMs ?? 10 * 60_000,
+        jwksCooldownMs: oauth.jwksCooldownMs ?? 30_000,
+        ...(oauth.jwksUri ? { jwksUri: oauth.jwksUri } : {}),
+        ...(oauth.trustedJwksHosts ? { trustedJwksHosts: [...oauth.trustedJwksHosts] } : {}),
+        ...(oauth.allowInsecureHttpForDevelopment !== undefined
+            ? { allowInsecureHttpForDevelopment: oauth.allowInsecureHttpForDevelopment }
+            : {}),
+        ...(oauth.resourceDocumentation ? { resourceDocumentation: oauth.resourceDocumentation } : {}),
+    };
+}
+function isLoopbackUrl(url) {
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1' || url.hostname === '[::1]';
+}
+function validateOAuthUrl(label, raw, allowInsecure, errors, options = {}) {
+    try {
+        const url = new URL(raw);
+        if (url.username || url.password)
+            errors.push(`${label} must not contain userinfo`);
+        if (url.hash)
+            errors.push(`${label} must not contain a fragment`);
+        if (options.disallowQuery && url.search)
+            errors.push(`${label} must not contain a query string`);
+        if (url.protocol !== 'https:') {
+            if (!(allowInsecure && url.protocol === 'http:' && isLoopbackUrl(url))) {
+                errors.push(`${label} must use HTTPS (loopback HTTP requires allowInsecureHttpForDevelopment=true)`);
+            }
+        }
+        return url;
+    }
+    catch {
+        errors.push(`${label} must be an absolute URL (got "${raw}")`);
+        return undefined;
+    }
+}
 const DEFAULT_DENIED_GLOBS = [
     '**/.env',
     '**/.env.*',
@@ -43,6 +160,7 @@ export function defaultConfig(projectRoot) {
         },
         policy: {
             defaultMode: 'safe',
+            approvalTtlMs: 15 * 60 * 1000,
             requireApproval: [
                 'git_push',
                 'git_commit',
@@ -217,6 +335,8 @@ export function loadConfig(opts = {}) {
             break;
         }
     }
+    applyEnvironmentOverrides(cfg);
+    applyHttpAuthDefaults(cfg);
     // Normalize allowed dirs to absolute.
     cfg.workspace.allowedDirectories = cfg.workspace.allowedDirectories.map((d) => isAbsolute(d) ? resolve(d) : resolve(projectRoot, d));
     if (cfg.workspace.defaultProject) {
@@ -236,6 +356,9 @@ export function validateConfig(cfg) {
     if (!modes.includes(cfg.policy.defaultMode)) {
         errors.push(`policy.defaultMode must be one of ${modes.join(', ')} (got "${cfg.policy.defaultMode}")`);
     }
+    if (cfg.policy.approvalTtlMs <= 0) {
+        errors.push(`policy.approvalTtlMs must be > 0 (got ${cfg.policy.approvalTtlMs})`);
+    }
     if (!['stdio', 'http'].includes(cfg.server.transport)) {
         errors.push(`server.transport must be "stdio" or "http" (got "${cfg.server.transport}")`);
     }
@@ -244,6 +367,91 @@ export function validateConfig(cfg) {
     }
     if (cfg.server.dashboard.port <= 0 || cfg.server.dashboard.port > 65535) {
         errors.push(`server.dashboard.port must be 1-65535 (got ${cfg.server.dashboard.port})`);
+    }
+    const httpAuth = cfg.server.http.auth;
+    if (httpAuth) {
+        if (!['none', 'token', 'oauth'].includes(httpAuth.mode)) {
+            errors.push(`server.http.auth.mode must be "none", "token", or "oauth" (got "${httpAuth.mode}")`);
+        }
+        const hasStaticCredential = Boolean(cfg.server.http.token) || (cfg.server.http.apiKeys?.length ?? 0) > 0;
+        if (httpAuth.mode === 'none') {
+            if (hasStaticCredential)
+                errors.push('server.http.auth.mode=none conflicts with server.http.token/apiKeys');
+            if (cfg.server.http.requireAuth)
+                errors.push('server.http.auth.mode=none conflicts with server.http.requireAuth');
+            if (httpAuth.oauth)
+                errors.push('server.http.auth.mode=none conflicts with server.http.auth.oauth');
+            if (!['127.0.0.1', '::1', 'localhost'].includes(cfg.server.http.host)) {
+                errors.push('server.http.auth.mode=none is only allowed on a loopback host');
+            }
+        }
+        if (httpAuth.mode === 'token' && httpAuth.oauth) {
+            errors.push('server.http.auth.mode=token conflicts with server.http.auth.oauth');
+        }
+        if (httpAuth.mode === 'oauth') {
+            if (cfg.server.transport !== 'http')
+                errors.push('server.http.auth.mode=oauth requires server.transport=http');
+            if (hasStaticCredential)
+                errors.push('OAuth mode cannot be combined with server.http.token/apiKeys');
+            if (cfg.server.http.requireAuth)
+                errors.push('OAuth mode cannot be combined with server.http.requireAuth');
+            const oauth = httpAuth.oauth;
+            if (!oauth) {
+                errors.push('server.http.auth.oauth is required when mode=oauth');
+            }
+            else {
+                const allowInsecure = Boolean(oauth.allowInsecureHttpForDevelopment);
+                const resource = validateOAuthUrl('server.http.auth.oauth.resource', oauth.resource, allowInsecure, errors, { disallowQuery: true });
+                const issuer = validateOAuthUrl('server.http.auth.oauth.issuer', oauth.issuer, allowInsecure, errors, { disallowQuery: true });
+                if (allowInsecure && resource && issuer && (!isLoopbackUrl(resource) || !isLoopbackUrl(issuer))) {
+                    errors.push('allowInsecureHttpForDevelopment only permits loopback issuer and resource URLs');
+                }
+                if (oauth.jwksUri)
+                    validateOAuthUrl('server.http.auth.oauth.jwksUri', oauth.jwksUri, allowInsecure, errors);
+                for (const trustedHost of oauth.trustedJwksHosts ?? []) {
+                    if (!trustedHost ||
+                        trustedHost.includes('://') ||
+                        trustedHost.includes('/') ||
+                        trustedHost.includes('@') ||
+                        /\s/.test(trustedHost)) {
+                        errors.push(`server.http.auth.oauth.trustedJwksHosts entries must be exact host[:port] values (got "${trustedHost}")`);
+                    }
+                }
+                if (oauth.resourceDocumentation) {
+                    validateOAuthUrl('server.http.auth.oauth.resourceDocumentation', oauth.resourceDocumentation, allowInsecure, errors);
+                }
+                if (!['cimd', 'dcr', 'predefined'].includes(oauth.clientRegistration)) {
+                    errors.push('server.http.auth.oauth.clientRegistration must be cimd, dcr, or predefined');
+                }
+                if (!oauth.scopes.length)
+                    errors.push('server.http.auth.oauth.scopes must not be empty');
+                const scopeToken = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
+                for (const scope of oauth.scopes) {
+                    if (!scopeToken.test(scope))
+                        errors.push(`Invalid OAuth scope token: "${scope}"`);
+                }
+                if (!oauth.scopes.includes(oauth.readScope))
+                    errors.push('OAuth scopes must include readScope');
+                if (!oauth.scopes.includes(oauth.writeScope))
+                    errors.push('OAuth scopes must include writeScope');
+                const algorithms = oauth.algorithms ?? [];
+                if (!algorithms.length)
+                    errors.push('server.http.auth.oauth.algorithms must not be empty');
+                for (const alg of algorithms) {
+                    if (alg === 'none' || alg.startsWith('HS'))
+                        errors.push(`OAuth JWT algorithm is not allowed: ${alg}`);
+                }
+                for (const [label, value] of [
+                    ['clockToleranceSeconds', oauth.clockToleranceSeconds],
+                    ['requestTimeoutMs', oauth.requestTimeoutMs],
+                    ['jwksCacheTtlMs', oauth.jwksCacheTtlMs],
+                    ['jwksCooldownMs', oauth.jwksCooldownMs],
+                ]) {
+                    if (value !== undefined && value < 0)
+                        errors.push(`server.http.auth.oauth.${label} must be >= 0`);
+                }
+            }
+        }
     }
     if (!cfg.workspace.allowedDirectories.length) {
         errors.push('workspace.allowedDirectories must list at least one directory');

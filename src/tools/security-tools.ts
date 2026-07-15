@@ -49,8 +49,9 @@ export function securityTools(): ToolDefinition[] {
     }),
     defineTool({
       name: 'policy_set_mode',
-      description: 'Set the policy mode: readonly | safe | dev | danger.',
+      description: 'Admin plane only: set the policy mode to readonly, safe, dev, or danger.',
       group: 'security',
+      audience: 'admin',
       mutates: true,
       inputSchema: {
         type: 'object',
@@ -102,11 +103,9 @@ export function securityTools(): ToolDefinition[] {
     defineTool({
       name: 'approval_approve',
       description:
-        'Approve a pending approval request by id. Use scope="session" to allow ' +
-        'the same tool for the rest of this session, or "once" (default) for a ' +
-        'single call. This unblocks HIGH/CRITICAL tool calls over the MCP channel ' +
-        'when the dashboard is disabled and the client cannot elicit.',
+        'Admin plane only: approve a pending request by id with once or session scope.',
       group: 'security',
+      audience: 'admin',
       mutates: true,
       inputSchema: {
         type: 'object',
@@ -124,15 +123,21 @@ export function securityTools(): ToolDefinition[] {
         if (existing.state !== 'pending') {
           return { ok: false, error: `Approval ${id} is already ${existing.state}.` };
         }
-        const req = ctx.container.policy.approvals.approve(id, scope);
-        ctx.container.audit.record({ type: 'approval_resolved', summary: `approve ${id} (${scope})` });
+        const approverId = ctx.control?.principal?.id ?? 'admin:unknown';
+        const req = ctx.container.policy.approvals.approve(id, scope, approverId);
+        ctx.container.audit.record({
+          type: 'approval_resolved',
+          summary: `approve ${id} (${scope})`,
+          detail: { approvalId: id, approverId },
+        });
         return { ok: true, data: req };
       },
     }),
     defineTool({
       name: 'approval_deny',
-      description: 'Deny a pending approval request by id, blocking the gated tool call.',
+      description: 'Admin plane only: deny a pending approval request by id.',
       group: 'security',
+      audience: 'admin',
       mutates: true,
       inputSchema: {
         type: 'object',
@@ -146,8 +151,13 @@ export function securityTools(): ToolDefinition[] {
         if (existing.state !== 'pending') {
           return { ok: false, error: `Approval ${id} is already ${existing.state}.` };
         }
-        const req = ctx.container.policy.approvals.deny(id);
-        ctx.container.audit.record({ type: 'approval_resolved', summary: `deny ${id}` });
+        const approverId = ctx.control?.principal?.id ?? 'admin:unknown';
+        const req = ctx.container.policy.approvals.deny(id, approverId);
+        ctx.container.audit.record({
+          type: 'approval_resolved',
+          summary: `deny ${id}`,
+          detail: { approvalId: id, approverId },
+        });
         return { ok: true, data: req };
       },
     }),
@@ -162,7 +172,14 @@ export function securityTools(): ToolDefinition[] {
         required: ['tool'],
       },
       handler: async (args, ctx) => {
-        const req = ctx.container.policy.approvals.create(String(args.tool), {}, 'HIGH', String(args.reason ?? 'manual'));
+        const requesterId = ctx.control?.principal?.id ?? 'agent:unknown';
+        const req = ctx.container.policy.approvals.create(
+          String(args.tool),
+          {},
+          'HIGH',
+          String(args.reason ?? 'manual'),
+          requesterId
+        );
         return { ok: true, data: req };
       },
     }),

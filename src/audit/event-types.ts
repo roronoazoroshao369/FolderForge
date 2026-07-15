@@ -3,6 +3,7 @@ export type AuditEventType =
   | 'tool_result'
   | 'tool_error'
   | 'policy_deny'
+  | 'policy_change'
   | 'rate_limited'
   | 'approval_request'
   | 'approval_resolved'

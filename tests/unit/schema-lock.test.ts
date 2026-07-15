@@ -77,4 +77,13 @@ describe('tool schema lock (1.0 freeze)', () => {
       }
     }
   });
+
+  it('keeps frozen admin tools internally while excluding them from the agent surface', () => {
+    const all = new Set(registry.listAll().map((tool) => tool.name));
+    const agent = new Set(registry.listAgentActive().map((tool) => tool.name));
+    for (const name of ['approval_approve', 'approval_deny', 'policy_set_mode']) {
+      expect(all.has(name), `${name} must remain in the internal schema lock`).toBe(true);
+      expect(agent.has(name), `${name} must not be agent-visible`).toBe(false);
+    }
+  });
 });

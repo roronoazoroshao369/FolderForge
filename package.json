@@ -1,6 +1,6 @@
 {
   "name": "@musashishao/folderforge",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "keywords": [
     "mcp",
@@ -28,7 +28,7 @@
   "author": "",
   "type": "module",
   "bin": {
-    "folderforge": "./dist/main.js"
+    "folderforge": "dist/main.js"
   },
   "main": "./dist/main.js",
   "files": [
@@ -65,6 +65,7 @@
     "execa": "^9.0.0",
     "fast-glob": "^3.3.0",
     "ignore": "^6.0.0",
+    "jose": "^6.2.3",
     "pino": "^9.0.0",
     "playwright": "^1.48.0",
     "simple-git": "^3.25.0",

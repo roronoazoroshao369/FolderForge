@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { fullConfig, loadConfig, validateConfig } from '../../src/core/config.js';
+import {
+  applyHttpAuthDefaults,
+  fullConfig,
+  loadConfig,
+  validateConfig,
+} from '../../src/core/config.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
 
 describe('config loading + validation', () => {
@@ -57,4 +62,113 @@ describe('config loading + validation', () => {
     expect(message).toMatch(/http.port/);
     expect(message).toMatch(/maxOutputBytes/);
   });
+
+  it('applies secure OAuth defaults and accepts explicit loopback development HTTP', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    cfg.server.transport = 'http';
+    cfg.server.http.auth = {
+      mode: 'oauth',
+      oauth: {
+        resource: 'http://127.0.0.1:7331/mcp',
+        issuer: 'http://127.0.0.1:9000',
+        scopes: [],
+        readScope: '',
+        writeScope: '',
+        clientRegistration: 'cimd',
+        allowInsecureHttpForDevelopment: true,
+      },
+    };
+    applyHttpAuthDefaults(cfg);
+    expect(cfg.server.http.auth.oauth).toMatchObject({
+      scopes: ['folderforge:read', 'folderforge:write'],
+      readScope: 'folderforge:read',
+      writeScope: 'folderforge:write',
+      clientRegistration: 'cimd',
+      algorithms: ['RS256', 'PS256', 'ES256', 'EdDSA'],
+    });
+    expect(() => validateConfig(cfg)).not.toThrow();
+  });
+
+  it('rejects OAuth mixed with legacy credentials', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    cfg.server.transport = 'http';
+    cfg.server.http.token = 'legacy-secret';
+    cfg.server.http.auth = {
+      mode: 'oauth',
+      oauth: {
+        resource: 'https://mcp.example.com/mcp',
+        issuer: 'https://auth.example.com',
+        scopes: ['folderforge:read', 'folderforge:write'],
+        readScope: 'folderforge:read',
+        writeScope: 'folderforge:write',
+        clientRegistration: 'cimd',
+        algorithms: ['RS256'],
+      },
+    };
+    expect(() => validateConfig(cfg)).toThrow(/cannot be combined/);
+  });
+
+  it('rejects insecure production OAuth URLs and non-loopback no-auth mode', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    cfg.server.transport = 'http';
+    cfg.server.http.host = '0.0.0.0';
+    cfg.server.http.auth = { mode: 'none' };
+    expect(() => validateConfig(cfg)).toThrow(/only allowed on a loopback/);
+
+    cfg.server.http.host = '127.0.0.1';
+    cfg.server.http.auth = {
+      mode: 'oauth',
+      oauth: {
+        resource: 'http://mcp.example.com/mcp',
+        issuer: 'http://auth.example.com',
+        scopes: ['folderforge:read', 'folderforge:write'],
+        readScope: 'folderforge:read',
+        writeScope: 'folderforge:write',
+        clientRegistration: 'cimd',
+        algorithms: ['RS256'],
+        allowInsecureHttpForDevelopment: true,
+      },
+    };
+    expect(() => validateConfig(cfg)).toThrow(/HTTPS|loopback/);
+  });
+
+  it('rejects weak JWT algorithms and missing scope bindings', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    cfg.server.transport = 'http';
+    cfg.server.http.auth = {
+      mode: 'oauth',
+      oauth: {
+        resource: 'https://mcp.example.com/mcp',
+        issuer: 'https://auth.example.com',
+        scopes: ['folderforge:read'],
+        readScope: 'folderforge:read',
+        writeScope: 'folderforge:write',
+        clientRegistration: 'cimd',
+        algorithms: ['none', 'HS256'],
+      },
+    };
+    expect(() => validateConfig(cfg)).toThrow(/writeScope|algorithm/);
+  });
+
+
+  it('rejects ambiguous legacy flags, query-bearing identifiers, and malformed JWKS trust entries', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    cfg.server.transport = 'http';
+    cfg.server.http.requireAuth = true;
+    cfg.server.http.auth = {
+      mode: 'oauth',
+      oauth: {
+        resource: 'https://mcp.example.com/mcp?tenant=unsafe',
+        issuer: 'https://auth.example.com?issuer=unsafe',
+        scopes: ['folderforge:read', 'folderforge:write'],
+        readScope: 'folderforge:read',
+        writeScope: 'folderforge:write',
+        clientRegistration: 'cimd',
+        algorithms: ['RS256'],
+        trustedJwksHosts: ['https://keys.example.com/jwks'],
+      },
+    };
+    expect(() => validateConfig(cfg)).toThrow(/requireAuth|query string|host\[:port\]/);
+  });
+
 });

@@ -49,19 +49,24 @@ presets.
 
 ## Approval behavior
 
-- A `once` approval is bound to the exact tool and canonical arguments, is
-  consumed by one retry, and cannot be replayed.
-- A `session` approval lasts only for the current process. Persisted history is
-  retained after restart, but session allowance is not re-armed.
-- Clients with elicitation can approve inline. Other clients receive an
-  `approvalId` for the dashboard/tool flow.
+- Agent-facing MCP clients can create and inspect approval requests, but cannot
+  call `approval_approve`, `approval_deny`, or `policy_set_mode`; those tools are
+  excluded from the agent surface.
+- Resolve requests through the dashboard admin plane. The requester principal
+  cannot approve its own request, and pending requests expire after
+  `policy.approvalTtlMs` (15 minutes by default).
+- A `once` approval is bound to requester + exact tool + canonical arguments, is
+  consumed by one retry, and cannot be replayed or used by another principal.
+- A `session` approval is bound to requester + tool for the current process.
+  Persisted history remains after restart, but the allowance is not re-armed.
+- Runtime policy elevation, including `danger`, is an admin-plane operation.
 
 ## Approval-state hardening
 
-Approval JSONL remains backward-compatible. On load, legacy raw argument records
-are fingerprinted, redacted, and atomically compacted. New records store a
-canonical SHA-256 argument fingerprint plus redacted argument evidence; session
-approvals still do not survive process restart.
+Approval JSONL remains backward-compatible. On load, legacy records receive a
+conservative legacy requester identity and expiry, are fingerprinted/redacted,
+and are atomically compacted. New records store requester/approver identity,
+expiry, a canonical SHA-256 argument fingerprint, and redacted argument evidence.
 
 ## Local plugins
 
@@ -83,3 +88,36 @@ npm run release:check
 
 The command validates source, tests, audits, build output, tarball installation,
 CLI behavior, HTTP authentication, and MCP initialize/list/call behavior.
+
+## Migrating HTTP authentication to explicit modes
+
+Existing loopback and static credential configurations remain valid when
+`server.http.auth.mode` is omitted. The legacy fields are still supported:
+
+```yaml
+server:
+  http:
+    token: "..."
+    apiKeys: ["..."]
+    requireAuth: true
+```
+
+For a clearer contract, set `auth.mode: token`. Do not place OAuth settings next
+to `token`/`apiKeys`; mixed configuration now fails startup.
+
+A security-related behavior changed: when HTTP or the dashboard binds to a
+non-loopback host without a credential, FolderForge no longer generates and
+prints one. Configure `server.http.token`/`apiKeys` or
+`server.dashboard.token` explicitly through a secret manager/environment.
+
+To migrate a ChatGPT-facing endpoint to OAuth:
+
+1. provision an external IdP and canonical public HTTPS `/mcp` resource;
+2. remove `server.http.token`, `server.http.apiKeys`, and `requireAuth` fallback;
+3. set `server.http.auth.mode: oauth` and the OAuth block documented in
+   `docs/oauth.md`;
+4. verify metadata/challenge/JWT audience and scopes before exposing it;
+5. keep dashboard authentication separate.
+
+Rollback is explicit: restore `mode: token` plus static credentials. FolderForge
+never silently falls back from a broken OAuth configuration to token or no-auth.

@@ -46,7 +46,18 @@ Stable version `2.0.0` passed the complete local release gate and corrected comm
 Node 22/24 matrix. npm `latest` resolves to `2.0.0`; a clean registry installation
 reported the expected version, no `postinstall`, a working CLI, and successful
 read-only `doctor --json` validation. The stable Git tag and hosted GitHub release
-remain to be created.
+remain separate operator-controlled actions.
+
+## Current 2.1.0 preparation
+
+The repository and lockfile target `2.1.0`. The exact source tree passes
+`npm run release:check`: typecheck, lint, 385 tests across 49 files, build, both
+zero-vulnerability audits, 100-file tarball installation and OAuth startup,
+stdio MCP smoke, and authenticated static-token HTTP smoke. Package smoke removes
+inherited npm dry-run flags from its nested npm calls, so `npm publish --dry-run`
+still creates, installs, and validates the real tarball before npm simulates the
+publication. Version `2.1.0` is intentionally not published by repository
+preparation; the operator performs the final npm command manually.
 
 ## Current trust limitations
 

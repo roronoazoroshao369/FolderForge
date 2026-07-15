@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, ensureConfigFile } from './core/config.js';
+import { loadConfig, ensureConfigFile, applyHttpAuthDefaults, validateConfig, } from './core/config.js';
 import { Container } from './core/container.js';
 import { buildRegistry, registerAdapterTools, resolveActiveTools } from './tools/index.js';
 import { createMcpServer } from './server/mcp-server.js';
@@ -7,10 +7,10 @@ import { startStdioTransport } from './server/transports/stdio.js';
 import { startHttpTransport } from './server/transports/http.js';
 import { startDashboard, isLoopbackHost } from './dashboard/server.js';
 import { logger } from './core/logger.js';
-import { randomBytes } from 'node:crypto';
 import { readFolderForgeVersion } from './core/version.js';
 import { executeDoctorCli } from './doctor/index.js';
 import { executeBrowserSetupCli } from './setup/browser.js';
+import { STDIO_AGENT_PRINCIPAL } from './core/principal.js';
 const VERSION = readFolderForgeVersion();
 function parseArgs(argv) {
     const args = { stdio: false, http: false, dashboard: true };
@@ -100,6 +100,76 @@ function parseArgs(argv) {
             case '--require-auth':
                 args.requireAuth = true;
                 break;
+            case '--auth': {
+                const v = next();
+                if (v !== undefined)
+                    args.authMode = v;
+                break;
+            }
+            case '--oauth-resource': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthResource = v;
+                break;
+            }
+            case '--oauth-issuer': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthIssuer = v;
+                break;
+            }
+            case '--oauth-scopes': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthScopes = v.split(',').map((item) => item.trim()).filter(Boolean);
+                break;
+            }
+            case '--oauth-read-scope': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthReadScope = v;
+                break;
+            }
+            case '--oauth-write-scope': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthWriteScope = v;
+                break;
+            }
+            case '--oauth-client-registration': {
+                const v = next();
+                if (v !== undefined) {
+                    args.oauthClientRegistration = v;
+                }
+                break;
+            }
+            case '--oauth-jwks-uri': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthJwksUri = v;
+                break;
+            }
+            case '--oauth-trusted-jwks-hosts': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthTrustedJwksHosts = v.split(',').map((item) => item.trim()).filter(Boolean);
+                break;
+            }
+            case '--oauth-algorithms': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthAlgorithms = v.split(',').map((item) => item.trim()).filter(Boolean);
+                break;
+            }
+            case '--oauth-resource-documentation': {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthResourceDocumentation = v;
+                break;
+            }
+            case '--unsafe-oauth-http':
+                args.unsafeOauthHttp = true;
+                break;
             case '--version':
             case '-v':
                 process.stdout.write(`folderforge ${VERSION}\n`);
@@ -140,6 +210,18 @@ function printHelp() {
         '      --token <secret>     Bearer/API token required on the HTTP MCP endpoint',
         '      --api-key <csv>      Additional accepted API keys (repeatable / comma-separated)',
         '      --require-auth       Enforce auth even on a loopback (localhost) bind',
+        '      --auth <mode>        HTTP auth mode (none|token|oauth)',
+        '      --oauth-resource <url> Canonical public MCP resource URL',
+        '      --oauth-issuer <url> External authorization-server issuer',
+        '      --oauth-scopes <csv> OAuth scopes advertised by FolderForge',
+        '      --oauth-read-scope <s> Scope required for read-only MCP access',
+        '      --oauth-write-scope <s> Scope required for mutating tools',
+        '      --oauth-client-registration <mode> cimd|dcr|predefined (default cimd)',
+        '      --oauth-jwks-uri <url> Trusted JWKS URI override',
+        '      --oauth-trusted-jwks-hosts <csv> Exact allowlisted JWKS host[:port] values',
+        '      --oauth-algorithms <csv> Accepted asymmetric JWT algorithms',
+        '      --oauth-resource-documentation <url> Public OAuth resource documentation URL',
+        '      --unsafe-oauth-http Development only: allow loopback HTTP issuer/resource',
         '      --tools-preset <id>  Limit advertised tools to a preset (vibe|vibe-lite|readonly|full)',
         '      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)',
         '      --tools-enable <csv> Always-keep tool names (added back on top of the filter)',
@@ -197,7 +279,7 @@ async function main() {
             logger.warn({ policyMode: args.policyMode, validModes }, 'Invalid --policy value ignored; using configured policy mode');
         }
     }
-    // CLI auth overrides for the HTTP transport.
+    // CLI auth overrides for the HTTP transport. CLI wins over env/YAML.
     if (args.token !== undefined)
         config.server.http.token = args.token;
     if (args.apiKeys && args.apiKeys.length > 0) {
@@ -205,6 +287,51 @@ async function main() {
     }
     if (args.requireAuth)
         config.server.http.requireAuth = true;
+    if (args.authMode !== undefined) {
+        config.server.http.auth = {
+            ...(config.server.http.auth ?? {}),
+            mode: args.authMode,
+        };
+    }
+    const hasOauthCli = Boolean(args.oauthResource ||
+        args.oauthIssuer ||
+        args.oauthScopes ||
+        args.oauthReadScope ||
+        args.oauthWriteScope ||
+        args.oauthClientRegistration ||
+        args.oauthJwksUri ||
+        args.oauthTrustedJwksHosts ||
+        args.oauthAlgorithms ||
+        args.oauthResourceDocumentation ||
+        args.unsafeOauthHttp);
+    if (hasOauthCli) {
+        const existing = config.server.http.auth?.oauth;
+        config.server.http.auth = {
+            mode: args.authMode ?? config.server.http.auth?.mode ?? 'oauth',
+            oauth: {
+                ...(existing ?? {}),
+                ...(args.oauthResource !== undefined ? { resource: args.oauthResource } : {}),
+                ...(args.oauthIssuer !== undefined ? { issuer: args.oauthIssuer } : {}),
+                ...(args.oauthScopes !== undefined ? { scopes: args.oauthScopes } : {}),
+                ...(args.oauthReadScope !== undefined ? { readScope: args.oauthReadScope } : {}),
+                ...(args.oauthWriteScope !== undefined ? { writeScope: args.oauthWriteScope } : {}),
+                ...(args.oauthClientRegistration !== undefined
+                    ? { clientRegistration: args.oauthClientRegistration }
+                    : {}),
+                ...(args.oauthJwksUri !== undefined ? { jwksUri: args.oauthJwksUri } : {}),
+                ...(args.oauthTrustedJwksHosts !== undefined
+                    ? { trustedJwksHosts: args.oauthTrustedJwksHosts }
+                    : {}),
+                ...(args.oauthAlgorithms !== undefined ? { algorithms: args.oauthAlgorithms } : {}),
+                ...(args.oauthResourceDocumentation !== undefined
+                    ? { resourceDocumentation: args.oauthResourceDocumentation }
+                    : {}),
+                ...(args.unsafeOauthHttp ? { allowInsecureHttpForDevelopment: true } : {}),
+            },
+        };
+    }
+    applyHttpAuthDefaults(config);
+    validateConfig(config);
     const container = new Container(config);
     const registry = buildRegistry(container);
     // Trim the advertised tool surface (config + CLI). Clients that cap the tool
@@ -232,10 +359,11 @@ async function main() {
     catch (err) {
         logger.warn({ err: String(err) }, 'Adapter tool registration failed; continuing without adapters');
     }
-    const makeServer = () => createMcpServer(registry, {
+    const makeServer = (principal = STDIO_AGENT_PRINCIPAL) => createMcpServer(registry, {
         name: config.server.name,
         version: VERSION,
         roots: config.workspace.allowedDirectories,
+        principal,
     });
     // A primary server instance for stdio + lifecycle (shutdown). The HTTP
     // transport mints its own per-request server via `makeServer` (a shared
@@ -251,10 +379,9 @@ async function main() {
         const dashHost = config.server.dashboard.host;
         // A non-loopback bind exposes the control plane to the network, so it must be
         // token-protected. Use the configured token or mint one and log it once.
-        let token = config.server.dashboard.token;
+        const token = config.server.dashboard.token;
         if (!isLoopbackHost(dashHost) && !token) {
-            token = randomBytes(24).toString('base64url');
-            logger.warn({ host: dashHost, token }, 'Dashboard bound to a non-loopback host; generated an auth token (set server.dashboard.token to pin it)');
+            throw new Error('Dashboard non-loopback bind requires server.dashboard.token; FolderForge will not print generated credentials to logs');
         }
         startDashboard(container, registry, {
             host: dashHost,
@@ -265,18 +392,20 @@ async function main() {
     if (config.server.transport === 'http') {
         const httpHost = config.server.http.host;
         const forceAuth = Boolean(config.server.http.requireAuth);
-        // A non-loopback bind (or requireAuth) must be credential-protected. Use a
-        // configured credential or mint a token and log it once.
-        let httpToken = config.server.http.token;
-        const hasCredential = Boolean(httpToken) || (config.server.http.apiKeys?.length ?? 0) > 0;
-        if ((!isLoopbackHost(httpHost) || forceAuth) && !hasCredential) {
-            httpToken = randomBytes(24).toString('base64url');
-            logger.warn({ host: httpHost, token: httpToken, requireAuth: forceAuth }, 'HTTP transport requires auth but no credential was set; generated one (set server.http.token to pin it)');
+        const hasCredential = Boolean(config.server.http.token) || (config.server.http.apiKeys?.length ?? 0) > 0;
+        const configuredMode = config.server.http.auth?.mode;
+        const effectiveMode = configuredMode ?? (hasCredential || forceAuth || !isLoopbackHost(httpHost) ? 'token' : 'none');
+        if (effectiveMode === 'token' && !hasCredential) {
+            throw new Error('HTTP token authentication requires a configured credential. Set server.http.token, ' +
+                'server.http.apiKeys, FOLDERFORGE_HTTP_TOKEN, or pass --token. ' +
+                'FolderForge no longer prints generated bearer credentials to logs.');
         }
         await startHttpTransport(makeServer, {
             host: httpHost,
             port: config.server.http.port,
-            ...(httpToken ? { token: httpToken } : {}),
+            authMode: effectiveMode,
+            ...(config.server.http.auth?.oauth ? { oauth: config.server.http.auth.oauth } : {}),
+            ...(config.server.http.token ? { token: config.server.http.token } : {}),
             ...(config.server.http.apiKeys ? { apiKeys: config.server.http.apiKeys } : {}),
             ...(forceAuth ? { requireAuth: true } : {}),
             ...(config.server.http.corsOrigins ? { corsOrigins: config.server.http.corsOrigins } : {}),

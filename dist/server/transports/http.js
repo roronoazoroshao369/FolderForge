@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { logger } from '../../core/logger.js';
+import { agentPrincipalFromCredential } from '../../core/principal.js';
+import { buildBearerChallenge, createOAuthRuntime, } from '../auth/oauth.js';
 /** True when the bind host is loopback-only and therefore safe without a token. */
 export function isLoopbackHost(host) {
     return host === '127.0.0.1' || host === '::1' || host === 'localhost';
@@ -11,7 +13,6 @@ export function timingSafeEqualStr(a, b) {
     const ab = Buffer.from(a);
     const bb = Buffer.from(b);
     if (ab.length !== bb.length) {
-        // Still compare against self to keep timing roughly constant.
         timingSafeEqual(ab, ab);
         return false;
     }
@@ -19,9 +20,10 @@ export function timingSafeEqualStr(a, b) {
 }
 /** Extract a bearer token from the Authorization header. */
 export function extractBearer(req) {
-    const header = req.headers['authorization'];
-    if (typeof header === 'string' && header.startsWith('Bearer ')) {
-        return header.slice('Bearer '.length).trim();
+    const header = req.headers.authorization;
+    if (typeof header === 'string' && /^Bearer\s+/i.test(header)) {
+        const value = header.replace(/^Bearer\s+/i, '').trim();
+        return value || undefined;
     }
     return undefined;
 }
@@ -37,9 +39,9 @@ export function extractApiKey(req) {
     return undefined;
 }
 /**
- * True when `provided` matches any accepted credential, compared in
- * constant time. Always walks the whole list so timing does not leak which
- * credential (if any) matched.
+ * True when `provided` matches any accepted credential, compared in constant
+ * time. Always walks the whole list so timing does not leak which credential
+ * matched.
  */
 export function matchesAnyCredential(provided, accepted) {
     if (!provided || accepted.length === 0)
@@ -51,11 +53,7 @@ export function matchesAnyCredential(provided, accepted) {
     }
     return ok;
 }
-/**
- * Resolve the CORS origin header value for a request, or null to omit it.
- * `['*']` echoes any origin (so credentials can still work); a concrete list
- * echoes only matching origins.
- */
+/** Resolve the CORS origin header value for a request, or null to omit it. */
 export function resolveCorsOrigin(requestOrigin, allowed) {
     if (!allowed || allowed.length === 0)
         return null;
@@ -65,45 +63,46 @@ export function resolveCorsOrigin(requestOrigin, allowed) {
         return requestOrigin;
     return null;
 }
-/**
- * Bind the MCP server to a hardened Streamable HTTP transport.
- *
- * Hardening over the bare transport:
- *  - Bearer-token auth (constant-time) when a token is configured.
- *  - CORS handling with an explicit allowlist + preflight support.
- *  - Idle session expiry: the underlying transport is recreated after
- *    `sessionTtlMs` of inactivity so stale sessions don't linger.
- */
+function writeJson(res, status, body, headers = {}) {
+    res.writeHead(status, {
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+        ...headers,
+    });
+    res.end(JSON.stringify(body));
+}
+function oauthChallenge(runtime, options) {
+    return buildBearerChallenge({
+        resourceMetadataUrl: runtime.resourceMetadataUrl,
+        scopes: options.scopes,
+        ...(options.error ? { error: options.error } : {}),
+        ...(options.errorDescription ? { errorDescription: options.errorDescription } : {}),
+    });
+}
+/** Bind the MCP server to a hardened stateless Streamable HTTP transport. */
 export async function startHttpTransport(makeMcpServer, opts) {
     const mcpPath = opts.path ?? '/mcp';
-    // Every credential accepted on the MCP endpoint: the primary token plus any
-    // additional api keys. A client may present any of them.
-    const credentials = [opts.token, ...(opts.apiKeys ?? [])].filter((c) => typeof c === 'string' && c.length > 0);
-    // Auth is enforced when any credential is configured, or when requireAuth is
-    // set, or when bound to a non-loopback host.
-    const requireAuth = credentials.length > 0 || Boolean(opts.requireAuth) || !isLoopbackHost(opts.host);
-    if (requireAuth && credentials.length === 0) {
-        throw new Error('HTTP transport requires authentication but no credential is set. ' +
-            'Configure server.http.token (or server.http.apiKeys), pass --token, ' +
-            'or bind to a loopback host with requireAuth disabled.');
+    const credentials = [opts.token, ...(opts.apiKeys ?? [])].filter((credential) => typeof credential === 'string' && credential.length > 0);
+    const legacyRequiresAuth = credentials.length > 0 || Boolean(opts.requireAuth) || !isLoopbackHost(opts.host);
+    const authMode = opts.authMode ?? (opts.oauth ? 'oauth' : legacyRequiresAuth ? 'token' : 'none');
+    if (authMode === 'none' && !isLoopbackHost(opts.host)) {
+        throw new Error('HTTP auth mode none is only allowed on a loopback bind');
     }
-    // Stateless Streamable HTTP: a transport with `sessionIdGenerator: undefined`
-    // treats every POST as a self-contained JSON-RPC exchange, so there is no
-    // "session" that can be initialized twice. We connect a fresh transport per
-    // request and close it once the response is flushed. This avoids the
-    // "Server already initialized" error that a single shared, session-bearing
-    // transport produces when a client re-POSTs after `initialize`.
-    const handleMcp = async (req, res) => {
-        // Pass an empty options object: under exactOptionalPropertyTypes we must omit
-        // `sessionIdGenerator` entirely (not set it to `undefined`) to select the
-        // transport's stateless mode.
-        //
-        // IMPORTANT: a fresh transport REQUIRES a fresh Server. An MCP Server
-        // (Protocol) can only be connected to one transport at a time, so reusing a
-        // single shared server across requests throws "Already connected to a
-        // transport" on the second POST. We mint a per-request Server here and tear
-        // both down when the response closes.
-        const server = makeMcpServer();
+    if (authMode === 'token' && credentials.length === 0) {
+        throw new Error('HTTP token auth requires server.http.token or server.http.apiKeys; callers must provide a credential explicitly.');
+    }
+    if (authMode === 'oauth' && credentials.length > 0) {
+        throw new Error('OAuth mode cannot be combined with static token/API-key credentials');
+    }
+    if (authMode !== 'oauth' && opts.oauth) {
+        throw new Error(`OAuth configuration conflicts with HTTP auth mode ${authMode}`);
+    }
+    if (authMode === 'oauth' && !opts.oauth) {
+        throw new Error('OAuth mode requires OAuth resource-server configuration');
+    }
+    const oauthRuntime = authMode === 'oauth' ? await createOAuthRuntime(opts.oauth) : undefined;
+    const handleMcp = async (req, res, principal) => {
+        const server = makeMcpServer(principal);
         const transport = new StreamableHTTPServerTransport({});
         res.on('close', () => {
             void transport.close?.();
@@ -118,53 +117,107 @@ export async function startHttpTransport(makeMcpServer, opts) {
             res.setHeader('access-control-allow-origin', origin);
             res.setHeader('vary', 'Origin');
             res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
-            res.setHeader('access-control-allow-headers', 'authorization, content-type, mcp-session-id');
+            res.setHeader('access-control-allow-headers', 'authorization, content-type, mcp-session-id, x-api-key');
         }
     };
     const http = createServer((req, res) => {
-        const url = req.url ?? '/';
-        applyCors(req, res);
-        // CORS preflight.
-        if (req.method === 'OPTIONS') {
-            res.writeHead(204);
-            res.end();
-            return;
-        }
-        if (req.method === 'GET' && url === '/healthz') {
-            res.writeHead(200, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ ok: true }));
-            return;
-        }
-        if (url === mcpPath || url.startsWith(`${mcpPath}?`)) {
-            if (requireAuth) {
-                const provided = extractBearer(req) ?? extractApiKey(req);
-                if (!matchesAnyCredential(provided, credentials)) {
-                    res.writeHead(401, {
-                        'content-type': 'application/json',
-                        'www-authenticate': 'Bearer realm="folderforge-mcp"',
-                    });
-                    res.end(JSON.stringify({
-                        error: 'unauthorized',
-                        message: 'Valid credential required. Send `Authorization: Bearer <token>` or `X-API-Key: <key>`.',
-                    }));
+        const route = async () => {
+            const requestUrl = new URL(req.url ?? '/', 'http://folderforge.invalid');
+            const pathname = requestUrl.pathname;
+            applyCors(req, res);
+            if (req.method === 'OPTIONS') {
+                res.writeHead(204);
+                res.end();
+                return;
+            }
+            if (req.method === 'GET' && pathname === '/healthz') {
+                writeJson(res, 200, { ok: true });
+                return;
+            }
+            if (oauthRuntime?.protectedResourceMetadataPaths.includes(pathname)) {
+                if (req.method !== 'GET') {
+                    res.writeHead(405, { allow: 'GET, OPTIONS' });
+                    res.end();
                     return;
                 }
+                res.writeHead(200, {
+                    'content-type': 'application/json',
+                    'cache-control': 'public, max-age=300',
+                    'access-control-allow-origin': '*',
+                });
+                res.end(JSON.stringify(oauthRuntime.protectedResourceMetadata));
+                return;
             }
-            void handleMcp(req, res).catch((err) => {
-                logger.error({ err: String(err) }, 'HTTP MCP request failed');
-                if (!res.headersSent) {
-                    res.writeHead(500, { 'content-type': 'application/json' });
-                    res.end(JSON.stringify({ error: 'internal_error' }));
+            if (pathname === mcpPath) {
+                if (authMode === 'oauth') {
+                    const runtime = oauthRuntime;
+                    const bearer = extractBearer(req);
+                    if (!bearer) {
+                        writeJson(res, 401, { error: 'unauthorized', message: 'OAuth bearer access token required' }, {
+                            'www-authenticate': oauthChallenge(runtime, {
+                                scopes: [runtime.config.readScope],
+                            }),
+                        });
+                        return;
+                    }
+                    let verified;
+                    try {
+                        verified = await runtime.verifyAccessToken(bearer);
+                    }
+                    catch {
+                        writeJson(res, 401, { error: 'invalid_token', message: 'Access token is invalid or expired' }, {
+                            'www-authenticate': oauthChallenge(runtime, {
+                                scopes: [runtime.config.readScope],
+                                error: 'invalid_token',
+                                errorDescription: 'Access token is invalid or expired',
+                            }),
+                        });
+                        return;
+                    }
+                    if (!verified.scopes.includes(runtime.config.readScope)) {
+                        writeJson(res, 403, { error: 'insufficient_scope', message: 'Read scope is required for MCP access' }, {
+                            'www-authenticate': oauthChallenge(runtime, {
+                                scopes: [runtime.config.readScope],
+                                error: 'insufficient_scope',
+                                errorDescription: 'Read scope is required for MCP access',
+                            }),
+                        });
+                        return;
+                    }
+                    await handleMcp(req, res, runtime.principalFor(verified));
+                    return;
                 }
-            });
-            return;
-        }
-        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('Not found');
+                const provided = extractBearer(req) ?? extractApiKey(req);
+                if (authMode === 'token' && !matchesAnyCredential(provided, credentials)) {
+                    writeJson(res, 401, {
+                        error: 'unauthorized',
+                        message: 'Valid static credential required in Authorization: Bearer or X-API-Key',
+                    }, { 'www-authenticate': 'Bearer realm="folderforge-mcp"' });
+                    return;
+                }
+                await handleMcp(req, res, agentPrincipalFromCredential(provided));
+                return;
+            }
+            res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+            res.end('Not found');
+        };
+        void route().catch((error) => {
+            logger.error({ err: error instanceof Error ? error.message : String(error) }, 'HTTP MCP request failed');
+            if (!res.headersSent)
+                writeJson(res, 500, { error: 'internal_error' });
+            else
+                res.end();
+        });
     });
     await new Promise((resolveListen) => {
         http.listen(opts.port, opts.host, () => {
-            logger.info({ host: opts.host, port: opts.port, path: mcpPath, authRequired: requireAuth }, 'MCP HTTP transport listening');
+            logger.info({
+                host: opts.host,
+                port: opts.port,
+                path: mcpPath,
+                authMode,
+                ...(oauthRuntime ? { resource: oauthRuntime.config.resource, issuer: oauthRuntime.config.issuer } : {}),
+            }, 'MCP HTTP transport listening');
             resolveListen();
         });
     });

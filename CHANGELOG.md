@@ -4,12 +4,51 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
-## [2.0.0] - stable candidate prepared 2026-07-11 (not published)
+## [2.1.0] - 2026-07-15
 
-This stable candidate promotes the validated `2.0.0-rc.2` line after GitHub
-Actions run `29161853457` passed all six Ubuntu/macOS/Windows × Node 22/24 jobs
-and the exact `2.0.0` local release gate passed. It has not yet been tagged,
-published under npm `latest`, or released as a hosted artifact.
+### Added
+
+- Add an explicit `none|token|oauth` HTTP authentication contract with CLI,
+  environment, YAML defaults, conflict validation, and backward-compatible
+  inference for existing token/API-key deployments.
+- Add external authorization-server discovery, RFC 9728 protected-resource
+  metadata, RFC 6750 challenges, PKCE S256 capability checks, cryptographic
+  JWT/JWKS verification, resource audience binding, and read/write scope
+  enforcement before tool execution.
+- Add ChatGPT per-tool OAuth `securitySchemes`, tool-level
+  `_meta["mcp/www_authenticate"]` step-up responses, deterministic OAuth protocol
+  tests, JWKS rotation coverage, and packed-package OAuth startup smoke.
+- Add ADR-0004, deployment/migration/security guidance, and a live ChatGPT
+  Developer Mode acceptance checklist.
+
+### Changed
+
+- Non-loopback HTTP/dashboard startup now requires an explicitly configured
+  credential instead of generating and logging one, preventing credential
+  disclosure through startup logs.
+- Add `jose` as a direct runtime dependency for maintained JWT/JWKS primitives.
+- Sanitize inherited npm dry-run flags inside package smoke so
+  `npm publish --dry-run` still builds and installs the real tarball before the
+  publish simulation completes.
+
+### Security
+
+- Separate the agent-facing MCP tool plane from the approval/policy admin plane.
+  Agents can no longer advertise or invoke `approval_approve`, `approval_deny`,
+  or `policy_set_mode`, and MCP elicitation cannot self-resolve a request.
+- Bind approvals to requester and approver principals, reject self-approval,
+  expire pending requests, scope session allowances per requester, and preserve
+  exact requester/tool/argument replay protection for one-shot approvals.
+- Keep indirect agent surfaces aligned with the boundary: workspace routing only
+  reports agent-visible tools, and persisted workflows reject admin-only tools
+  during validation as well as execution.
+
+## [2.0.0] - published 2026-07-12 under npm `latest`
+
+This stable release promoted the validated `2.0.0-rc.2` line after the complete
+local release gate and the Ubuntu/macOS/Windows × Node 22/24 GitHub Actions matrix
+passed. npm `latest` resolves to `2.0.0`; a stable Git tag and hosted GitHub
+release remain separate operator-controlled release actions.
 
 ### Fixed
 

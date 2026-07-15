@@ -154,14 +154,18 @@ tools:
 - Supports file, search, shell, process, git, build, code-intelligence,
   memory, browser, and database workflows
 
-## Status (`2.0.0` stable candidate)
+## Status (`2.1.0` prepared for release)
 
-The **`2.0.0`** stable candidate is prepared from the validated RC.2 line. GitHub
-Actions run `29161853457` passed all six Ubuntu/macOS/Windows × Node 22/24 jobs.
-The local stable package has not yet been tagged, published under npm `latest`, or
-released as a hosted artifact. The audited native registry contains 269 tools;
-the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50, 42, and
-269 native tools respectively before dynamic child/plugin additions.
+npm `latest` currently resolves to stable **`2.0.0`**. The repository now targets
+**`2.1.0`**, adding OAuth 2.1/OIDC resource-server support for ChatGPT and a
+hardened agent/admin authorization boundary. The complete local release gate
+passes 385 tests across 49 files, both dependency audits, build, packed-tarball
+installation, OAuth package startup, stdio MCP, and authenticated HTTP MCP smoke.
+Version `2.1.0` is merged locally and ready for the operator's manual npm publish;
+no `2.1.0` npm publication, Git tag, or hosted release is implied here. The
+audited native registry contains 269 tools; the `vibe`, `vibe-lite`, `readonly`,
+and `full` presets advertise 71, 50, 42, and 269 native tools respectively before
+dynamic child/plugin additions.
 
 - **Core and governance** - multi-project activation, path/command/secret policy,
   exact once/session approvals, rate limits, append-only audit, and governed
@@ -171,7 +175,7 @@ the `vibe`, `vibe-lite`, `readonly`, and `full` presets advertise 71, 50, 42, an
   child facades, and dynamic plugin adapters.
 - **AI/browser runtime** - bounded code context, transactional edits,
   verification/report tools, and stable responsive browser wrappers.
-- **Release gates** - typecheck, lint, 369 unit/integration tests, build, both
+- **Release gates** - typecheck, lint, 385 unit/integration tests, build, both
   dependency audits, `npm pack`, temporary tarball install, CLI/stdio smoke, live
   authenticated HTTP MCP initialize/list/call smoke, and six-entry cross-platform
   CI validation.
@@ -190,21 +194,19 @@ Beyond `tools/list` / `tools/call`, FolderForge supports progress
 notifications (P4), cancellation (P6), and elicitation (P8), wired through a
 per-call control object that leaves the frozen tool schema untouched.
 
-#### Interactive approval via elicitation (new in 1.3.3)
+#### Approval administration boundary
 
-When a tool is gated by the approval queue (e.g. `git_commit`, `git_push`,
-`file_delete`) and the MCP client advertises the `elicitation` capability,
-FolderForge **asks Approve / Deny directly in the chat** instead of redirecting
-to the dashboard:
+When a tool is gated by the approval queue (for example `git_commit`, `git_push`,
+or `file_delete`), the agent receives an `approvalId` and cannot resolve it over
+the MCP tool plane. Approval resolution is restricted to the dashboard admin
+plane (`http://localhost:7332 → Approvals`).
 
-```
-scope options: "once" (this call only) | "session" (remember for the session)
-```
-
-If the client does not support elicitation, or if the elicitation call fails,
-FolderForge falls back gracefully to the existing dashboard flow
-(`http://localhost:7332 → Approvals`) and returns the `approvalId` so the user
-can resolve it there.
+Each request records the requester principal and an expiry. A distinct admin
+principal may grant `once` (exact requester + tool + canonical arguments, consumed
+once) or `session` (requester + tool for the current process). Self-approval,
+expired approvals, argument replay, and approval reuse by another principal are
+rejected. Runtime policy changes, including elevation to `danger`, are also
+admin-plane operations; the agent-facing registry does not advertise them.
 
 #### Embedded resources
 
@@ -289,6 +291,18 @@ curl -sS -X POST http://127.0.0.1:17331/mcp \
 | `--token <secret>` | Primary credential for the HTTP endpoint |
 | `--api-key <csv>` | Extra API keys (repeatable / comma-separated) |
 | `--require-auth` | Enforce auth even on a loopback bind |
+| `--auth <mode>` | HTTP auth mode: `none`, `token`, or `oauth` |
+| `--oauth-resource <url>` | Canonical public MCP resource URL (normally the public `/mcp` URL) |
+| `--oauth-issuer <url>` | External OAuth authorization-server issuer |
+| `--oauth-scopes <csv>` | Scopes advertised by protected-resource metadata |
+| `--oauth-read-scope <scope>` | Scope required for MCP read access |
+| `--oauth-write-scope <scope>` | Additional scope required by mutating tools |
+| `--oauth-client-registration <mode>` | `cimd`, `dcr`, or `predefined` |
+| `--oauth-jwks-uri <url>` | Explicit trusted JWKS URI override |
+| `--oauth-trusted-jwks-hosts <csv>` | Exact trusted JWKS `host[:port]` values |
+| `--oauth-algorithms <csv>` | Allowed asymmetric JWT algorithms |
+| `--oauth-resource-documentation <url>` | Public documentation URL included in protected-resource metadata |
+| `--unsafe-oauth-http` | Development only: permit loopback HTTP issuer/resource URLs |
 | `--dashboard-port <n>` | Dashboard port (default 7332) |
 | `--no-dashboard` | Disable the local dashboard |
 | `--tools-preset <id>` | `vibe` \| `vibe-lite` \| `readonly` \| `full` |
@@ -350,64 +364,52 @@ continue to work when Chromium is intentionally absent.
 
 ## Authentication
 
-FolderForge speaks MCP over two transports, and they authenticate differently:
+FolderForge has three HTTP authentication modes. Stdio remains protected by the
+local process boundary and does not use the HTTP OAuth flow.
 
-- **stdio** (the default for agents): the agent spawns FolderForge as a child
-  process and talks over stdin/stdout. There is no network surface, so there is
-  **no auth** - the OS process boundary is the trust boundary.
-- **HTTP** (Streamable HTTP on a port): this is a network surface, so it
-  supports credential-based auth. **When a credential is configured, every
-  request to the MCP endpoint must present a matching credential or it is
-  rejected with `401`.**
+| Mode | Intended use | Behavior |
+| --- | --- | --- |
+| `none` | loopback-only local development | rejected on non-loopback binds |
+| `token` | scripts and trusted fixed clients | static Bearer or `X-API-Key`; legacy omitted-mode inference remains supported |
+| `oauth` | ChatGPT and user-delegated remote access | external OAuth 2.1 authorization server; JWT/JWKS verification and per-tool scopes |
 
-### When is auth enforced?
+When `server.http.auth.mode` is omitted, existing behavior is preserved: a
+configured token/API key enables static auth, while a credential-free loopback
+bind remains local-only. A non-loopback token-mode bind now fails startup unless
+a credential is explicitly configured; FolderForge never prints generated
+credentials into logs.
 
-Auth on the HTTP transport turns on automatically in any of these cases:
-
-| Situation | Auth required? |
-| --- | --- |
-| `server.http.token` or `server.http.apiKeys` is set | **Yes** - clients must match |
-| Bound to a non-loopback host (e.g. `0.0.0.0`, a LAN IP) | **Yes** - a credential is mandatory; one is auto-generated and logged once if you didn't set it |
-| `server.http.requireAuth: true` (or `--require-auth`) | **Yes** - even on `localhost` |
-| Bound to loopback (`127.0.0.1`/`localhost`) with no credential | No - same-machine only |
-
-If auth is required but no credential can be resolved, startup fails with a
-clear error instead of silently running open.
-
-### Accepted credential formats
-
-A client may authenticate with **either** header:
-
-```http
-Authorization: Bearer <token-or-api-key>
-```
-
-or
-
-```http
-X-API-Key: <token-or-api-key>
-```
-
-Both the primary `token` and every entry in `apiKeys` are accepted on either
-header. All comparisons are **constant-time**. A missing or wrong credential
-returns `401` with a `WWW-Authenticate: Bearer` header.
-
-### Configure auth
-
-Via CLI flags (no config file needed):
+### Static token/API-key mode
 
 ```bash
-# Single shared token, localhost only but auth forced on
-folderforge --http --host 127.0.0.1 --port 7331 \
-  --token "$(openssl rand -base64 32)" --require-auth
-
-# Expose on the network with several per-client API keys
-folderforge --http --host 0.0.0.0 --port 7331 \
-  --token "primary-admin-token" \
-  --api-key "client-a-key,client-b-key"
+folderforge --http --auth token --host 127.0.0.1 --port 7331 \
+  --token "$(openssl rand -base64 32)"
 ```
 
-Or in `folderforge.yaml`:
+Clients may send `Authorization: Bearer <credential>` or `X-API-Key:
+<credential>`. Static credentials never act as OAuth credentials, and OAuth mode
+never falls back to `X-API-Key`.
+
+### OAuth mode for ChatGPT
+
+FolderForge acts as an OAuth **resource server only**. An established external
+identity provider owns login, consent, exact redirect-URI validation,
+Authorization Code + PKCE S256, client identification/registration, refresh
+and revocation. FolderForge publishes RFC 9728 metadata, validates the access
+JWT cryptographically, enforces issuer/audience/expiry/not-before/algorithm, and
+requires `folderforge:read` before MCP access plus `folderforge:write` before a
+mutating tool executes.
+
+```bash
+folderforge --http --auth oauth --host 0.0.0.0 --port 7331 \
+  --oauth-resource https://mcp.example.com/mcp \
+  --oauth-issuer https://auth.example.com \
+  --oauth-scopes folderforge:read,folderforge:write \
+  --oauth-client-registration cimd \
+  --no-dashboard
+```
+
+Equivalent YAML:
 
 ```yaml
 server:
@@ -415,52 +417,35 @@ server:
   http:
     host: 0.0.0.0
     port: 7331
-    token: "primary-admin-token"     # accepted via Bearer or X-API-Key
-    apiKeys:                          # additional per-client credentials
-      - "client-a-key"
-      - "client-b-key"
-    requireAuth: true                # enforce even on loopback
-    corsOrigins:
-      - https://your-tool.example.com
+    auth:
+      mode: oauth
+      oauth:
+        resource: https://mcp.example.com/mcp
+        issuer: https://auth.example.com
+        scopes: [folderforge:read, folderforge:write]
+        readScope: folderforge:read
+        writeScope: folderforge:write
+        clientRegistration: cimd
 ```
 
-CLI flags override the config file.
+Production OAuth requires HTTPS for both the canonical resource and issuer.
+Loopback HTTP is available only for deterministic development/tests with
+`--unsafe-oauth-http`. The protected-resource metadata URL for the example is
+`https://mcp.example.com/.well-known/oauth-protected-resource/mcp` (with a root
+fallback also served).
 
-### Call the authenticated endpoint
+Environment equivalents include `FOLDERFORGE_HTTP_AUTH`,
+`FOLDERFORGE_OAUTH_RESOURCE`, `FOLDERFORGE_OAUTH_ISSUER`,
+`FOLDERFORGE_OAUTH_SCOPES`, `FOLDERFORGE_OAUTH_READ_SCOPE`,
+`FOLDERFORGE_OAUTH_WRITE_SCOPE`, `FOLDERFORGE_OAUTH_CLIENT_REGISTRATION`,
+`FOLDERFORGE_OAUTH_JWKS_URI`, `FOLDERFORGE_OAUTH_TRUSTED_JWKS_HOSTS`,
+`FOLDERFORGE_OAUTH_ALGORITHMS`, and
+`FOLDERFORGE_OAUTH_ALLOW_INSECURE_HTTP`. Precedence is CLI > environment > YAML
+> built-in/legacy behavior.
 
-```bash
-# Bearer header
-curl -sS -X POST http://127.0.0.1:7331/mcp \
-  -H "Authorization: Bearer primary-admin-token" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-
-# X-API-Key header
-curl -sS -X POST http://127.0.0.1:7331/mcp \
-  -H "X-API-Key: client-a-key" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-
-# No / wrong credential -> 401 unauthorized
-curl -i -X POST http://127.0.0.1:7331/mcp -d '{}'
-```
-
-MCP client config pointing at the HTTP endpoint with a credential:
-
-```jsonc
-{
-  "mcpServers": {
-    "folderforge": {
-      "url": "http://127.0.0.1:7331/mcp",
-      "headers": { "Authorization": "Bearer primary-admin-token" }
-    }
-  }
-}
-```
-
-The **dashboard** authenticates the same way (Bearer token), and additionally
-accepts a `?token=<token>` query parameter. See `docs/security.md` for the full
-security model.
+See [OAuth setup and ChatGPT validation](docs/oauth.md),
+[the architecture decision](docs/adr-0004-oauth-resource-server.md), and
+[security hardening](docs/security.md).
 
 ## Develop
 

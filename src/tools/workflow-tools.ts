@@ -158,7 +158,7 @@ async function executeWorkflow(
       `${step.role}: ${step.tool}`
     );
 
-    const result = await ctx.container.registry.call(step.tool, args, control);
+    const result = await ctx.container.registry.callAgent(step.tool, args, control);
     const evidence = workflowEvidence(result, (text) => ctx.container.policy.secret.redact(text));
     step.evidence = evidence;
     step.completedAt = Date.now();
@@ -207,7 +207,7 @@ export function workflowTools(): ToolDefinition[] {
           const findings = ctx.container.policy.secret.scan(serialized);
           if (findings.length) return { ok: false, error: `Workflow definition contains ${findings.length} possible secret(s); use governed env/file references instead.` };
           const available = new Set<string>(
-            ctx.container.registry.listAll().map((tool: ToolDefinition) => tool.name)
+            ctx.container.registry.listAgentActive().map((tool: ToolDefinition) => tool.name)
           );
           const definition = validateWorkflowDefinition(args.definition, available);
           const run = ctx.container.workflows.create(definition);

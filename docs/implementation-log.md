@@ -3,6 +3,29 @@
 This log records product defects and developer-experience issues observed while
 using FolderForge itself to implement the AI/browser roadmap.
 
+## P0 — Authorization boundary
+
+### FF-040 — Agent could self-approve and elevate runtime policy
+
+- Severity: critical
+- Status: fixed in working tree; full local release gate passed
+- Root cause: approval resolution and `policy_set_mode` shared the agent-facing
+  MCP registry, and MCP elicitation could resolve the request created by the same
+  caller. Approval records had no principal identity or expiry.
+- Fix: introduced agent/admin tool audiences and principal propagation; MCP and
+  workflows use the agent-only boundary; dashboard resolves approvals and changes
+  policy as the admin plane. Requests now record requester/approver identity and
+  expiry; once/session allowances are principal-bound; self-approval and expired
+  resolution fail closed. Workspace routing reports only agent-visible tools, and
+  workflow validation rejects admin-only tools before persistence.
+- Regression coverage: agent tool advertisement/call denial, workspace-route
+  metadata isolation, workflow admin-tool rejection, self-approval, distinct-admin
+  approval, expiry, cross-principal session reuse, wrong arguments, one-shot replay,
+  stable credential principal identity, and dashboard admin HTTP behavior.
+- Release state: included in the local `2.1.0` preparation committed and merged
+  into `main`. Push, Git tag, npm publication, and hosted release remain
+  operator-controlled and were not performed here.
+
 ## Milestone 1.7 — Browser intelligence foundation
 
 ### FF-001 — Screenshot image was flattened into JSON text
@@ -506,3 +529,43 @@ leaving only `main`. npm `latest` resolves to `2.0.0`; a clean registry install
 reported version `2.0.0`, no `postinstall`, a working CLI, and successful read-only
 `doctor --json` validation. The stable Git tag and hosted GitHub release remain to
 be created.
+
+## 2026-07-15 — OAuth resource-server mode for ChatGPT
+
+- Repository baseline: branch `hardening/authorization-boundary`, HEAD
+  `b3c97ee45eb380099d4f9d7826d2e8673fe57466`; dirty authorization-boundary work
+  was preserved without reset/stash/overwrite. Baseline typecheck and targeted
+  auth/admin tests passed.
+- Research: implementation aligned to MCP Authorization 2025-11-25, RFC 9728,
+  RFC 8414/OIDC discovery, RFC 7636/PKCE, RFC 8707 resource indicators, OAuth
+  2.1 draft requirements, current OpenAI Apps SDK authentication, and current
+  ChatGPT Developer Mode connection guidance. The latest MCP spec uses HTTP 403
+  for insufficient scope, so transport scope denial follows that current rule
+  rather than the older prompt assumption of 401.
+- ADR: selected external authorization server / resource-server-only Option A;
+  default client strategy CIMD, with validated DCR and predefined alternatives.
+- Implementation: config/CLI/env contract, metadata/challenge routes,
+  discovery/JWKS runtime, asymmetric JWT validation, exact resource audience,
+  per-tool security schemes, tool-level step-up challenge, and read/write scope
+  enforcement before execution. OAuth principals remain agent-only.
+- Security: production HTTPS, loopback-only unsafe HTTP, no OAuth/static fallback,
+  no generated credentials in logs, JWKS host trust restriction, no redirects on
+  metadata fetch, bounded discovery response/timeouts, no custom cryptography.
+- Evidence checkpoint: build passed; complete Vitest suite passed with 49 files
+  and 385 tests; OAuth integration passed metadata, challenge, valid token,
+  malformed/expired/nbf/wrong issuer/wrong audience/invalid signature/wrong JWT type, missing
+  scope, API-key bypass, exact JWKS host/port trust, JWKS rotation, CIMD capability,
+  and PKCE downgrade cases. Packed-package
+  smoke installed the tarball and started its CLI in OAuth mode, then verified
+  metadata, 401 discovery, and signed-token `tools/list`.
+- External gate: live ChatGPT acceptance remains unobserved because no public
+  HTTPS resource, IdP tenant, redirect allowlist, or user ChatGPT UI session was
+  supplied. Exact minimal checklist is in `docs/oauth.md`.
+- Release preparation: package and lock metadata target `2.1.0`; the exact tree
+  passed `npm run release:check` with typecheck, lint, 49 test files / 385 tests,
+  both zero-vulnerability audits, build, 100-file packed-package OAuth startup,
+  stdio smoke, and authenticated HTTP smoke. The package smoke also sanitizes
+  inherited npm dry-run flags so the final `npm publish --dry-run` path validates
+  a real tarball. Changes were committed on `hardening/authorization-boundary`
+  and merged locally into `main`; no push, Git tag, npm publication, or hosted
+  release was performed.

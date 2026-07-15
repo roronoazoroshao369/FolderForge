@@ -41,6 +41,7 @@ export function defineTool(def) {
         inputSchema: def.inputSchema,
         ...(def.outputSchema !== undefined ? { outputSchema: def.outputSchema } : {}),
         group: def.group,
+        audience: def.audience ?? 'agent',
         mutates: def.mutates,
         risk,
         annotations: deriveAnnotations(def.name, def.mutates, risk, def.annotations),
@@ -97,14 +98,47 @@ export class ToolRegistry {
             return all;
         return all.filter((t) => this.activeSet.has(t.name));
     }
+    /** Tools visible to an agent-facing MCP client. Admin tools never cross this boundary. */
+    listAgentActive() {
+        return this.listActive().filter((tool) => tool.audience === 'agent');
+    }
     listAll() {
         return [...this.tools.values()];
+    }
+    /** Invoke a tool through the agent plane, never with admin authority. */
+    async callAgent(name, rawArgs, control) {
+        const principal = {
+            ...(control?.principal ?? {}),
+            id: control?.principal?.id ?? 'agent:unknown',
+            role: 'agent',
+        };
+        return this.call(name, rawArgs, { ...control, principal });
     }
     /** Execute a tool through the policy + audit pipeline. */
     async call(name, rawArgs, control) {
         const tool = this.tools.get(name);
         if (!tool) {
             return { ok: false, error: `Unknown tool: ${name}` };
+        }
+        if (tool.audience === 'admin' && control?.principal?.role !== 'admin') {
+            return { ok: false, error: `Admin-only tool: ${name}` };
+        }
+        const principal = control?.principal;
+        if (principal?.authMode === 'oauth') {
+            const requiredScopes = tool.mutates
+                ? [principal.readScope, principal.writeScope]
+                : [principal.readScope];
+            const presentScopes = requiredScopes.filter((scope) => Boolean(scope));
+            if (presentScopes.length !== requiredScopes.length) {
+                return { ok: false, error: 'OAuth principal is missing scope policy context' };
+            }
+            const missing = presentScopes.filter((scope) => !(principal.scopes ?? []).includes(scope));
+            if (missing.length > 0) {
+                return {
+                    ok: false,
+                    error: `OAuth scope required before tool execution: ${missing.join(' ')}`,
+                };
+            }
         }
         const args = rawArgs ?? {};
         // Determine per-call risk (shell can be re-classified by the handler later,
@@ -177,7 +211,8 @@ export class ToolRegistry {
             risk,
             summary: summarizeArgs(name, args, (value) => this.container.policy.secret.redactValue(value)),
         });
-        const decision = this.container.policy.evaluate(name, risk, mutates, args);
+        const requesterId = control?.principal?.id ?? 'agent:unknown';
+        const decision = this.container.policy.evaluate(name, risk, mutates, args, requesterId);
         if (decision.kind === 'deny') {
             this.container.audit.record({ type: 'policy_deny', tool: name, risk, summary: decision.reason });
             return { ok: false, error: `Denied: ${decision.reason}` };
@@ -190,79 +225,13 @@ export class ToolRegistry {
                 summary: decision.reason,
                 detail: { approvalId: decision.approvalId },
             });
-            // Interactive approval (MCP elicitation): when the connected client
-            // advertised the `elicitation` capability, ask the user to Approve/Deny
-            // right in the chat instead of forcing them to the dashboard. On accept we
-            // resolve the pending request and fall through to run the tool; on
-            // decline/cancel we deny it and return. Clients without elicitation see
-            // `control.elicitInput === undefined` and fall back to the dashboard flow
-            // (unchanged behaviour), so this is purely additive.
-            if (control?.elicitInput) {
-                let elicited;
-                try {
-                    elicited = await control.elicitInput({
-                        message: `Approve "${name}" (${risk})?\n${decision.reason}\n` +
-                            `Args: ${summarizeArgs(name, args, (value) => this.container.policy.secret.redactValue(value))}\n` +
-                            `Choose "session" to allow this tool for the rest of the session.`,
-                        requestedSchema: {
-                            type: 'object',
-                            properties: {
-                                approve: {
-                                    type: 'boolean',
-                                    description: 'Allow this action to run.',
-                                },
-                                scope: {
-                                    type: 'string',
-                                    enum: ['once', 'session'],
-                                    description: 'once = this call only; session = remember for this session.',
-                                },
-                            },
-                            required: ['approve'],
-                        },
-                    });
-                }
-                catch (err) {
-                    logger.warn({ tool: name, err: String(err) }, 'Elicitation failed; falling back to dashboard approval');
-                    return {
-                        ok: false,
-                        approvalId: decision.approvalId,
-                        error: `Approval required (${risk}). Resolve in the dashboard or via approval tools. id=${decision.approvalId}`,
-                    };
-                }
-                const approved = elicited.action === 'accept' && elicited.content?.approve === true;
-                if (!approved) {
-                    this.container.policy.approvals.deny(decision.approvalId);
-                    this.container.audit.record({
-                        type: 'approval_resolved',
-                        tool: name,
-                        risk,
-                        summary: `denied via elicitation (${elicited.action})`,
-                        detail: { approvalId: decision.approvalId },
-                    });
-                    return {
-                        ok: false,
-                        error: `"${name}" was not approved (${elicited.action}).`,
-                    };
-                }
-                const scope = elicited.content?.scope === 'session' ? 'session' : 'once';
-                this.container.policy.approvals.approve(decision.approvalId, scope);
-                this.container.audit.record({
-                    type: 'approval_resolved',
-                    tool: name,
-                    risk,
-                    summary: `approved via elicitation (${scope})`,
-                    detail: { approvalId: decision.approvalId },
-                });
-                // Fall through to rate-limit + execute below.
-            }
-            else {
-                // No interactive capability: keep the dashboard/approval-tool flow.
-                return {
-                    ok: false,
-                    approvalId: decision.approvalId,
-                    error: `Approval required (${risk}). Resolve in the dashboard or via approval tools. id=${decision.approvalId}`,
-                };
-            }
+            // Agent-facing protocol controls may report or render the request, but they
+            // cannot resolve it. Resolution is confined to the authenticated admin plane.
+            return {
+                ok: false,
+                approvalId: decision.approvalId,
+                error: `Approval required (${risk}). Resolve in the dashboard admin plane. id=${decision.approvalId}`,
+            };
         }
         // Rate limit / quota: applied only to calls that policy would actually
         // run. Denied or approval-gated calls never consume quota.

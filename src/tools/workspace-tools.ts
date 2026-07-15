@@ -173,7 +173,7 @@ export function workspaceTools(): ToolDefinition[] {
           ctx.container.audit.record({ type: 'workspace_route', summary: 'all' });
           return {
             ok: true,
-            data: { preset: 'all', active: registry.listActive().map((t: ToolDefinition) => t.name) },
+            data: { preset: 'all', active: registry.listAgentActive().map((t: ToolDefinition) => t.name) },
           };
         }
 
@@ -192,7 +192,7 @@ export function workspaceTools(): ToolDefinition[] {
         ctx.container.audit.record({ type: 'workspace_route', summary: preset });
         return {
           ok: true,
-          data: { preset, active: registry.listActive().map((t: ToolDefinition) => t.name) },
+          data: { preset, active: registry.listAgentActive().map((t: ToolDefinition) => t.name) },
         };
       },
     }),

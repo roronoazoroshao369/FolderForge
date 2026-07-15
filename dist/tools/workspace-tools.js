@@ -161,7 +161,7 @@ export function workspaceTools() {
                     ctx.container.audit.record({ type: 'workspace_route', summary: 'all' });
                     return {
                         ok: true,
-                        data: { preset: 'all', active: registry.listActive().map((t) => t.name) },
+                        data: { preset: 'all', active: registry.listAgentActive().map((t) => t.name) },
                     };
                 }
                 const preset = args.preset === undefined ? undefined : String(args.preset);
@@ -178,7 +178,7 @@ export function workspaceTools() {
                 ctx.container.audit.record({ type: 'workspace_route', summary: preset });
                 return {
                     ok: true,
-                    data: { preset, active: registry.listActive().map((t) => t.name) },
+                    data: { preset, active: registry.listAgentActive().map((t) => t.name) },
                 };
             },
         }),

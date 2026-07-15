@@ -3,6 +3,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { adminPrincipalFromCredential } from '../core/principal.js';
+import { ApprovalResolutionError } from '../policy/approvals.js';
 import { logger } from '../core/logger.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /** True when the bind host is loopback-only and therefore safe without a token. */
@@ -20,6 +22,7 @@ export function isLoopbackHost(host) {
  *   GET  /approvals   -> pending + resolved approval requests
  *   POST /approvals/:id/approve  -> approve (body: { scope?: 'once'|'session' })
  *   POST /approvals/:id/deny     -> deny
+ *   POST /policy/mode             -> change runtime policy mode (admin only)
  */
 export function startDashboard(container, registry, opts) {
     // Auth is enforced only when bound to a non-loopback address. A loopback bind
@@ -29,7 +32,8 @@ export function startDashboard(container, registry, opts) {
         throw new Error('Dashboard bound to a non-loopback host requires a token');
     }
     const server = createServer((req, res) => {
-        if (requireAuth && !isAuthorized(req, opts.token)) {
+        const credential = extractDashboardCredential(req);
+        if (requireAuth && (!credential || !timingSafeEqualStr(credential, opts.token))) {
             res.writeHead(401, {
                 'content-type': 'application/json; charset=utf-8',
                 'www-authenticate': 'Bearer realm="folderforge-dashboard"',
@@ -37,7 +41,8 @@ export function startDashboard(container, registry, opts) {
             res.end(JSON.stringify({ error: 'unauthorized', message: 'Valid bearer token required.' }));
             return;
         }
-        handle(req, res, container, registry).catch((err) => {
+        const principal = adminPrincipalFromCredential(requireAuth ? credential : undefined);
+        handle(req, res, container, registry, principal).catch((err) => {
             logger.error({ err: String(err) }, 'Dashboard request failed');
             sendJson(res, 500, { error: 'internal_error', message: String(err) });
         });
@@ -52,19 +57,15 @@ export function startDashboard(container, registry, opts) {
  * query parameter (handy for opening the dashboard in a browser). Comparison is
  * constant-time to avoid leaking the token length/prefix via timing.
  */
-function isAuthorized(req, expected) {
+function extractDashboardCredential(req) {
     const header = req.headers['authorization'];
-    let provided;
     if (typeof header === 'string' && header.startsWith('Bearer ')) {
-        provided = header.slice('Bearer '.length).trim();
+        const credential = header.slice('Bearer '.length).trim();
+        if (credential)
+            return credential;
     }
-    if (!provided) {
-        const url = new URL(req.url ?? '/', 'http://localhost');
-        provided = url.searchParams.get('token') ?? undefined;
-    }
-    if (!provided)
-        return false;
-    return timingSafeEqualStr(provided, expected);
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    return url.searchParams.get('token') ?? undefined;
 }
 function timingSafeEqualStr(a, b) {
     const ab = Buffer.from(a);
@@ -73,7 +74,7 @@ function timingSafeEqualStr(a, b) {
         return false;
     return timingSafeEqual(ab, bb);
 }
-async function handle(req, res, container, registry) {
+async function handle(req, res, container, registry, principal) {
     const method = req.method ?? 'GET';
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname;
@@ -121,12 +122,20 @@ async function handle(req, res, container, registry) {
         const action = approvalMatch[2];
         const body = await readJsonBody(req);
         let result;
-        if (action === 'approve') {
-            const scope = body?.scope === 'session' ? 'session' : 'once';
-            result = container.policy.approvals.approve(id, scope);
+        try {
+            if (action === 'approve') {
+                const scope = body?.scope === 'session' ? 'session' : 'once';
+                result = container.policy.approvals.approve(id, scope, principal.id);
+            }
+            else {
+                result = container.policy.approvals.deny(id, principal.id);
+            }
         }
-        else {
-            result = container.policy.approvals.deny(id);
+        catch (error) {
+            if (error instanceof ApprovalResolutionError) {
+                return sendJson(res, 409, { error: error.code, message: error.message, id });
+            }
+            throw error;
         }
         if (!result) {
             return sendJson(res, 404, { error: 'approval_not_found', id });
@@ -136,9 +145,23 @@ async function handle(req, res, container, registry) {
             tool: result.tool,
             risk: result.risk,
             summary: `${action} (${result.state})`,
-            detail: { approvalId: id },
+            detail: { approvalId: id, approverId: principal.id },
         });
         return sendJson(res, 200, { approval: result });
+    }
+    if (method === 'POST' && path === '/policy/mode') {
+        const body = await readJsonBody(req);
+        const mode = String(body?.mode ?? '');
+        if (!['readonly', 'safe', 'dev', 'danger'].includes(mode)) {
+            return sendJson(res, 400, { error: 'invalid_policy_mode', mode });
+        }
+        container.policy.setMode(mode);
+        container.audit.record({
+            type: 'policy_change',
+            summary: `mode=${mode}`,
+            detail: { actorId: principal.id, mode },
+        });
+        return sendJson(res, 200, { mode });
     }
     sendJson(res, 404, { error: 'not_found', path });
 }

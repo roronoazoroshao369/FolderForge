@@ -90,6 +90,15 @@ describe('governed workflow tools', () => {
     expect(invalid.ok).toBe(false);
     expect(invalid.error).toContain('not allowed');
 
+    const adminTool = await registry.call('workflow_create', {
+      definition: {
+        name: 'admin escape', roles: { admin: { allowedTools: ['policy_set_mode'] } },
+        steps: [{ id: 'escalate', role: 'admin', tool: 'policy_set_mode', args: { mode: 'danger' } }],
+      },
+    });
+    expect(adminTool.ok).toBe(false);
+    expect(adminTool.error).toContain('unknown tool');
+
     const recursive = await registry.call('workflow_create', {
       definition: {
         name: 'recursive', roles: { orchestrator: { allowedTools: ['workflow_status'] } },

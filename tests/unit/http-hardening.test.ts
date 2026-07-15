@@ -7,6 +7,10 @@ import {
   matchesAnyCredential,
   resolveCorsOrigin,
 } from '../../src/server/transports/http.js';
+import {
+  adminPrincipalFromCredential,
+  agentPrincipalFromCredential,
+} from '../../src/core/principal.js';
 
 describe('http transport hardening helpers', () => {
   it('identifies loopback hosts', () => {
@@ -54,5 +58,14 @@ describe('http transport hardening helpers', () => {
     expect(resolveCorsOrigin(undefined, ['*'])).toBe('*');
     expect(resolveCorsOrigin('https://app.test', ['https://app.test'])).toBe('https://app.test');
     expect(resolveCorsOrigin('https://evil.test', ['https://app.test'])).toBeNull();
+  });
+
+  it('derives one stable principal id per credential across agent and admin planes', () => {
+    const agent = agentPrincipalFromCredential('shared-credential');
+    const admin = adminPrincipalFromCredential('shared-credential');
+    expect(agent.id).toBe(admin.id);
+    expect(agent.role).toBe('agent');
+    expect(admin.role).toBe('admin');
+    expect(agent.id).not.toContain('shared-credential');
   });
 });

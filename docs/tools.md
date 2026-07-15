@@ -103,42 +103,24 @@ persistent notes stored under `.folderforge/`.
 (`src/policy/secret-policy.ts`).
 
 ### Policy & audit
-`policy_get`, `policy_set_mode` - read or change the active policy mode
-(`readonly`/`safe`/`dev`/`danger`). `policy_explain` - dry-run a tool call and
-return the decision (`allow`/`deny`/`approval`) plus the contributing factors,
-without executing the tool or creating an approval request. `audit_recent`,
-`audit_export` - inspect or export the append-only audit trail.
+`policy_get` reads the active policy mode. `policy_set_mode` remains frozen in the
+internal schema for compatibility but is admin-only and is never advertised to
+agent MCP clients; runtime changes use dashboard `POST /policy/mode`.
+`policy_explain` dry-runs a tool call and returns the decision
+(`allow`/`deny`/`approval`) without executing it or creating a request.
+`audit_recent` and `audit_export` inspect or export the append-only audit trail.
 
 ### Approvals
-`approval_status`, `approval_request` - inspect pending approval requests created
-by the engine, or raise one explicitly. `approval_approve` (`id`, optional
-`scope: once|session`), `approval_deny` (`id`) - resolve a pending request
-directly over the MCP tool channel. This unblocks HIGH/CRITICAL calls when the
-dashboard is disabled (`--no-dashboard`) and the client cannot elicit;
-`scope: "session"` allows the same tool for the rest of the run.
+`approval_status` and `approval_request` remain agent-visible for inspection and
+request creation. `approval_approve` and `approval_deny` remain in the internal
+frozen registry for compatibility, but are admin-only and excluded from agent
+`tools/list` / `tools/call`.
 
-#### Interactive approval via elicitation (1.3.3+)
-
-When a tool call triggers the approval queue and the MCP client advertises the
-`elicitation` capability, FolderForge sends an `elicitInput` request so the
-user can **Approve / Deny right inside the chat** — no dashboard required.
-
-```
-approve: true | false
-scope:   "once" | "session"   (session = remember for the rest of this run)
-```
-
-Decision path:
-
-| Situation | Behaviour |
-| --- | --- |
-| Client supports elicitation, user approves | Approval resolved inline; tool runs immediately. |
-| Client supports elicitation, user denies / cancels | Tool denied; clear error returned to caller. |
-| Client does **not** support elicitation | Falls back to dashboard flow; `approvalId` returned so the user can approve at `http://localhost:7332`. |
-| Elicitation call fails (transport closed, timeout) | Safe fallback to dashboard; never leaves the queue in an unknown state. |
-
-The fallback behaviour is identical to how approvals worked before 1.3.3, so
-existing setups without elicitation support are unaffected.
+A gated agent call returns an `approvalId`. A distinct dashboard admin principal
+may resolve it with `once` or `session` scope. Requests expire after
+`policy.approvalTtlMs`; self-approval is rejected; once approvals bind requester,
+tool, and canonical arguments; session approvals bind requester and tool for the
+current process.
 
 #### Embedded resource blocks (1.3.3+)
 
