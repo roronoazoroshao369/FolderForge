@@ -4,6 +4,19 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Add persisted ChatGPT runtime profiles and CLI overrides: `--profile`,
+  `--full-access`, `--policy`, `--tools-preset`, `--adapters`, dashboard controls,
+  offline-access controls, DCR client policy, and `--force-config`.
+- Quick mode now checks and optionally enables the Auth0 DCR tenant flag, configures
+  refresh-token support and DCR client access on the Auth0 API, and fails early on
+  local port conflicts.
+- `chatgpt start` and `repair` preserve generated runtime settings; explicit start
+  overrides rewrite the generated YAML and restart the managed server.
+
 ## [2.1.0] - 2026-07-15
 
 ### Added

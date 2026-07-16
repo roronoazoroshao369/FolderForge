@@ -79,6 +79,15 @@ const write = (state) => fs.writeFileSync(statePath, JSON.stringify(state));
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 if (args[0] === '--version') { console.log('auth0 version 1.32.0 fake'); process.exit(0); }
 if (args[0] === 'tenants' && args[1] === 'list') { console.log(JSON.stringify([{ active: true, name: 'tenant.example.auth0.com' }])); process.exit(0); }
+if (args[0] === 'tenant-settings' && args[1] === 'show') {
+  const state = read();
+  console.log(JSON.stringify({ flags: { enable_dynamic_client_registration: state.dcrEnabled ?? true } }));
+  process.exit(0);
+}
+if (args[0] === 'tenant-settings' && args[1] === 'update' && args[2] === 'set') {
+  const state = read(); state.dcrEnabled = true; state.dcrUpdates = (state.dcrUpdates || 0) + 1; write(state);
+  console.log(JSON.stringify({ flags: { enable_dynamic_client_registration: true } })); process.exit(0);
+}
 if (args[0] === 'apis' && args[1] === 'list') { console.log(JSON.stringify(read().apis)); process.exit(0); }
 if (args[0] === 'apis' && args[1] === 'show') {
   const state = read();
@@ -92,7 +101,8 @@ if (args[0] === 'apis' && args[1] === 'create') {
   const api = {
     id: 'api_1', name: flag('--name'), identifier: flag('--identifier'), scopes,
     signing_alg: 'RS256', token_dialect: 'rfc9068_profile', token_lifetime: 3600,
-    allow_offline_access: false
+    allow_offline_access: args.includes('--offline-access=true'),
+    subject_type_authorization: JSON.parse(flag('--subject-type-authorization') || '{}')
   };
   state.apis.push(api); state.creates += 1; write(state); console.log(JSON.stringify(api)); process.exit(0);
 }
@@ -294,7 +304,11 @@ describe('ChatGPT connect CLI', () => {
       signing_alg: 'RS256',
       token_dialect: 'rfc9068_profile',
       token_lifetime: 3600,
-      allow_offline_access: false,
+      allow_offline_access: true,
+      subject_type_authorization: {
+        user: { policy: 'allow_all' },
+        client: { policy: 'allow_all' },
+      },
     });
   });
 
@@ -318,6 +332,63 @@ describe('ChatGPT connect CLI', () => {
     expect(result.exitCode).toBe(0);
     expect(readFileSync(statePath, 'utf8')).toContain('"creates":0');
     expect(existsSync(join(root, '.folderforge'))).toBe(false);
+  });
+
+  it('persists full-access CLI overrides and force-rebuilds generated YAML', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-chatgpt-full-'));
+    const statePath = join(root, 'auth0-state.json');
+    writeFileSync(statePath, JSON.stringify({ apis: [], creates: 0, updates: 0, dcrEnabled: false }));
+    const bin = installFakeAuth0(root);
+    process.env.PATH = `${bin}${delimiter}${originalPath ?? ''}`;
+    process.env.FAKE_AUTH0_STATE = statePath;
+
+    const result = await executeChatGptCli([
+      'connect',
+      '--quick',
+      '--public-url',
+      'https://mcp.example.com/mcp',
+      '--project',
+      root,
+      '--port',
+      '7443',
+      '--full-access',
+      '--adapters',
+      'playwright,serena',
+      '--dashboard',
+      '--dashboard-port',
+      '7555',
+      '--force-config',
+      '--no-start',
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.receipt?.runtime).toMatchObject({
+      profile: 'full',
+      policyMode: 'danger',
+      toolsPreset: 'full',
+      adapters: ['playwright', 'serena'],
+      dashboard: true,
+      dashboardPort: 7555,
+      offlineAccess: true,
+      dcrClientPolicy: 'allow-all',
+      autoEnableDcr: true,
+    });
+    const config = YAML.parse(readFileSync(join(root, '.folderforge', 'chatgpt-config.yaml'), 'utf8')) as any;
+    expect(config.server.http.port).toBe(7443);
+    expect(config.server.dashboard).toMatchObject({ enabled: true, port: 7555 });
+    expect(config.policy.defaultMode).toBe('danger');
+    expect(config.tools.preset).toBe('full');
+    expect(config.adapters.playwright.enabled).toBe(true);
+    expect(config.adapters.serena.enabled).toBe(true);
+    const state = JSON.parse(readFileSync(statePath, 'utf8')) as any;
+    expect(state.dcrEnabled).toBe(true);
+    expect(state.dcrUpdates).toBe(1);
+    expect(state.apis[0]).toMatchObject({
+      allow_offline_access: true,
+      subject_type_authorization: {
+        user: { policy: 'allow_all' },
+        client: { policy: 'allow_all' },
+      },
+    });
   });
 
   it('rejects receipts containing secret fields or JWT-shaped values', () => {

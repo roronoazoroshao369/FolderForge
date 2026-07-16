@@ -410,17 +410,25 @@ For Auth0, the guided path is:
 # Personal testing: Auth0 DCR + a temporary Cloudflare quick tunnel.
 folderforge connect chatgpt --quick
 
+# One-command full local coding profile; CLI options persist to generated YAML.
+folderforge connect chatgpt --quick --full-access --port 7443
+
 # Team/production: stable HTTPS URL + predefined OAuth client.
 folderforge connect chatgpt --secure \
   --public-url https://mcp.example.com/mcp
 ```
 
 The wizard discovers the active Auth0 tenant and issuer, verifies discovery,
-PKCE S256 and JWKS, creates or reuses the API/scopes idempotently, writes a
+PKCE S256 and JWKS, automatically enables DCR in quick mode when allowed, creates
+or reuses the API/scopes with refresh-token and DCR-client access configured, writes a
 secret-free receipt, starts the local server/tunnel, and verifies OAuth metadata
 plus the `401 WWW-Authenticate` challenge. It never stores Auth0 Management API
 tokens, OAuth tokens, authorization codes, client secrets, private keys, PKCE
 verifiers, API keys, passwords, or cookies.
+
+Runtime options such as `--profile`, `--policy`, `--tools-preset`, `--adapters`,
+`--dashboard`, `--port`, and `--force-config` are written into
+`.folderforge/chatgpt-config.yaml`; CLI values override prior generated values.
 
 Lifecycle commands:
 

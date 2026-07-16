@@ -13,6 +13,7 @@ import {
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
+import { createServer as createNetServer } from 'node:net';
 import { stdin as input, stdout as output } from 'node:process';
 import YAML from 'yaml';
 
@@ -26,6 +27,23 @@ const CLI_ENTRY = fileURLToPath(new URL('../main.js', import.meta.url));
 export type ChatGptMode = 'quick' | 'secure';
 export type RegistrationStrategy = 'dcr' | 'predefined';
 export type CheckState = 'pass' | 'pending' | 'pending_user_login' | 'fail' | 'not_run';
+export type ChatGptPolicyMode = 'readonly' | 'safe' | 'dev' | 'danger';
+export type ChatGptToolsPreset = 'vibe' | 'vibe-lite' | 'readonly' | 'full' | 'godot';
+export type ChatGptProfile = 'safe' | 'developer' | 'full';
+export type DcrClientPolicy = 'allow-all' | 'require-grant';
+export type ChatGptAdapter = 'playwright' | 'serena' | 'desktop-commander' | 'godot';
+
+export interface ChatGptRuntimeSettings {
+  profile: ChatGptProfile;
+  policyMode: ChatGptPolicyMode;
+  toolsPreset: ChatGptToolsPreset;
+  adapters: ChatGptAdapter[];
+  dashboard: boolean;
+  dashboardPort: number;
+  offlineAccess: boolean;
+  dcrClientPolicy: DcrClientPolicy;
+  autoEnableDcr: boolean;
+}
 
 export interface ChatGptConnectionReceipt {
   version: number;
@@ -71,6 +89,7 @@ export interface ChatGptConnectionReceipt {
     mcpInitialize: CheckState;
   };
   warnings: string[];
+  runtime?: ChatGptRuntimeSettings;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,6 +113,26 @@ interface Auth0Api {
   token_lifetime?: number;
   allow_offline_access?: boolean;
   scopes?: Array<{ value?: string; description?: string }>;
+  subject_type_authorization?: {
+    user?: { policy?: string };
+    client?: { policy?: string };
+  };
+}
+
+interface ExistingChatGptConfig {
+  profile?: ChatGptProfile;
+  host?: string;
+  port?: number;
+  policyMode?: ChatGptPolicyMode;
+  toolsPreset?: ChatGptToolsPreset;
+  adapters?: ChatGptAdapter[];
+  dashboard?: boolean;
+  dashboardPort?: number;
+}
+
+interface ResolvedChatGptSettings extends ChatGptRuntimeSettings {
+  host: string;
+  port: number;
 }
 
 interface ParsedOptions {
@@ -104,8 +143,18 @@ interface ParsedOptions {
   tunnel: 'cloudflared' | 'none';
   tenant?: string;
   clientId?: string;
-  host: string;
-  port: number;
+  host?: string;
+  port?: number;
+  profile?: ChatGptProfile;
+  policyMode?: ChatGptPolicyMode;
+  toolsPreset?: ChatGptToolsPreset;
+  adapters?: ChatGptAdapter[];
+  dashboard?: boolean;
+  dashboardPort?: number;
+  offlineAccess?: boolean;
+  dcrClientPolicy?: DcrClientPolicy;
+  autoEnableDcr?: boolean;
+  forceConfig: boolean;
   start: boolean;
   json: boolean;
   dryRun: boolean;
@@ -149,6 +198,41 @@ function valueAfter(argv: string[], index: number, flag: string): string {
   return value;
 }
 
+function parseEnum<T extends string>(value: string, allowed: readonly T[], flag: string): T {
+  if (!allowed.includes(value as T)) throw new Error(`${flag} must be one of ${allowed.join(', ')}`);
+  return value as T;
+}
+
+function parsePort(value: string, flag: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`${flag} must be an integer from 1 to 65535`);
+  }
+  return port;
+}
+
+function parseAdapters(value: string): ChatGptAdapter[] {
+  const normalized = value.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+  if (normalized.length === 0 || normalized.includes('none')) return [];
+  const expanded = normalized.includes('all')
+    ? ['playwright', 'serena', 'desktop-commander', 'godot']
+    : normalized;
+  const aliases: Record<string, ChatGptAdapter> = {
+    playwright: 'playwright',
+    serena: 'serena',
+    'desktop-commander': 'desktop-commander',
+    desktopcommander: 'desktop-commander',
+    godot: 'godot',
+  };
+  const result: ChatGptAdapter[] = [];
+  for (const item of expanded) {
+    const adapter = aliases[item];
+    if (!adapter) throw new Error('--adapters accepts playwright, serena, desktop-commander, godot, all, or none');
+    if (!result.includes(adapter)) result.push(adapter);
+  }
+  return result;
+}
+
 export function parseChatGptArgs(argv: string[], cwd = process.cwd()): ParsedOptions {
   const actionRaw = argv[0] ?? 'connect';
   const allowedActions = new Set(['connect', 'status', 'doctor', 'repair', 'start', 'stop', 'disconnect']);
@@ -158,8 +242,7 @@ export function parseChatGptArgs(argv: string[], cwd = process.cwd()): ParsedOpt
     action: actionRaw as ParsedOptions['action'],
     projectRoot: resolve(cwd),
     tunnel: 'cloudflared',
-    host: DEFAULT_HOST,
-    port: DEFAULT_PORT,
+    forceConfig: false,
     start: true,
     json: false,
     dryRun: false,
@@ -208,15 +291,72 @@ export function parseChatGptArgs(argv: string[], cwd = process.cwd()): ParsedOpt
         options.host = valueAfter(argv, index, arg);
         index += 1;
         break;
-      case '--port': {
-        const value = Number(valueAfter(argv, index, arg));
-        if (!Number.isInteger(value) || value < 1 || value > 65535) {
-          throw new Error('--port must be an integer from 1 to 65535');
-        }
-        options.port = value;
+      case '--port':
+        options.port = parsePort(valueAfter(argv, index, arg), arg);
         index += 1;
         break;
-      }
+      case '--profile':
+        options.profile = parseEnum(valueAfter(argv, index, arg), ['safe', 'developer', 'full'] as const, arg);
+        index += 1;
+        break;
+      case '--full-access':
+        options.profile = 'full';
+        break;
+      case '--policy':
+      case '--policy-mode':
+        options.policyMode = parseEnum(
+          valueAfter(argv, index, arg),
+          ['readonly', 'safe', 'dev', 'danger'] as const,
+          arg
+        );
+        index += 1;
+        break;
+      case '--tools-preset':
+        options.toolsPreset = parseEnum(
+          valueAfter(argv, index, arg),
+          ['vibe', 'vibe-lite', 'readonly', 'full', 'godot'] as const,
+          arg
+        );
+        index += 1;
+        break;
+      case '--adapters':
+        options.adapters = parseAdapters(valueAfter(argv, index, arg));
+        index += 1;
+        break;
+      case '--dashboard':
+        options.dashboard = true;
+        break;
+      case '--no-dashboard':
+        options.dashboard = false;
+        break;
+      case '--dashboard-port':
+        options.dashboardPort = parsePort(valueAfter(argv, index, arg), arg);
+        index += 1;
+        break;
+      case '--offline-access':
+        options.offlineAccess = true;
+        break;
+      case '--no-offline-access':
+        options.offlineAccess = false;
+        break;
+      case '--dcr-client-policy':
+        options.dcrClientPolicy = parseEnum(
+          valueAfter(argv, index, arg),
+          ['allow-all', 'require-grant'] as const,
+          arg
+        );
+        index += 1;
+        break;
+      case '--auto-enable-dcr':
+        options.autoEnableDcr = true;
+        break;
+      case '--no-auto-enable-dcr':
+        options.autoEnableDcr = false;
+        break;
+      case '--force':
+      case '--force-config':
+        options.forceConfig = true;
+        break;
       case '--no-start':
         options.start = false;
         break;
@@ -264,6 +404,20 @@ export function chatGptHelp(): string {
     '      --client-id <id>    Predefined OAuth client id for secure mode (never stores a client secret)',
     '      --host <addr>       Local FolderForge bind host (default 127.0.0.1)',
     '      --port <n>          Local FolderForge port (default 7331)',
+    '      --profile <id>      safe|developer|full (default developer)',
+    '      --full-access       Shortcut for --profile full (danger policy + full built-in tools)',
+    '      --policy <mode>     readonly|safe|dev|danger; persisted to YAML',
+    '      --tools-preset <id> vibe|vibe-lite|readonly|full|godot; persisted to YAML',
+    '      --adapters <list>   playwright,serena,desktop-commander,godot,all,none',
+    '      --dashboard         Enable the local dashboard (disabled by default for ChatGPT)',
+    '      --no-dashboard      Persistently disable the local dashboard',
+    '      --dashboard-port <n> Local dashboard port (default 7332)',
+    '      --offline-access    Allow refresh tokens (default for ChatGPT)',
+    '      --no-offline-access Disable refresh-token issuance',
+    '      --dcr-client-policy <id> allow-all|require-grant (quick default allow-all)',
+    '      --auto-enable-dcr   Enable Auth0 DCR automatically in quick mode (default)',
+    '      --no-auto-enable-dcr Fail instead of changing the Auth0 DCR tenant flag',
+    '      --force-config      Ignore prior runtime settings and rebuild generated YAML from CLI/defaults',
     '      --no-start          Configure Auth0 and generate local files without starting processes',
     '      --dry-run           Discover and validate only; do not change Auth0 or local files',
     '      --json              Machine-readable receipt/status output',
@@ -558,11 +712,14 @@ async function showAuth0Api(tenant: string, idOrIdentifier: string): Promise<Aut
 async function provisionAuth0Api(
   tenant: string,
   resource: string,
-  dryRun: boolean
+  dryRun: boolean,
+  offlineAccess: boolean,
+  dcrClientPolicy: DcrClientPolicy
 ): Promise<{ api: Auth0Api; created: boolean; changed: boolean }> {
   const apis = await listAuth0Apis(tenant);
   const existing = apis.find((api) => api.identifier === resource);
   const desiredScopes = [...DEFAULT_SCOPES];
+  const subjectTypeAuthorization = desiredSubjectAuthorization(dcrClientPolicy);
   if (!existing) {
     if (dryRun) {
       return {
@@ -588,7 +745,9 @@ async function provisionAuth0Api(
         'rfc9068_profile',
         '--token-lifetime',
         '3600',
-        '--offline-access=false',
+        `--offline-access=${offlineAccess ? 'true' : 'false'}`,
+        '--subject-type-authorization',
+        JSON.stringify(subjectTypeAuthorization),
         '--json-compact',
         '--no-color',
         '--no-input',
@@ -621,12 +780,15 @@ async function provisionAuth0Api(
     if (existingScopeValues.has(scope)) continue;
     mergedScopes.push({ value: scope, description: scopeDescriptions[scope] });
   }
+  const currentSubject = current.subject_type_authorization;
   const needsUpdate =
     desiredScopes.some((scope) => !existingScopeValues.has(scope)) ||
     current.signing_alg !== 'RS256' ||
     current.token_dialect !== 'rfc9068_profile' ||
     current.token_lifetime !== 3600 ||
-    current.allow_offline_access !== false;
+    current.allow_offline_access !== offlineAccess ||
+    currentSubject?.user?.policy !== subjectTypeAuthorization.user?.policy ||
+    currentSubject?.client?.policy !== subjectTypeAuthorization.client?.policy;
   if (!needsUpdate || dryRun) return { api: current, created: false, changed: needsUpdate };
 
   const result = await runCommand(
@@ -641,7 +803,8 @@ async function provisionAuth0Api(
         signing_alg: 'RS256',
         token_dialect: 'rfc9068_profile',
         token_lifetime: 3600,
-        allow_offline_access: false,
+        allow_offline_access: offlineAccess,
+        subject_type_authorization: subjectTypeAuthorization,
       }),
       '--no-color',
       '--no-input',
@@ -715,13 +878,18 @@ async function startQuickTunnel(projectRoot: string, port: number, logPath: stri
   throw new Error(`Cloudflare quick tunnel did not become ready. ${log}`.trim());
 }
 
-function generatedConfig(receipt: Pick<ChatGptConnectionReceipt, 'resource' | 'issuer' | 'scopes' | 'registration'>, host: string, port: number): string {
+function generatedConfig(
+  receipt: Pick<ChatGptConnectionReceipt, 'resource' | 'issuer' | 'scopes' | 'registration'>,
+  settings: ResolvedChatGptSettings
+): string {
+  const enabled = new Set(settings.adapters);
   return YAML.stringify({
+    chatgpt: { profile: settings.profile },
     server: {
       transport: 'http',
       http: {
-        host,
-        port,
+        host: settings.host,
+        port: settings.port,
         auth: {
           mode: 'oauth',
           oauth: {
@@ -736,6 +904,29 @@ function generatedConfig(receipt: Pick<ChatGptConnectionReceipt, 'resource' | 'i
           },
         },
       },
+      dashboard: {
+        enabled: settings.dashboard,
+        host: '127.0.0.1',
+        port: settings.dashboardPort,
+      },
+    },
+    policy: { defaultMode: settings.policyMode },
+    tools: { preset: settings.toolsPreset },
+    adapters: {
+      serena: { enabled: enabled.has('serena'), command: 'serena', args: [], facade: true },
+      playwright: {
+        enabled: enabled.has('playwright'),
+        command: 'npx',
+        args: ['-y', '@playwright/mcp@0.0.41', '--isolated'],
+        facade: true,
+      },
+      desktopCommander: {
+        enabled: enabled.has('desktop-commander'),
+        command: 'npx',
+        args: ['-y', '@wonderwhy-er/desktop-commander@latest'],
+        facade: true,
+      },
+      godot: { enabled: enabled.has('godot'), godotPath: 'godot', editorPort: 6550, runtimePort: 9090 },
     },
   });
 }
@@ -864,29 +1055,27 @@ async function verifyEndpoint(receipt: ChatGptConnectionReceipt, timeoutMs = 35_
   }
 }
 
-function startServer(receipt: ChatGptConnectionReceipt, host: string, port: number): number {
+function startServer(receipt: ChatGptConnectionReceipt, settings: ResolvedChatGptSettings): number {
   if (isPidAlive(receipt.processes.serverPid)) return receipt.processes.serverPid!;
   if (!existsSync(CLI_ENTRY)) {
     throw new Error(`Built FolderForge CLI not found at ${CLI_ENTRY}. Run \`npm run build\` and retry.`);
   }
-  return startDetached(
-    process.execPath,
-    [
-      CLI_ENTRY,
-      '--project',
-      receipt.projectRoot,
-      '--config',
-      receipt.configPath,
-      '--http',
-      '--host',
-      host,
-      '--port',
-      String(port),
-      '--no-dashboard',
-    ],
+  const args = [
+    CLI_ENTRY,
+    '--project',
     receipt.projectRoot,
-    receipt.processes.serverLog
-  );
+    '--config',
+    receipt.configPath,
+    '--http',
+    '--host',
+    settings.host,
+    '--port',
+    String(settings.port),
+    '--dashboard-port',
+    String(settings.dashboardPort),
+    ...(settings.dashboard ? [] : ['--no-dashboard']),
+  ];
+  return startDetached(process.execPath, args, receipt.projectRoot, receipt.processes.serverLog);
 }
 
 async function chooseMode(nonInteractive: boolean): Promise<ChatGptMode> {
@@ -912,6 +1101,173 @@ function existingReceipt(projectRoot: string): ChatGptConnectionReceipt | undefi
   }
 }
 
+const PROFILE_DEFAULTS: Record<ChatGptProfile, Pick<ChatGptRuntimeSettings, 'policyMode' | 'toolsPreset' | 'adapters'>> = {
+  safe: { policyMode: 'safe', toolsPreset: 'vibe-lite', adapters: [] },
+  developer: { policyMode: 'dev', toolsPreset: 'vibe-lite', adapters: [] },
+  full: { policyMode: 'danger', toolsPreset: 'full', adapters: [] },
+};
+
+function readExistingChatGptConfig(path: string): ExistingChatGptConfig {
+  if (!existsSync(path)) return {};
+  try {
+    const config = YAML.parse(readFileSync(path, 'utf8')) as {
+      server?: {
+        http?: { host?: string; port?: number };
+        dashboard?: { enabled?: boolean; port?: number };
+      };
+      policy?: { defaultMode?: string };
+      tools?: { preset?: string };
+      adapters?: Record<string, { enabled?: boolean }>;
+      chatgpt?: { profile?: string };
+    };
+    const policyModes: ChatGptPolicyMode[] = ['readonly', 'safe', 'dev', 'danger'];
+    const presets: ChatGptToolsPreset[] = ['vibe', 'vibe-lite', 'readonly', 'full', 'godot'];
+    const profiles: ChatGptProfile[] = ['safe', 'developer', 'full'];
+    const adapters: ChatGptAdapter[] = [];
+    if (config.adapters?.playwright?.enabled) adapters.push('playwright');
+    if (config.adapters?.serena?.enabled) adapters.push('serena');
+    if (config.adapters?.desktopCommander?.enabled) adapters.push('desktop-commander');
+    if (config.adapters?.godot?.enabled) adapters.push('godot');
+    const profile = profiles.includes(config.chatgpt?.profile as ChatGptProfile)
+      ? (config.chatgpt?.profile as ChatGptProfile)
+      : undefined;
+    const policyMode = policyModes.includes(config.policy?.defaultMode as ChatGptPolicyMode)
+      ? (config.policy?.defaultMode as ChatGptPolicyMode)
+      : undefined;
+    const toolsPreset = presets.includes(config.tools?.preset as ChatGptToolsPreset)
+      ? (config.tools?.preset as ChatGptToolsPreset)
+      : undefined;
+    const httpPort = config.server?.http?.port;
+    const dashboardPort = config.server?.dashboard?.port;
+    return {
+      ...(profile ? { profile } : {}),
+      ...(typeof config.server?.http?.host === 'string' ? { host: config.server.http.host } : {}),
+      ...(typeof httpPort === 'number' && Number.isInteger(httpPort) ? { port: httpPort } : {}),
+      ...(policyMode ? { policyMode } : {}),
+      ...(toolsPreset ? { toolsPreset } : {}),
+      ...(config.adapters ? { adapters } : {}),
+      ...(typeof config.server?.dashboard?.enabled === 'boolean'
+        ? { dashboard: config.server.dashboard.enabled }
+        : {}),
+      ...(typeof dashboardPort === 'number' && Number.isInteger(dashboardPort)
+        ? { dashboardPort }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function resolveChatGptSettings(
+  options: ParsedOptions,
+  mode: ChatGptMode,
+  configPath: string,
+  previous?: ChatGptConnectionReceipt
+): ResolvedChatGptSettings {
+  const existing = options.forceConfig ? {} : readExistingChatGptConfig(configPath);
+  const previousRuntime = options.forceConfig ? undefined : previous?.runtime;
+  const profile = options.profile ?? existing.profile ?? previousRuntime?.profile ?? 'developer';
+  const defaults = PROFILE_DEFAULTS[profile];
+  return {
+    profile,
+    host: options.host ?? existing.host ?? DEFAULT_HOST,
+    port: options.port ?? existing.port ?? DEFAULT_PORT,
+    policyMode: options.policyMode ?? existing.policyMode ?? previousRuntime?.policyMode ?? defaults.policyMode,
+    toolsPreset: options.toolsPreset ?? existing.toolsPreset ?? previousRuntime?.toolsPreset ?? defaults.toolsPreset,
+    adapters: options.adapters ?? existing.adapters ?? previousRuntime?.adapters ?? defaults.adapters,
+    dashboard: options.dashboard ?? existing.dashboard ?? previousRuntime?.dashboard ?? false,
+    dashboardPort: options.dashboardPort ?? existing.dashboardPort ?? previousRuntime?.dashboardPort ?? 7332,
+    offlineAccess: options.offlineAccess ?? previousRuntime?.offlineAccess ?? true,
+    dcrClientPolicy:
+      options.dcrClientPolicy ?? previousRuntime?.dcrClientPolicy ?? (mode === 'quick' ? 'allow-all' : 'require-grant'),
+    autoEnableDcr: options.autoEnableDcr ?? previousRuntime?.autoEnableDcr ?? mode === 'quick',
+  };
+}
+
+function desiredSubjectAuthorization(policy: DcrClientPolicy): NonNullable<Auth0Api['subject_type_authorization']> {
+  return {
+    user: { policy: 'allow_all' },
+    client: { policy: policy === 'allow-all' ? 'allow_all' : 'require_client_grant' },
+  };
+}
+
+async function ensureDynamicClientRegistration(
+  tenant: string,
+  autoEnable: boolean,
+  dryRun: boolean,
+  sink: ProgressSink
+): Promise<void> {
+  const show = await runCommand(
+    'auth0',
+    ['tenant-settings', 'show', '--json-compact', '--no-color', '--no-input', '--tenant', tenant],
+    { timeoutMs: 30_000 }
+  );
+  if (show.exitCode !== 0) throw new Error(`Unable to inspect Auth0 tenant settings: ${show.stderr.trim()}`);
+  const settings = jsonDocumentFromOutput<{ flags?: { enable_dynamic_client_registration?: boolean } }>(
+    `${show.stdout}
+${show.stderr}`
+  );
+  if (settings.flags?.enable_dynamic_client_registration === true) {
+    sink.line('✓ Auth0 Dynamic Client Registration is enabled');
+    return;
+  }
+  if (!autoEnable) {
+    throw new Error(
+      'Auth0 Dynamic Client Registration is disabled. Re-run without --no-auto-enable-dcr or enable ' +
+        'flags.enable_dynamic_client_registration in the tenant.'
+    );
+  }
+  if (dryRun) {
+    sink.line('• Auth0 Dynamic Client Registration would be enabled');
+    return;
+  }
+  const update = await runCommand(
+    'auth0',
+    [
+      'tenant-settings',
+      'update',
+      'set',
+      'flags.enable_dynamic_client_registration',
+      '--no-color',
+      '--no-input',
+      '--tenant',
+      tenant,
+    ],
+    { timeoutMs: 45_000 }
+  );
+  if (update.exitCode !== 0) throw new Error(`Unable to enable Auth0 Dynamic Client Registration: ${update.stderr.trim()}`);
+  sink.line('✓ Auth0 Dynamic Client Registration enabled');
+}
+
+async function waitForPidExit(pid: number, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidAlive(pid)) return;
+    await sleep(100);
+  }
+}
+
+async function assertPortAvailable(host: string, port: number): Promise<void> {
+  await new Promise<void>((resolvePort, rejectPort) => {
+    const server = createNetServer();
+    server.unref();
+    server.once('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'EADDRINUSE') {
+        rejectPort(
+          new Error(
+            `Local port ${host}:${port} is already in use. Stop the existing service or pass a different --port.`
+          )
+        );
+        return;
+      }
+      rejectPort(error);
+    });
+    server.listen({ host, port, exclusive: true }, () => {
+      server.close((error) => (error ? rejectPort(error) : resolvePort()));
+    });
+  });
+}
+
 async function connect(options: ParsedOptions, sink: ProgressSink): Promise<ChatGptConnectionReceipt> {
   const paths = receiptPaths(options.projectRoot);
   if (!existsSync(options.projectRoot)) throw new Error(`Project does not exist: ${options.projectRoot}`);
@@ -921,6 +1277,8 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
   try {
     const mode = options.mode ?? (await chooseMode(options.json));
     const registration: RegistrationStrategy = mode === 'quick' ? 'dcr' : 'predefined';
+    const previous = existingReceipt(options.projectRoot);
+    const settings = resolveChatGptSettings(options, mode, paths.config, previous);
     if (mode === 'secure' && !options.publicUrl) {
       throw new Error('Secure mode requires --public-url https://your-stable-host.example/mcp');
     }
@@ -934,12 +1292,24 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
 
     const tenant = await activeAuth0Tenant(options.tenant);
     sink.line(`✓ Auth0 tenant selected (${tenant})`);
+    if (registration === 'dcr') {
+      await ensureDynamicClientRegistration(tenant, settings.autoEnableDcr, options.dryRun, sink);
+    }
     const discovery = await discoverAuth0(tenant, registration);
     sink.line('✓ Auth0 issuer and PKCE S256 metadata verified');
     await verifyJwks(discovery);
     sink.line('✓ Auth0 JWKS verified');
 
-    const previous = existingReceipt(options.projectRoot);
+    if (options.start && !options.dryRun) {
+      if (previous?.processes.serverPid && isPidAlive(previous.processes.serverPid)) {
+        stopPid(previous.processes.serverPid);
+        await waitForPidExit(previous.processes.serverPid);
+        sink.line('✓ Previous FolderForge server stopped before applying the new configuration');
+      }
+      await assertPortAvailable(settings.host, settings.port);
+      sink.line(`✓ Local port ${settings.host}:${settings.port} is available`);
+    }
+
     let mcpUrl: string;
     let tunnelPid: number | undefined;
     let connectivityKind: ChatGptConnectionReceipt['connectivity']['kind'];
@@ -951,6 +1321,7 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
     } else if (
       previous?.mode === 'quick' &&
       previous.connectivity.kind === 'cloudflared-quick' &&
+      previous.connectivity.localUrl === `${localUrl(settings.host, settings.port)}/mcp` &&
       isPidAlive(previous.processes.tunnelPid)
     ) {
       mcpUrl = previous.mcpUrl;
@@ -962,7 +1333,7 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
       if (options.dryRun) {
         throw new Error('Dry-run quick mode needs --public-url because a temporary tunnel URL cannot be predicted safely');
       }
-      const tunnel = await startQuickTunnel(options.projectRoot, options.port, paths.tunnelLog);
+      const tunnel = await startQuickTunnel(options.projectRoot, settings.port, paths.tunnelLog);
       tunnelPid = tunnel.pid;
       startedPids.push(tunnel.pid);
       mcpUrl = tunnel.mcpUrl;
@@ -975,7 +1346,13 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
 
     const resource = mcpUrl;
     const metadataUrl = metadataUrlFor(resource);
-    const provisioned = await provisionAuth0Api(tenant, resource, options.dryRun);
+    const provisioned = await provisionAuth0Api(
+      tenant,
+      resource,
+      options.dryRun,
+      settings.offlineAccess,
+      settings.dcrClientPolicy
+    );
     sink.line(
       provisioned.created
         ? '✓ FolderForge API created in Auth0'
@@ -985,7 +1362,15 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
             : '✓ FolderForge API updated in Auth0'
           : '✓ Existing FolderForge API reused without changes'
     );
-    sink.line('✓ OAuth scopes configured');
+    sink.line('✓ OAuth scopes and ChatGPT client access configured');
+    sink.line(`✓ Runtime profile ${settings.profile}: policy=${settings.policyMode}, tools=${settings.toolsPreset}`);
+    if (settings.adapters.length > 0) sink.line(`✓ Adapters enabled: ${settings.adapters.join(', ')}`);
+    if (settings.toolsPreset === 'full') {
+      warnings.push('The full tool preset may advertise more tools than some MCP clients accept. Use --tools-preset vibe-lite if ChatGPT rejects the tool list.');
+    }
+    if (settings.policyMode === 'danger') {
+      warnings.push('Danger policy allows non-critical mutating tools without approval. Workspace boundaries and hard command blocks still apply.');
+    }
 
     const now = new Date().toISOString();
     const receipt: ChatGptConnectionReceipt = {
@@ -1011,15 +1396,12 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
       connectivity: {
         kind: connectivityKind,
         publicUrl: new URL(mcpUrl).origin,
-        localUrl: `${localUrl(options.host, options.port)}/mcp`,
+        localUrl: `${localUrl(settings.host, settings.port)}/mcp`,
         ...(connectivityKind === 'cloudflared-quick'
           ? { warning: 'Temporary URL: if the tunnel stops, run `folderforge chatgpt repair --quick` and reconnect ChatGPT.' }
           : {}),
       },
       processes: {
-        ...(previous?.processes.serverPid && isPidAlive(previous.processes.serverPid)
-          ? { serverPid: previous.processes.serverPid }
-          : {}),
         ...(tunnelPid ? { tunnelPid } : {}),
         serverLog: paths.serverLog,
         ...(connectivityKind === 'cloudflared-quick' ? { tunnelLog: paths.tunnelLog } : {}),
@@ -1036,21 +1418,32 @@ async function connect(options: ParsedOptions, sink: ProgressSink): Promise<Chat
         mcpInitialize: 'pending_user_login',
       },
       warnings,
+      runtime: {
+        profile: settings.profile,
+        policyMode: settings.policyMode,
+        toolsPreset: settings.toolsPreset,
+        adapters: [...settings.adapters],
+        dashboard: settings.dashboard,
+        dashboardPort: settings.dashboardPort,
+        offlineAccess: settings.offlineAccess,
+        dcrClientPolicy: settings.dcrClientPolicy,
+        autoEnableDcr: settings.autoEnableDcr,
+      },
       createdAt: previous?.createdAt ?? now,
       updatedAt: now,
     };
 
     if (!options.dryRun) {
-      writeFileSync(paths.config, generatedConfig(receipt, options.host, options.port), { mode: 0o600 });
+      writeFileSync(paths.config, generatedConfig(receipt, settings), { mode: 0o600 });
       chmodSync(paths.config, 0o600);
       sink.line(`✓ FolderForge OAuth config written (${paths.config})`);
     }
 
     if (options.start && !options.dryRun) {
-      const serverPid = startServer(receipt, options.host, options.port);
+      const serverPid = startServer(receipt, settings);
       if (!receipt.processes.serverPid) startedPids.push(serverPid);
       receipt.processes.serverPid = serverPid;
-      await waitForUrl(`${localUrl(options.host, options.port)}/healthz`, (response) => response.status === 200, 20_000);
+      await waitForUrl(`${localUrl(settings.host, settings.port)}/healthz`, (response) => response.status === 200, 20_000);
       sink.line('✓ FolderForge HTTP MCP started');
       await verifyEndpoint(receipt);
       receipt.checks.resourceMetadata = 'pass';
@@ -1134,14 +1527,45 @@ async function startFromReceipt(options: ParsedOptions, sink: ProgressSink): Pro
     if (receipt.connectivity.kind === 'cloudflared-quick' && !isPidAlive(receipt.processes.tunnelPid)) {
       throw new Error('The temporary tunnel URL cannot be reclaimed. Run `folderforge chatgpt repair --quick`.');
     }
-    const config = YAML.parse(readFileSync(receipt.configPath, 'utf8')) as {
-      server?: { http?: { host?: string; port?: number } };
-    };
-    const host = config.server?.http?.host ?? DEFAULT_HOST;
-    const port = config.server?.http?.port ?? DEFAULT_PORT;
-    const pid = startServer(receipt, host, port);
+    const settings = resolveChatGptSettings(options, receipt.mode, receipt.configPath, receipt);
+    const hasRuntimeOverrides =
+      options.forceConfig ||
+      options.host !== undefined ||
+      options.port !== undefined ||
+      options.profile !== undefined ||
+      options.policyMode !== undefined ||
+      options.toolsPreset !== undefined ||
+      options.adapters !== undefined ||
+      options.dashboard !== undefined ||
+      options.dashboardPort !== undefined ||
+      options.offlineAccess !== undefined ||
+      options.dcrClientPolicy !== undefined ||
+      options.autoEnableDcr !== undefined;
+    if (hasRuntimeOverrides) {
+      writeFileSync(receipt.configPath, generatedConfig(receipt, settings), { mode: 0o600 });
+      chmodSync(receipt.configPath, 0o600);
+      if (isPidAlive(receipt.processes.serverPid)) {
+        stopPid(receipt.processes.serverPid);
+        await waitForPidExit(receipt.processes.serverPid!);
+      }
+      delete receipt.processes.serverPid;
+      sink.line(`✓ CLI overrides persisted to ${receipt.configPath}`);
+    }
+    if (!isPidAlive(receipt.processes.serverPid)) await assertPortAvailable(settings.host, settings.port);
+    const pid = startServer(receipt, settings);
     receipt.processes.serverPid = pid;
-    await waitForUrl(`${localUrl(host, port)}/healthz`, (response) => response.status === 200, 20_000);
+    receipt.runtime = {
+      profile: settings.profile,
+      policyMode: settings.policyMode,
+      toolsPreset: settings.toolsPreset,
+      adapters: [...settings.adapters],
+      dashboard: settings.dashboard,
+      dashboardPort: settings.dashboardPort,
+      offlineAccess: settings.offlineAccess,
+      dcrClientPolicy: settings.dcrClientPolicy,
+      autoEnableDcr: settings.autoEnableDcr,
+    };
+    await waitForUrl(`${localUrl(settings.host, settings.port)}/healthz`, (response) => response.status === 200, 20_000);
     await verifyEndpoint(receipt);
     receipt.checks.resourceMetadata = 'pass';
     receipt.checks.unauthorizedChallenge = 'pass';

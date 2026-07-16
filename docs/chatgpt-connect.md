@@ -25,18 +25,29 @@ to copy these values manually.
 folderforge connect chatgpt --quick
 ```
 
+For a one-command high-trust local coding setup:
+
+```bash
+folderforge connect chatgpt --quick --full-access --port 7443
+```
+
+`--full-access` persists `policy.defaultMode: danger` and `tools.preset: full` in
+`.folderforge/chatgpt-config.yaml`. It does not bypass workspace boundaries, denied
+secret globs, hard-blocked destructive commands, or explicit approval for CRITICAL actions.
+
 Quick mode:
 
 1. verifies Auth0 CLI and the active tenant;
-2. verifies Auth0 discovery, issuer, PKCE S256, DCR, and JWKS;
+2. verifies Auth0 discovery, issuer, PKCE S256, DCR, and JWKS; enables the Auth0 DCR tenant flag when needed unless explicitly disabled;
 3. starts a Cloudflare quick tunnel when no public URL is supplied;
 4. creates or reuses an Auth0 API whose identifier is the exact public `/mcp` URL;
-5. preserves unrelated scopes and their descriptions while appending missing
+5. enables offline access by default for ChatGPT refresh tokens and allows DCR clients to access the API in quick mode;
+6. preserves unrelated scopes and their descriptions while appending missing
    `folderforge:read` and `folderforge:write` scopes;
-6. writes a generated OAuth config and a secret-free connection receipt;
-7. starts FolderForge on loopback;
-8. verifies protected-resource metadata and the `401 WWW-Authenticate` challenge;
-9. prints the exact MCP URL to add in ChatGPT.
+7. writes a generated OAuth config and a secret-free connection receipt;
+8. starts FolderForge on loopback;
+9. verifies protected-resource metadata and the `401 WWW-Authenticate` challenge;
+10. prints the exact MCP URL to add in ChatGPT.
 
 Quick mode uses Dynamic Client Registration and a temporary tunnel URL. It is for
 personal testing only. Restarting a quick tunnel can change the canonical resource
@@ -104,10 +115,25 @@ Useful options:
 --tunnel none         use an externally managed reverse proxy or tunnel
 --host <addr>         local bind host, default 127.0.0.1
 --port <n>            local MCP port, default 7331
+--profile <id>         safe|developer|full; default developer
+--full-access          shortcut for profile full (danger + full built-in tools)
+--policy <mode>        readonly|safe|dev|danger; persisted to generated YAML
+--tools-preset <id>    vibe|vibe-lite|readonly|full|godot
+--adapters <list>      playwright,serena,desktop-commander,godot,all,none
+--dashboard            enable local dashboard; disabled by default for ChatGPT
+--dashboard-port <n>   local dashboard port, default 7332
+--offline-access       allow refresh tokens; default for ChatGPT
+--dcr-client-policy    allow-all|require-grant; quick default allow-all
+--force-config         rebuild generated YAML from CLI/defaults instead of prior values
 --no-start            provision and write config without starting processes
 --dry-run             discovery and planned-diff only; no Auth0 or local writes
 --json                machine-readable receipt/status output
 ```
+
+CLI values have highest precedence and are persisted into the generated YAML. Without
+`--force-config`, omitted values are preserved from the prior generated config/receipt.
+`repair` and `start` reuse those persisted values; passing runtime options to `start`
+rewrites the YAML and restarts the server.
 
 All subprocess arguments are passed without a shell. Tenant, URL, port, and mode
 values are parsed as structured arguments rather than interpolated into command
