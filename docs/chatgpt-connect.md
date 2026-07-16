@@ -49,6 +49,10 @@ Quick mode:
 9. verifies protected-resource metadata and the `401 WWW-Authenticate` challenge;
 10. prints the exact MCP URL to add in ChatGPT.
 
+In Auth0, quick mode authorizes the user/authorization-code subject with `allow_all` and
+sets the machine client-credentials subject to `deny_all`. This is the valid Auth0
+combination for ChatGPT DCR and does not block the interactive PKCE login flow.
+
 Quick mode uses Dynamic Client Registration and a temporary tunnel URL. It is for
 personal testing only. Restarting a quick tunnel can change the canonical resource
 URL and therefore the Auth0 API audience. Re-run `folderforge chatgpt repair
@@ -123,7 +127,7 @@ Useful options:
 --dashboard            enable local dashboard; disabled by default for ChatGPT
 --dashboard-port <n>   local dashboard port, default 7332
 --offline-access       allow refresh tokens; default for ChatGPT
---dcr-client-policy    allow-all|require-grant; quick default allow-all
+--dcr-client-policy    allow-all|require-grant for Auth0 user flows; quick default allow-all
 --force-config         rebuild generated YAML from CLI/defaults instead of prior values
 --no-start            provision and write config without starting processes
 --dry-run             discovery and planned-diff only; no Auth0 or local writes

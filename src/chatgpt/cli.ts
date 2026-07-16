@@ -114,8 +114,8 @@ interface Auth0Api {
   allow_offline_access?: boolean;
   scopes?: Array<{ value?: string; description?: string }>;
   subject_type_authorization?: {
-    user?: { policy?: string };
-    client?: { policy?: string };
+    user?: { policy?: 'allow_all' | 'require_client_grant' };
+    client?: { policy?: 'deny_all' | 'require_client_grant' };
   };
 }
 
@@ -414,7 +414,7 @@ export function chatGptHelp(): string {
     '      --dashboard-port <n> Local dashboard port (default 7332)',
     '      --offline-access    Allow refresh tokens (default for ChatGPT)',
     '      --no-offline-access Disable refresh-token issuance',
-    '      --dcr-client-policy <id> allow-all|require-grant (quick default allow-all)',
+    '      --dcr-client-policy <id> allow-all|require-grant; controls Auth0 user-flow grants (quick default allow-all)',
     '      --auto-enable-dcr   Enable Auth0 DCR automatically in quick mode (default)',
     '      --no-auto-enable-dcr Fail instead of changing the Auth0 DCR tenant flag',
     '      --force-config      Ignore prior runtime settings and rebuild generated YAML from CLI/defaults',
@@ -1185,9 +1185,18 @@ function resolveChatGptSettings(
 }
 
 function desiredSubjectAuthorization(policy: DcrClientPolicy): NonNullable<Auth0Api['subject_type_authorization']> {
+  // ChatGPT DCR uses the user authorization-code flow. Auth0 permits `allow_all`
+  // for user subjects, but client subjects only accept `deny_all` or
+  // `require_client_grant`. Denying client-credentials here does not block DCR.
+  if (policy === 'allow-all') {
+    return {
+      user: { policy: 'allow_all' },
+      client: { policy: 'deny_all' },
+    };
+  }
   return {
-    user: { policy: 'allow_all' },
-    client: { policy: policy === 'allow-all' ? 'allow_all' : 'require_client_grant' },
+    user: { policy: 'require_client_grant' },
+    client: { policy: 'require_client_grant' },
   };
 }
 

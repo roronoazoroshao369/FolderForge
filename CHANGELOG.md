@@ -17,6 +17,15 @@ semantic versioning.
 - `chatgpt start` and `repair` preserve generated runtime settings; explicit start
   overrides rewrite the generated YAML and restart the managed server.
 
+## [2.2.2] - 2026-07-16
+
+### Fixed
+
+- Fix Auth0 API provisioning for ChatGPT DCR by using the valid subject policy pair
+  `user.allow_all` and `client.deny_all`; Auth0 rejects `client.allow_all`.
+- Make the Auth0 CLI test double reject invalid client subject policies so this
+  provisioning regression cannot silently return.
+
 ## [2.1.0] - 2026-07-15
 
 ### Added

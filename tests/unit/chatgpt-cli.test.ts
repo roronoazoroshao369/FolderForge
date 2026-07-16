@@ -98,11 +98,15 @@ if (args[0] === 'apis' && args[1] === 'show') {
 if (args[0] === 'apis' && args[1] === 'create') {
   const state = read();
   const scopes = (flag('--scopes') || '').split(',').filter(Boolean).map((value) => ({ value }));
+  const subjectAuthorization = JSON.parse(flag('--subject-type-authorization') || '{}');
+  if (subjectAuthorization.client?.policy === 'allow_all') {
+    console.error('Invalid Auth0 client subject policy: allow_all'); process.exit(1);
+  }
   const api = {
     id: 'api_1', name: flag('--name'), identifier: flag('--identifier'), scopes,
     signing_alg: 'RS256', token_dialect: 'rfc9068_profile', token_lifetime: 3600,
     allow_offline_access: args.includes('--offline-access=true'),
-    subject_type_authorization: JSON.parse(flag('--subject-type-authorization') || '{}')
+    subject_type_authorization: subjectAuthorization
   };
   state.apis.push(api); state.creates += 1; write(state); console.log(JSON.stringify(api)); process.exit(0);
 }
@@ -111,7 +115,11 @@ if (args[0] === 'api' && args[1] === 'patch' && args[2]?.startsWith('resource-se
   const id = decodeURIComponent(args[2].slice('resource-servers/'.length));
   const api = state.apis.find((item) => item.id === id);
   if (!api) process.exit(1);
-  Object.assign(api, JSON.parse(flag('--data') || '{}'));
+  const patch = JSON.parse(flag('--data') || '{}');
+  if (patch.subject_type_authorization?.client?.policy === 'allow_all') {
+    console.error('Invalid Auth0 client subject policy: allow_all'); process.exit(1);
+  }
+  Object.assign(api, patch);
   state.updates += 1; write(state); console.log(JSON.stringify(api)); process.exit(0);
 }
 console.error('unsupported fake auth0 invocation', args.join(' ')); process.exit(2);
@@ -307,7 +315,7 @@ describe('ChatGPT connect CLI', () => {
       allow_offline_access: true,
       subject_type_authorization: {
         user: { policy: 'allow_all' },
-        client: { policy: 'allow_all' },
+        client: { policy: 'deny_all' },
       },
     });
   });
@@ -386,7 +394,7 @@ describe('ChatGPT connect CLI', () => {
       allow_offline_access: true,
       subject_type_authorization: {
         user: { policy: 'allow_all' },
-        client: { policy: 'allow_all' },
+        client: { policy: 'deny_all' },
       },
     });
   });
