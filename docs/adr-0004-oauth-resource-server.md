@@ -117,6 +117,42 @@ server:
 
 Legacy `server.http.token`, `server.http.apiKeys`, and `server.http.requireAuth` remain supported when `server.http.auth.mode` is omitted or set to `token`.
 
+## Auth0 and ChatGPT connection automation
+
+The accepted resource-server architecture is extended by an operator-side
+orchestrator, not by adding authorization-server endpoints to FolderForge:
+
+```text
+folderforge connect chatgpt
+  ├─ discover Auth0 CLI + active tenant
+  ├─ verify OIDC metadata, issuer, PKCE S256, registration capability and JWKS
+  ├─ establish stable HTTPS or an explicitly warned quick tunnel
+  ├─ look up Auth0 API by exact canonical resource identifier
+  ├─ create once or merge missing scopes without deleting unrelated scopes
+  ├─ write generated OAuth resource-server config
+  ├─ start local HTTP MCP and optional tunnel
+  ├─ verify RFC 9728 metadata and RFC 6750 challenge
+  └─ write a secret-free versioned receipt
+```
+
+Quick mode selects DCR and may use a temporary Cloudflare quick tunnel. It is
+explicitly development-only because a restarted tunnel can change the resource
+identifier and JWT audience. Secure mode requires a stable HTTPS URL and selects
+a predefined OAuth client; exact redirect registration and the final client ID
+remain an external Auth0/ChatGPT action.
+
+Idempotency is based on the exact Auth0 API identifier. The orchestrator lists
+before create, reuses an existing API, merges only missing FolderForge scopes,
+and serializes concurrent operations with a PID lock. It never deletes remote
+Auth0 resources automatically. Rollback stops only processes started by the
+failed attempt; remote resources remain recoverable through `repair` or manual
+operator review.
+
+The connection receipt is evidence, not a credential. Its schema rejects
+secret-shaped keys and JWT-shaped values and never includes Management API tokens,
+access/refresh tokens, authorization codes, client secrets, private keys, PKCE
+verifiers, API keys, passwords or cookies.
+
 ## Consequences
 
 Positive: small implementation, no custom OAuth server or crypto, compatible with enterprise IdPs, preserves existing authorization boundaries.

@@ -122,7 +122,25 @@ return generic messages so crypto/discovery internals are not reflected to the
 client. Issuer/resource URLs may appear in startup logs because they are public
 metadata, not credentials.
 
-See `docs/oauth.md` and `docs/adr-0004-oauth-resource-server.md` for deployment,
+The Auth0/ChatGPT orchestrator follows the same boundary. It invokes Auth0 CLI and
+tunnel processes with argument arrays and `shell: false`, validates tenant/public
+URLs structurally, and never requests or stores the Auth0 Management API token.
+Tenant overrides must already exist in the authenticated Auth0 CLI tenant list.
+Authorization, token, registration, and JWKS metadata must remain on that tenant's
+HTTPS origin; redirects are rejected and metadata responses are capped at 1 MiB.
+Provisioning lists APIs before create, matches the exact resource identifier, and
+uses a targeted Management API PATCH that preserves unrelated scopes and their
+descriptions while appending only missing FolderForge scopes. A PID lock prevents
+concurrent mutation; a failed attempt stops only processes it started. Disconnect
+never deletes remote Auth0 resources automatically.
+
+Generated config and receipts are mode `0600` on POSIX and ignored beneath
+`.folderforge`. Receipt validation recursively rejects secret-shaped keys in
+snake/camel/kebab variants and JWT-shaped values. Quick mode's open-DCR and
+temporary-tunnel risk is displayed explicitly; secure mode fails closed without a
+stable HTTPS public URL and predefined-client workflow.
+
+See `docs/chatgpt-connect.md`, `docs/oauth.md` and `docs/adr-0004-oauth-resource-server.md` for deployment,
 threat-model, and ChatGPT setup details.
 
 ## Dashboard auth

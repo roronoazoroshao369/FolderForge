@@ -11,8 +11,9 @@ remain separate operator-controlled actions.
 
 ## Prepared (2.1.0 — OAuth and authorization boundary)
 
-- Package and lock metadata target `2.1.0`; the release is merged locally to
-  `main` and intentionally remains unpublished for the operator to publish.
+- Package and lock metadata target `2.1.0`. The previously committed OAuth
+  resource-server base is on local `main`; the Auth0/ChatGPT connector changes are
+  verified but intentionally remain uncommitted and unpublished.
 - Agent-facing MCP `tools/list` and `tools/call` exclude approval resolution and
   runtime policy mutation tools while the internal frozen registry remains intact.
 - Approval requests carry requester/approver identity and expiry; self-approval,
@@ -22,11 +23,19 @@ remain separate operator-controlled actions.
   modes. OAuth includes RFC 9728 discovery/challenges, authorization-server
   discovery, PKCE S256 capability validation, asymmetric JWT/JWKS verification,
   exact audience binding, per-tool read/write scopes, and ChatGPT security schemes.
-- The complete local gate passes 385 tests across 49 files, zero-vulnerability
-  production/full audits, build, package installation/startup in OAuth mode,
-  stdio smoke, authenticated HTTP smoke, and npm publication dry-run.
-- Live ChatGPT acceptance remains an external deployment gate requiring public
-  HTTPS, an IdP tenant, and the operator's ChatGPT Developer Mode session.
+- `folderforge connect chatgpt` now provides quick DCR and secure predefined-client
+  workflows, active Auth0 tenant discovery, issuer/PKCE/JWKS checks, idempotent
+  API/scope provisioning, optional Cloudflare quick tunnel, generated config,
+  secret-free receipt, and public metadata/401 verification. Lifecycle commands
+  cover status, doctor, repair, start, stop, and disconnect.
+- The complete local gate passes 397 tests across 50 files, zero-vulnerability
+  production/full audits, build, 102-file package installation/startup in OAuth
+  mode, stdio smoke, and authenticated HTTP smoke. The new connector has not yet
+  run through the remote cross-platform CI matrix.
+- Automated live infrastructure validation passed against the active Auth0 tenant
+  and a real public HTTPS quick tunnel. Live ChatGPT acceptance remains an external
+  user-session gate: app creation, Auth0 login/consent, authenticated tool listing,
+  and one read/write tool call are still unobserved.
 
 ## Done (2.0 RC Milestone B — doctor and preflight diagnostics)
 

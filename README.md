@@ -157,12 +157,13 @@ tools:
 ## Status (`2.1.0` prepared for release)
 
 npm `latest` currently resolves to stable **`2.0.0`**. The repository now targets
-**`2.1.0`**, adding OAuth 2.1/OIDC resource-server support for ChatGPT and a
-hardened agent/admin authorization boundary. The complete local release gate
-passes 385 tests across 49 files, both dependency audits, build, packed-tarball
-installation, OAuth package startup, stdio MCP, and authenticated HTTP MCP smoke.
-Version `2.1.0` is merged locally and ready for the operator's manual npm publish;
-no `2.1.0` npm publication, Git tag, or hosted release is implied here. The
+**`2.1.0`**, adding OAuth 2.1/OIDC resource-server support for ChatGPT, a
+hardened agent/admin authorization boundary, and the Auth0 one-command connector.
+The complete local release gate passes 397 tests across 50 files, both dependency
+audits, build, 102-file packed-tarball installation, OAuth package startup, stdio
+MCP, and authenticated HTTP MCP smoke. The connector changes are verified locally
+but remain uncommitted; no `2.1.0` npm publication, Git tag, or hosted release is
+implied here. The
 audited native registry contains 269 tools; the `vibe`, `vibe-lite`, `readonly`,
 and `full` presets advertise 71, 50, 42, and 269 native tools respectively before
 dynamic child/plugin additions.
@@ -175,10 +176,11 @@ dynamic child/plugin additions.
   child facades, and dynamic plugin adapters.
 - **AI/browser runtime** - bounded code context, transactional edits,
   verification/report tools, and stable responsive browser wrappers.
-- **Release gates** - typecheck, lint, 385 unit/integration tests, build, both
+- **Release gates** - typecheck, lint, 397 unit/integration tests, build, both
   dependency audits, `npm pack`, temporary tarball install, CLI/stdio smoke, live
   authenticated HTTP MCP initialize/list/call smoke, and six-entry cross-platform
-  CI validation.
+  CI validation for the previously committed base. The new connector has been
+  validated locally on Linux; its cross-platform CI run remains a release action.
 - **Trust boundary** - local plugin packages receive a tamper-detection SHA-256
   tree digest and environment allowlisting, but permission declarations remain
   review/audit metadata rather than an OS sandbox. The digest is not publisher
@@ -278,6 +280,8 @@ curl -sS -X POST http://127.0.0.1:17331/mcp \
 | `folderforge doctor [--json]` | Run read-only installation, configuration, dependency, port, plugin, and state diagnostics |
 | `folderforge setup browser [--with-deps]` | Explicitly install package-compatible Playwright Chromium; may access the network |
 | `folderforge setup browser --dry-run --json` | Resolve the exact package-local setup command without downloading anything |
+| `folderforge connect chatgpt [--quick\|--secure]` | Provision/reuse Auth0 OAuth resources, start MCP connectivity, verify metadata, and print the ChatGPT URL |
+| `folderforge chatgpt status\|doctor\|repair\|start\|stop\|disconnect` | Manage and diagnose the generated ChatGPT connection |
 
 ### All CLI options
 
@@ -400,6 +404,42 @@ JWT cryptographically, enforces issuer/audience/expiry/not-before/algorithm, and
 requires `folderforge:read` before MCP access plus `folderforge:write` before a
 mutating tool executes.
 
+For Auth0, the guided path is:
+
+```bash
+# Personal testing: Auth0 DCR + a temporary Cloudflare quick tunnel.
+folderforge connect chatgpt --quick
+
+# Team/production: stable HTTPS URL + predefined OAuth client.
+folderforge connect chatgpt --secure \
+  --public-url https://mcp.example.com/mcp
+```
+
+The wizard discovers the active Auth0 tenant and issuer, verifies discovery,
+PKCE S256 and JWKS, creates or reuses the API/scopes idempotently, writes a
+secret-free receipt, starts the local server/tunnel, and verifies OAuth metadata
+plus the `401 WWW-Authenticate` challenge. It never stores Auth0 Management API
+tokens, OAuth tokens, authorization codes, client secrets, private keys, PKCE
+verifiers, API keys, passwords, or cookies.
+
+Lifecycle commands:
+
+```bash
+folderforge chatgpt status
+folderforge chatgpt doctor
+folderforge chatgpt repair
+folderforge chatgpt start
+folderforge chatgpt stop
+folderforge chatgpt disconnect
+```
+
+Quick mode is development-only because a restarted temporary tunnel can change
+the resource URL and JWT audience. Secure mode requires a stable HTTPS URL; the
+exact ChatGPT redirect URI and final Auth0 client registration remain a minimal
+external UI step.
+
+Manual/external-IdP configuration remains available:
+
 ```bash
 folderforge --http --auth oauth --host 0.0.0.0 --port 7331 \
   --oauth-resource https://mcp.example.com/mcp \
@@ -443,7 +483,8 @@ Environment equivalents include `FOLDERFORGE_HTTP_AUTH`,
 `FOLDERFORGE_OAUTH_ALLOW_INSECURE_HTTP`. Precedence is CLI > environment > YAML
 > built-in/legacy behavior.
 
-See [OAuth setup and ChatGPT validation](docs/oauth.md),
+See [the one-command Auth0/ChatGPT guide](docs/chatgpt-connect.md),
+[OAuth setup and ChatGPT validation](docs/oauth.md),
 [the architecture decision](docs/adr-0004-oauth-resource-server.md), and
 [security hardening](docs/security.md).
 

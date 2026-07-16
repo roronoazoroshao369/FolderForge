@@ -18,8 +18,16 @@ semantic versioning.
 - Add ChatGPT per-tool OAuth `securitySchemes`, tool-level
   `_meta["mcp/www_authenticate"]` step-up responses, deterministic OAuth protocol
   tests, JWKS rotation coverage, and packed-package OAuth startup smoke.
-- Add ADR-0004, deployment/migration/security guidance, and a live ChatGPT
-  Developer Mode acceptance checklist.
+- Add `folderforge connect chatgpt` with guided quick/secure modes, active Auth0
+  tenant discovery, issuer/PKCE/JWKS verification, idempotent API/scope
+  provisioning, optional Cloudflare quick tunnel, public metadata/401 checks, and
+  a secret-free connection receipt.
+- Add `folderforge chatgpt status|doctor|repair|start|stop|disconnect`, dry-run,
+  concurrent-operation locking, safe local cleanup, and preservation of remote
+  Auth0 resources during disconnect.
+- Add ADR-0004, a dedicated Auth0/ChatGPT connection guide,
+  deployment/migration/security guidance, and a live ChatGPT Developer Mode
+  acceptance checklist.
 
 ### Changed
 

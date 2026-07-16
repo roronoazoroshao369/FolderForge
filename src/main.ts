@@ -15,6 +15,7 @@ import { logger } from './core/logger.js';
 import { readFolderForgeVersion } from './core/version.js';
 import { executeDoctorCli } from './doctor/index.js';
 import { executeBrowserSetupCli } from './setup/browser.js';
+import { executeChatGptCli } from './chatgpt/cli.js';
 import type { OAuthHttpAuthConfig, ToolPrincipal } from './core/types.js';
 import { STDIO_AGENT_PRINCIPAL } from './core/principal.js';
 
@@ -219,6 +220,8 @@ function printHelp(): void {
       'Commands:',
       '  doctor                 Run read-only installation and workspace diagnostics',
       '  setup browser          Install package-compatible Playwright Chromium (explicit opt-in)',
+      '  connect chatgpt        Configure Auth0 OAuth and connect FolderForge to ChatGPT',
+      '  chatgpt <command>      status|doctor|repair|start|stop|disconnect',
       '',
       'Options:',
       '  -p, --project <dir>      Project root to activate (default: cwd)',
@@ -266,6 +269,18 @@ async function main(): Promise<void> {
   }
   if (argv[0] === 'setup') {
     const result = executeBrowserSetupCli(argv.slice(1));
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === 'connect' && argv[1] === 'chatgpt') {
+    const result = await executeChatGptCli(['connect', ...argv.slice(2)]);
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === 'chatgpt') {
+    const result = await executeChatGptCli(argv.slice(1));
     process.stdout.write(result.output);
     process.exitCode = result.exitCode;
     return;

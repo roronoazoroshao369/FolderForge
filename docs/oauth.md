@@ -15,6 +15,10 @@
 | Scope enforcement | MCP; OpenAI Apps SDK | absent | read/write authorization missing | read transport scope + write pre-execution tests |
 | Agent/admin boundary | FolderForge security architecture | principal boundary exists in working tree | OAuth integration could bypass it | OAuth principals always agent; dashboard regression tests |
 | HTTPS deployment | MCP; OpenAI ChatGPT connection docs | HTTP transport may bind anywhere | no canonical HTTPS OAuth resource validation | config tests; explicit loopback-only unsafe override |
+| Auth0 tenant/API automation | Auth0 CLI tenant/API commands | manual operator setup only | tenant, issuer, audience and scopes required expert input | `connect chatgpt` discovers active tenant and idempotently creates/reuses the exact API identifier |
+| Quick registration/connectivity | OpenAI authentication/connection docs; MCP client registration | no workflow | DCR and public HTTPS required multiple manual steps | quick mode verifies DCR and starts an explicitly warned Cloudflare quick tunnel |
+| Secure registration | OpenAI authentication; MCP client registration | no workflow | production client/redirect contract unspecified | secure mode requires stable HTTPS and predefined client; reports exact remaining external action |
+| Connection lifecycle/receipt | product/security contract | absent | no status, repair, disconnect or evidence artifact | versioned secret-free receipt plus status/doctor/repair/start/stop/disconnect tests |
 | Live ChatGPT validation | OpenAI Connect from ChatGPT | not performed | public HTTPS and user UI action required | exact manual checklist after automated acceptance |
 
 ## Architecture and milestones
@@ -24,7 +28,8 @@
 3. Protected-resource metadata and challenge integration.
 4. Per-tool read/write scope metadata and pre-execution enforcement.
 5. Deterministic OAuth fixtures and adversarial tests.
-6. Package/release smoke, docs, and live ChatGPT checklist.
+6. Auth0/ChatGPT one-command orchestration, receipt, lifecycle, and tunnel strategy.
+7. Package/release smoke, docs, and live ChatGPT checklist.
 
 ## Automated versus live acceptance
 

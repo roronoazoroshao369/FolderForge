@@ -130,7 +130,9 @@ try {
     'LICENSE',
     'dist/main.js',
     'dist/server/auth/oauth.js',
+    'dist/chatgpt/cli.js',
     'docs/oauth.md',
+    'docs/chatgpt-connect.md',
     'docs/adr-0004-oauth-resource-server.md',
   ]) {
     if (!packagedFiles.has(required)) {
@@ -180,6 +182,8 @@ try {
   for (const flag of [
     'doctor',
     'setup browser',
+    'connect chatgpt',
+    'chatgpt <command>',
     '--http',
     '--tools-preset',
     '--policy',
@@ -190,6 +194,10 @@ try {
     '--unsafe-oauth-http',
   ]) {
     if (!help.includes(flag)) throw new Error(`CLI help is missing ${flag}.`);
+  }
+  const chatgptHelp = runCli(['connect', 'chatgpt', '--help']).stdout;
+  for (const text of ['--quick', '--secure', '--public-url', 'status|doctor|repair|start|stop|disconnect', 'never stores']) {
+    if (!chatgptHelp.includes(text)) throw new Error(`Packed ChatGPT help is missing ${text}.`);
   }
 
   const setupOutput = runCli(['setup', 'browser', '--dry-run', '--json']).stdout;

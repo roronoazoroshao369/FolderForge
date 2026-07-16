@@ -569,3 +569,65 @@ be created.
   a real tarball. Changes were committed on `hardening/authorization-boundary`
   and merged locally into `main`; no push, Git tag, npm publication, or hosted
   release was performed.
+
+## 2026-07-15 — Auth0/ChatGPT one-command connector
+
+- Repository state: local `main`, HEAD
+  `66d5931f5d42afecedfe0787f640b15d26e68b34`, one commit ahead of
+  `origin/main`. The working tree was clean before this connector work and was
+  preserved without reset, clean, stash, forced checkout, commit, push, tag, or
+  publication.
+- Product architecture: Auth0 remains the OAuth Authorization Server,
+  FolderForge remains the OAuth Resource Server, and ChatGPT remains the OAuth +
+  MCP client. Quick mode uses DCR and may use an explicitly warned temporary
+  Cloudflare quick tunnel; secure mode requires a stable HTTPS resource and a
+  predefined public client identifier.
+- Implementation: added `folderforge connect chatgpt` plus
+  `folderforge chatgpt status|doctor|repair|start|stop|disconnect`; active Auth0
+  tenant discovery; issuer/PKCE S256/DCR/JWKS verification; exact-identifier
+  Auth0 API lookup/create/update; scope merging; generated OAuth config; process
+  supervision; public metadata and 401 challenge verification; dry-run; PID lock;
+  and a versioned secret-free connection receipt.
+- Security: subprocesses use argv arrays with `shell: false`; public/tenant URLs
+  are structurally validated; a tenant override must be present in the authenticated
+  Auth0 CLI tenant list; authorization, token, registration, and JWKS endpoints are
+  limited to the selected tenant's HTTPS origin; and metadata bodies are capped at
+  1 MiB. Production URLs require HTTPS; RS256 and RFC 9068 access-token dialect are
+  provisioned; offline access is disabled. Existing Auth0 scopes and descriptions
+  are preserved while missing FolderForge scopes are appended through a targeted
+  Management API PATCH. Management API tokens, access/refresh tokens, codes,
+  secrets, private keys, PKCE verifiers, API keys, passwords, and cookies are not
+  persisted. Receipt validation rejects secret-shaped keys and JWT-shaped values.
+  Disconnect never deletes remote Auth0 resources automatically.
+- Unit/integration coverage: 12 connector tests cover parsing, HTTPS canonical URL
+  validation, Auth0 provisioning/update idempotency, preservation of existing scope
+  descriptions, paths with spaces and Unicode, no-write dry-run, nested secret/JWT
+  receipt rejection, secure-mode fail-closed, authenticated-tenant allowlisting,
+  cross-origin discovery/JWKS rejection, concurrent lock rejection, endpoint status,
+  remote-resource-preserving disconnect, and pre-mutation purge confirmation.
+- Real Auth0/tunnel evidence: active tenant
+  `dev-a8mb18fj03epznxd.us.auth0.com` passed discovery, issuer, PKCE S256, DCR,
+  and JWKS validation. Quick setup created Auth0 API
+  `6a57ad1b6e649ab2f2e5997e` once for
+  `https://quest-proprietary-seat-carnival.trycloudflare.com/mcp`, with RS256,
+  `rfc9068_profile`, 3600-second lifetime, offline access disabled, and scopes
+  `folderforge:read` plus `folderforge:write`. A second connect and repair reused
+  the same tunnel/API without changes.
+- Public protocol evidence: protected-resource metadata at
+  `https://quest-proprietary-seat-carnival.trycloudflare.com/.well-known/oauth-protected-resource/mcp`
+  returned the exact resource, issuer, and scopes. An unauthenticated MCP POST
+  returned HTTP 401 with the exact `resource_metadata` URL and read scope.
+  Generated config, receipt, and logs were mode `0600`; a generated-state secret
+  scan found no secret-shaped content.
+- Packaging evidence: the 102-file tarball contained the built connector and guide,
+  installed from a path containing spaces and Unicode, and passed packed CLI help,
+  OAuth startup, protected-resource metadata, 401 challenge, and a signed-JWT
+  `tools/list` call.
+- Automated acceptance: local typecheck, lint, 50 test files / 397 tests, build,
+  production/full audits with zero vulnerabilities, 102-file packed-package smoke,
+  stdio smoke, authenticated HTTP smoke, and `git diff --check` all passed on the
+  final working tree.
+- External live gate: ChatGPT app creation, Auth0 login/consent, authenticated
+  `tools/list`, one read-only call, and one write-scope call remain unobserved
+  because they require the operator's ChatGPT UI and user-owned login session.
+  The running quick endpoint is temporary and must not be treated as production.
