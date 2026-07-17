@@ -16,11 +16,30 @@ export interface Auth0DcrClient {
   callbacks?: string[];
   app_type?: string;
   is_first_party?: boolean;
+  global?: boolean;
   external_metadata_type?: string;
   external_metadata_created_by?: string;
   resource_server_identifier?: string;
   grant_types?: string[];
   token_endpoint_auth_method?: string;
+}
+
+export interface ChatGptDcrClientActivity {
+  clientId: string;
+  callbacks: string[];
+  latestEventAt?: string;
+  latestEventType?: string;
+  latestResource?: string;
+  hasSuccessfulActivity: boolean;
+  protected: boolean;
+  protectionReasons: string[];
+}
+
+export interface ChatGptDcrPrunePlan {
+  countedApplications: number;
+  chatGptDcrClients: number;
+  keep: ChatGptDcrClientActivity[];
+  remove: ChatGptDcrClientActivity[];
 }
 
 export interface Auth0Connection {
@@ -42,6 +61,7 @@ export interface Auth0ClientGrant {
 
 interface Auth0LogEntry {
   date?: string;
+  type?: string;
   client_id?: string;
   description?: string;
   details?: {
@@ -150,7 +170,7 @@ function parseJson<T>(raw: string): T {
 
 async function auth0Api<T>(
   tenant: string,
-  method: "get" | "post" | "patch",
+  method: "get" | "post" | "patch" | "delete",
   path: string,
   options: { query?: string[]; data?: unknown; timeoutMs?: number } = {},
 ): Promise<T> {
@@ -224,7 +244,7 @@ export async function listAuth0Clients(
   tenant: string,
 ): Promise<Auth0DcrClient[]> {
   return await auth0ApiList<Auth0DcrClient>(tenant, "clients", [
-    "fields=client_id,name,callbacks,app_type,is_first_party,external_metadata_type,external_metadata_created_by,resource_server_identifier,grant_types,token_endpoint_auth_method",
+    "fields=client_id,name,callbacks,app_type,is_first_party,global,external_metadata_type,external_metadata_created_by,resource_server_identifier,grant_types,token_endpoint_auth_method",
     "include_fields=true",
   ]);
 }
@@ -266,6 +286,119 @@ export function isChatGptDcrClient(client: Auth0DcrClient): boolean {
     (client.callbacks ?? []).every(isChatGptCallback) &&
     (client.grant_types ?? []).includes("authorization_code")
   );
+}
+
+export function countAuth0Applications(clients: Auth0DcrClient[]): number {
+  return clients.filter(
+    (client) => client.global !== true && client.name !== "All Applications",
+  ).length;
+}
+
+async function listClientLogs(
+  tenant: string,
+  clientId: string,
+): Promise<Auth0LogEntry[]> {
+  return await auth0Api<Auth0LogEntry[]>(tenant, "get", "logs", {
+    query: [`q=client_id:${clientId}`, "sort=date:-1", "per_page=50"],
+  });
+}
+
+function callbackGroupKey(callbacks: string[]): string {
+  return [...callbacks].sort().join("\n");
+}
+
+function latestTimestamp(activity: ChatGptDcrClientActivity): number {
+  const timestamp = activity.latestEventAt
+    ? Date.parse(activity.latestEventAt)
+    : Number.NEGATIVE_INFINITY;
+  return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+export async function planChatGptDcrPrune(
+  tenant: string,
+  protectedClientIds: ReadonlySet<string> = new Set(),
+): Promise<ChatGptDcrPrunePlan> {
+  const clients = await listAuth0Clients(tenant);
+  const dcrClients = clients.filter(isChatGptDcrClient);
+  const activities: ChatGptDcrClientActivity[] = [];
+  for (const client of dcrClients) {
+    const logs = await listClientLogs(tenant, client.client_id);
+    const latest = logs[0];
+    const latestResource = logs.find((log) => log.details?.qs?.resource)
+      ?.details?.qs?.resource;
+    const protectionReasons: string[] = [];
+    if (protectedClientIds.has(client.client_id)) {
+      protectionReasons.push("current_receipt");
+    }
+    if (logs.some((log) => (log.type ?? "").startsWith("s"))) {
+      protectionReasons.push("successful_activity");
+    }
+    activities.push({
+      clientId: client.client_id,
+      callbacks: [...(client.callbacks ?? [])],
+      ...(latest?.date ? { latestEventAt: latest.date } : {}),
+      ...(latest?.type ? { latestEventType: latest.type } : {}),
+      ...(latestResource ? { latestResource } : {}),
+      hasSuccessfulActivity: protectionReasons.includes("successful_activity"),
+      protected: protectionReasons.length > 0,
+      protectionReasons,
+    });
+  }
+
+  const groups = new Map<string, ChatGptDcrClientActivity[]>();
+  for (const activity of activities) {
+    const key = callbackGroupKey(activity.callbacks);
+    const group = groups.get(key) ?? [];
+    group.push(activity);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    const latest = [...group].sort(
+      (left, right) =>
+        latestTimestamp(right) - latestTimestamp(left) ||
+        right.clientId.localeCompare(left.clientId),
+    )[0];
+    if (latest && !latest.protectionReasons.includes("latest_for_callback")) {
+      latest.protectionReasons.push("latest_for_callback");
+      latest.protected = true;
+    }
+  }
+
+  const sorted = [...activities].sort(
+    (left, right) =>
+      latestTimestamp(right) - latestTimestamp(left) ||
+      left.clientId.localeCompare(right.clientId),
+  );
+  return {
+    countedApplications: countAuth0Applications(clients),
+    chatGptDcrClients: dcrClients.length,
+    keep: sorted.filter((activity) => activity.protected),
+    remove: sorted.filter((activity) => !activity.protected),
+  };
+}
+
+export async function deleteChatGptDcrClient(
+  tenant: string,
+  clientId: string,
+): Promise<void> {
+  const client = await getAuth0Client(tenant, clientId);
+  if (!isChatGptDcrClient(client)) {
+    throw new ChatGptAuth0Error(
+      `Refusing to delete ${clientId}; it is not a safely matched ChatGPT DCR client.`,
+      "CALLBACK_MISMATCH",
+    );
+  }
+  await auth0Api<Record<string, never>>(
+    tenant,
+    "delete",
+    `clients/${encodeURIComponent(clientId)}`,
+  );
+  const remaining = await listAuth0Clients(tenant);
+  if (remaining.some((entry) => entry.client_id === clientId)) {
+    throw new ChatGptAuth0Error(
+      `Auth0 did not delete ChatGPT DCR client ${clientId}.`,
+    );
+  }
 }
 
 async function resourceFromClientLogs(

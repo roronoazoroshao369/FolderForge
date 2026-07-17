@@ -247,6 +247,7 @@ describe("ChatGPT connect CLI", () => {
     expect(() => parseChatGptArgs(["connect", "--quick", "--secure"])).toThrow(
       /only one/,
     );
+    expect(parseChatGptArgs(["prune-dcr"]).action).toBe("prune-dcr");
   });
 
   it("normalizes only canonical HTTPS MCP URLs", () => {

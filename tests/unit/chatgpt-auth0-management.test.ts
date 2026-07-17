@@ -10,6 +10,8 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
   ChatGptAuth0Error,
+  countAuth0Applications,
+  deleteChatGptDcrClient,
   ensureDefaultThirdPartyUserGrant,
   ensureLoginConnections,
   ensureUserClientGrant,
@@ -18,6 +20,7 @@ import {
   listAuth0ClientGrants,
   listAuth0Clients,
   listAuth0Connections,
+  planChatGptDcrPrune,
   selectLoginConnections,
   validateChatGptClientForResource,
   verifyAuthorizeEndpoint,
@@ -68,8 +71,21 @@ if (method === 'get' && path.startsWith('clients/')) {
   if (!client) process.exit(1);
   console.log(JSON.stringify(client)); process.exit(0);
 }
+if (method === 'delete' && path.startsWith('clients/')) {
+  const id = decodeURIComponent(path.slice('clients/'.length));
+  const before = state.clients.length;
+  state.clients = state.clients.filter((entry) => entry.client_id !== id);
+  if (state.clients.length === before) process.exit(1);
+  state.clientDeletes = (state.clientDeletes || 0) + 1;
+  write(state); process.exit(0);
+}
 if (method === 'get' && path === 'logs') {
-  console.log(JSON.stringify(state.logs || [])); process.exit(0);
+  const filter = query('q') || '';
+  const match = /^client_id:(.+)$/.exec(filter);
+  const logs = match
+    ? (state.logs || []).filter((entry) => entry.client_id === match[1])
+    : (state.logs || []);
+  console.log(JSON.stringify(logs)); process.exit(0);
 }
 if (method === 'get' && path === 'connections') {
   console.log(JSON.stringify(paginate(state.connections || []))); process.exit(0);
@@ -242,6 +258,112 @@ describe("ChatGPT Auth0 lifecycle management", () => {
     await expect(
       listAuth0ClientGrants("tenant.example.auth0.com"),
     ).resolves.toHaveLength(101);
+  });
+
+  it("plans conservative DCR cleanup and deletes only a safely matched stale client", async () => {
+    const root = mkdtempSync(join(tmpdir(), "folderforge-auth0-prune-"));
+    const statePath = join(root, "state.json");
+    const duplicateCallback =
+      "https://chatgpt.com/connector/oauth/callback-duplicate";
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        clients: [
+          {
+            client_id: "global_apps",
+            name: "All Applications",
+            global: true,
+          },
+          {
+            client_id: "default_app",
+            name: "Default App",
+            is_first_party: true,
+          },
+          {
+            ...chatGptClient("tpc_stale"),
+            callbacks: [duplicateCallback],
+          },
+          {
+            ...chatGptClient("tpc_latest"),
+            callbacks: [duplicateCallback],
+          },
+          {
+            ...chatGptClient("tpc_success"),
+            callbacks: ["https://chatgpt.com/connector/oauth/callback-success"],
+          },
+          {
+            ...chatGptClient("tpc_receipt"),
+            callbacks: ["https://chatgpt.com/connector/oauth/callback-receipt"],
+          },
+        ],
+        logs: [
+          {
+            date: "2026-07-17T10:00:00.000Z",
+            type: "f",
+            client_id: "tpc_stale",
+            details: { qs: { resource: "https://old.example.com/mcp" } },
+          },
+          {
+            date: "2026-07-17T11:00:00.000Z",
+            type: "f",
+            client_id: "tpc_latest",
+            details: { qs: { resource: "https://new.example.com/mcp" } },
+          },
+          {
+            date: "2026-07-17T09:00:00.000Z",
+            type: "sertft",
+            client_id: "tpc_success",
+            details: { qs: { resource: "https://active.example.com/mcp" } },
+          },
+          {
+            date: "2026-07-17T08:00:00.000Z",
+            type: "f",
+            client_id: "tpc_receipt",
+          },
+        ],
+        connections: [],
+        grants: [],
+      }),
+    );
+    process.env.PATH = `${installFakeAuth0(root)}${delimiter}${originalPath ?? ""}`;
+    process.env.FAKE_AUTH0_STATE = statePath;
+
+    const clients = await listAuth0Clients("tenant.example.auth0.com");
+    expect(countAuth0Applications(clients)).toBe(5);
+    const plan = await planChatGptDcrPrune(
+      "tenant.example.auth0.com",
+      new Set(["tpc_receipt"]),
+    );
+    expect(plan.countedApplications).toBe(5);
+    expect(plan.chatGptDcrClients).toBe(4);
+    expect(plan.remove.map((entry) => entry.clientId)).toEqual(["tpc_stale"]);
+    expect(plan.keep).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          clientId: "tpc_latest",
+          protectionReasons: expect.arrayContaining(["latest_for_callback"]),
+        }),
+        expect.objectContaining({
+          clientId: "tpc_success",
+          hasSuccessfulActivity: true,
+          protectionReasons: expect.arrayContaining(["successful_activity"]),
+        }),
+        expect.objectContaining({
+          clientId: "tpc_receipt",
+          protectionReasons: expect.arrayContaining(["current_receipt"]),
+        }),
+      ]),
+    );
+
+    await deleteChatGptDcrClient("tenant.example.auth0.com", "tpc_stale");
+    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+      clientDeletes: number;
+      clients: Array<{ client_id: string }>;
+    };
+    expect(state.clientDeletes).toBe(1);
+    expect(
+      state.clients.some((client) => client.client_id === "tpc_stale"),
+    ).toBe(false);
   });
 
   it("provisions a scoped default user grant for all current and future third-party DCR clients", async () => {

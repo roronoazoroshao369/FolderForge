@@ -76,6 +76,11 @@ semantic versioning.
 - Check the dashboard port before starting the managed server and report the
   conflicting `--dashboard-port` directly instead of allowing an `EADDRINUSE`
   crash to surface later as an ambiguous `fetch failed` error.
+- Detect Auth0 tenants that already have ten counted applications before waiting
+  for DCR, surface the likely entity-limit failure instead of a generic timeout,
+  and add `chatgpt prune-dcr` to preview or explicitly remove only stale duplicate
+  ChatGPT clients while preserving successful, current-receipt, and latest-per-
+  callback clients.
 
 ### Security
 

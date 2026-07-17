@@ -246,6 +246,8 @@ path.
 | `folderforge chatgpt stop`                           | Stop FolderForge and a managed quick tunnel                                                   |
 | `folderforge chatgpt disconnect`                     | Stop local processes and retain remote Auth0 resources                                        |
 | `folderforge chatgpt disconnect --purge-local --yes` | Remove generated local config/logs after explicit confirmation; retain the receipt as history |
+| `folderforge chatgpt prune-dcr`                      | Preview stale duplicate ChatGPT DCR clients without deleting remote Auth0 applications        |
+| `folderforge chatgpt prune-dcr --yes`                | Irreversibly delete only the reviewed safe candidates and verify the application count drops  |
 
 Useful lifecycle options:
 
@@ -360,25 +362,26 @@ be shared by another environment or client.
 
 ## Troubleshooting
 
-| Error or symptom                | Meaning and action                                                                                                                                         |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AUTH0_LOGIN_REQUIRED`          | Run `auth0 login`, select the tenant, then rerun repair.                                                                                                   |
-| `AUTH0_SCOPE_MISSING`           | Reauthenticate Auth0 CLI with the Management API scopes required to read/update tenant settings, resource servers, clients, connections, grants, and logs. |
-| `DCR_DISABLED`                  | Permit FolderForge to enable DCR or enable it in the tenant, then rerun.                                                                                   |
-| `RESOURCE_SERVER_MISCONFIGURED` | Run `folderforge chatgpt repair`; FolderForge repairs non-destructive drift.                                                                               |
-| `PORT_IN_USE`                   | Stop the conflicting process or choose `--port <number>`.                                                                                                  |
-| `TUNNEL_STOPPED`                | Inspect the redacted tunnel log and run repair. A new quick URL requires reconnecting ChatGPT.                                                             |
-| `PUBLIC_ENDPOINT_502`           | The tunnel is reachable but the local origin is stopped or on the wrong port. Start the local server and verify the tunnel origin.                         |
-| `METADATA_INVALID`              | Ensure the public `/.well-known/oauth-protected-resource/mcp` and `/mcp` routes reach the same FolderForge instance.                                       |
-| `CHATGPT_CLIENT_TIMEOUT`        | Keep FolderForge waiting while clicking Connect, or rerun `folderforge connect chatgpt --wait`.                                                            |
-| `MULTIPLE_CHATGPT_CLIENTS`      | More than one new client safely matched. Review them and explicitly select the intended public client ID.                                                  |
-| `CALLBACK_MISMATCH`             | Recreate the connector so Auth0 and ChatGPT use the exact `https://chatgpt.com/connector/oauth/...` callback.                                              |
-| `NO_CONNECTIONS_ENABLED`        | Select a login connection with `--login-connection`, then run repair.                                                                                      |
-| `CLIENT_NOT_AUTHORIZED`         | Run repair so FolderForge creates or fixes the exact `subject_type=user` client grant.                                                                     |
-| `TOKEN_EXCHANGE_FAILED`         | Review Auth0 logs for callback, PKCE, consent, resource, and refresh-token policy errors. Tokens are never written to FolderForge logs.                    |
-| `invalid_token` from `/mcp`     | Check exact issuer, signature/key ID, asymmetric algorithm, expiry/not-before, and `aud` equal to the full public MCP URL.                                 |
-| `insufficient_scope`            | Reconnect or consent with `folderforge:read`; mutations also require `folderforge:write`.                                                                  |
-| Too many tools in ChatGPT       | Use a smaller `--tools-preset`, such as `vibe-lite`.                                                                                                       |
+| Error or symptom                            | Meaning and action                                                                                                                                             |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH0_LOGIN_REQUIRED`                      | Run `auth0 login`, select the tenant, then rerun repair.                                                                                                       |
+| `AUTH0_SCOPE_MISSING`                       | Reauthenticate Auth0 CLI with the Management API scopes required to read/update tenant settings, resource servers, clients, connections, grants, and logs.     |
+| `DCR_DISABLED`                              | Permit FolderForge to enable DCR or enable it in the tenant, then rerun.                                                                                       |
+| `RESOURCE_SERVER_MISCONFIGURED`             | Run `folderforge chatgpt repair`; FolderForge repairs non-destructive drift.                                                                                   |
+| `PORT_IN_USE`                               | Stop the conflicting process or choose `--port <number>`.                                                                                                      |
+| `TUNNEL_STOPPED`                            | Inspect the redacted tunnel log and run repair. A new quick URL requires reconnecting ChatGPT.                                                                 |
+| `PUBLIC_ENDPOINT_502`                       | The tunnel is reachable but the local origin is stopped or on the wrong port. Start the local server and verify the tunnel origin.                             |
+| `METADATA_INVALID`                          | Ensure the public `/.well-known/oauth-protected-resource/mcp` and `/mcp` routes reach the same FolderForge instance.                                           |
+| `CHATGPT_CLIENT_TIMEOUT`                    | Keep FolderForge waiting while clicking Connect. When the output reports ten counted applications, preview stale clients with `folderforge chatgpt prune-dcr`. |
+| DCR registration returns `403` entity limit | The Auth0 tenant cannot create another application. Run `folderforge chatgpt prune-dcr` first; deletion requires a second reviewed run with `--yes`.           |
+| `MULTIPLE_CHATGPT_CLIENTS`                  | More than one new client safely matched. Review them and explicitly select the intended public client ID.                                                      |
+| `CALLBACK_MISMATCH`                         | Recreate the connector so Auth0 and ChatGPT use the exact `https://chatgpt.com/connector/oauth/...` callback.                                                  |
+| `NO_CONNECTIONS_ENABLED`                    | Select a login connection with `--login-connection`, then run repair.                                                                                          |
+| `CLIENT_NOT_AUTHORIZED`                     | Run repair so FolderForge creates or fixes the exact `subject_type=user` client grant.                                                                         |
+| `TOKEN_EXCHANGE_FAILED`                     | Review Auth0 logs for callback, PKCE, consent, resource, and refresh-token policy errors. Tokens are never written to FolderForge logs.                        |
+| `invalid_token` from `/mcp`                 | Check exact issuer, signature/key ID, asymmetric algorithm, expiry/not-before, and `aud` equal to the full public MCP URL.                                     |
+| `insufficient_scope`                        | Reconnect or consent with `folderforge:read`; mutations also require `folderforge:write`.                                                                      |
+| Too many tools in ChatGPT                   | Use a smaller `--tools-preset`, such as `vibe-lite`.                                                                                                           |
 
 Useful commands:
 

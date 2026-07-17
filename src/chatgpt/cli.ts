@@ -21,11 +21,15 @@ import { stdin as input, stdout as output } from "node:process";
 import YAML from "yaml";
 import {
   ChatGptAuth0Error,
+  countAuth0Applications,
+  deleteChatGptDcrClient,
   ensureDefaultThirdPartyUserGrant,
   ensureLoginConnections,
   ensureUserClientGrant,
   getAuth0Client,
+  isChatGptDcrClient,
   listAuth0Clients,
+  planChatGptDcrPrune,
   validateChatGptClientForResource,
   verifyAuthorizeEndpoint,
   waitForChatGptClient,
@@ -192,7 +196,8 @@ interface ParsedOptions {
     | "repair"
     | "start"
     | "stop"
-    | "disconnect";
+    | "disconnect"
+    | "prune-dcr";
   mode?: ChatGptMode;
   projectRoot: string;
   publicUrl?: string;
@@ -319,6 +324,7 @@ export function parseChatGptArgs(
     "start",
     "stop",
     "disconnect",
+    "prune-dcr",
   ]);
   if (!allowedActions.has(actionRaw))
     throw new Error(`Unknown ChatGPT command: ${actionRaw}`);
@@ -516,7 +522,7 @@ export function chatGptHelp(): string {
     "",
     "Usage:",
     "  folderforge connect chatgpt [--quick|--secure] [options]",
-    "  folderforge chatgpt <status|doctor|repair|start|stop|disconnect> [options]",
+    "  folderforge chatgpt <status|doctor|repair|start|stop|disconnect|prune-dcr> [options]",
     "",
     "Modes:",
     "  --quick                 Personal testing. Uses Auth0 DCR and, by default, a temporary Cloudflare quick tunnel.",
@@ -527,7 +533,7 @@ export function chatGptHelp(): string {
     "      --public-url <url>  Stable public HTTPS MCP URL; /mcp is appended to an origin URL",
     "      --tunnel <kind>     cloudflared|none (default cloudflared in quick mode)",
     "      --tenant <domain>   Auth0 tenant override; otherwise uses the active Auth0 CLI tenant",
-    "      --client-id <id>    Explicit existing ChatGPT DCR client for repair, or predefined client in secure mode",
+    "      --client-id <id>    Explicit existing ChatGPT DCR client for repair, predefined client in secure mode, or client to protect during prune-dcr",
     "      --login-connection <name> Auth0 connection to enable; repeat or comma-separate names",
     "      --wait/--no-wait     Wait for ChatGPT DCR registration after printing the MCP URL (default wait)",
     "      --wait-timeout <sec> DCR wait timeout, 1-3600 seconds (default 300)",
@@ -552,7 +558,7 @@ export function chatGptHelp(): string {
     "      --dry-run           Discover and validate only; do not change Auth0 or local files",
     "      --json              Machine-readable receipt/status output",
     "      --purge-local       With disconnect, remove generated config/log files after stopping",
-    "      --yes               Confirm --purge-local without an interactive prompt",
+    "      --yes               Confirm irreversible prune-dcr deletion or --purge-local without an interactive prompt",
     "",
     "FolderForge never stores Auth0 Management API tokens, OAuth access/refresh tokens, authorization codes,",
     "PKCE verifiers, client secrets, cookies, or API keys in the connection receipt.",
@@ -2116,15 +2122,27 @@ async function connect(
     sink.line("✓ Auth0 JWKS verified");
     const shouldCaptureDcrBaseline =
       registration === "dcr" && options.start && !options.dryRun;
-    const baselineClientIds = shouldCaptureDcrBaseline
-      ? new Set(
-          (await listAuth0Clients(tenant)).map((client) => client.client_id),
-        )
-      : new Set<string>();
+    const baselineClients = shouldCaptureDcrBaseline
+      ? await listAuth0Clients(tenant)
+      : [];
+    const baselineClientIds = new Set(
+      baselineClients.map((client) => client.client_id),
+    );
+    const baselineApplicationCount = countAuth0Applications(baselineClients);
+    const baselineChatGptDcrCount =
+      baselineClients.filter(isChatGptDcrClient).length;
     if (shouldCaptureDcrBaseline) {
       sink.line(
         `✓ DCR client baseline captured (${baselineClientIds.size} existing clients)`,
       );
+      if (baselineApplicationCount >= 10) {
+        sink.line(
+          `⚠ Auth0 has ${baselineApplicationCount} counted applications, including ${baselineChatGptDcrCount} ChatGPT DCR clients. A Free tenant may reject another registration at its 10-application limit.`,
+        );
+        sink.line(
+          `  Review safe cleanup candidates with: folderforge chatgpt prune-dcr --tenant ${tenant} --project ${JSON.stringify(options.projectRoot)}`,
+        );
+      }
     }
 
     if (options.start && !options.dryRun) {
@@ -2410,8 +2428,12 @@ async function connect(
             if (!detected) {
               receipt.checks.chatgptClient = "pending";
               receipt.lifecycle!.stage = "WAITING_FOR_CHATGPT_CLIENT";
+              const capacityWarning =
+                baselineApplicationCount >= 10
+                  ? ` Auth0 had ${baselineApplicationCount} counted applications at baseline, so DCR may have been rejected by the tenant entity limit. Review cleanup candidates with \`folderforge chatgpt prune-dcr --tenant ${tenant} --project ${JSON.stringify(options.projectRoot)}\`.`
+                  : "";
               receipt.warnings.push(
-                `Timed out after ${Math.round(options.waitTimeoutMs / 1000)} seconds waiting for ChatGPT. Re-run \`folderforge connect chatgpt --wait\` while clicking Connect.`,
+                `Timed out after ${Math.round(options.waitTimeoutMs / 1000)} seconds waiting for ChatGPT.${capacityWarning || " Re-run `folderforge connect chatgpt --wait` while clicking Connect."}`,
               );
               setLifecycleDiagnostic(
                 receipt,
@@ -2419,9 +2441,13 @@ async function connect(
                   "auth0.chatgpt_client",
                   "WAITING_FOR_CHATGPT_CLIENT",
                   "pending",
-                  "No new session-scoped ChatGPT DCR client requested this exact resource before the timeout.",
+                  baselineApplicationCount >= 10
+                    ? `No new ChatGPT DCR client appeared; the tenant already had ${baselineApplicationCount} counted applications and may be at its application limit.`
+                    : "No new session-scoped ChatGPT DCR client requested this exact resource before the timeout.",
                   true,
-                  "wait_for_dcr_client",
+                  baselineApplicationCount >= 10
+                    ? "prune_stale_dcr_clients"
+                    : "wait_for_dcr_client",
                 ),
               );
               sink.line(
@@ -3078,6 +3104,79 @@ async function disconnect(
   return receipt;
 }
 
+function describeDcrClient(
+  activity: Awaited<ReturnType<typeof planChatGptDcrPrune>>["keep"][number],
+): string {
+  const callback = activity.callbacks[0] ?? "no callback";
+  const resource = activity.latestResource ?? "no resource log";
+  const latest = activity.latestEventAt ?? "no event timestamp";
+  return `${activity.clientId} | ${callback} | ${resource} | latest=${latest}`;
+}
+
+async function pruneDcrClients(
+  options: ParsedOptions,
+  sink: ProgressSink,
+): Promise<void> {
+  const previous = existingReceipt(options.projectRoot);
+  const tenant = await activeAuth0Tenant(options.tenant ?? previous?.tenant);
+  const protectedClientIds = new Set<string>();
+  for (const clientId of [
+    options.clientId,
+    previous?.clientId,
+    previous?.lifecycle?.detectedClient?.clientId,
+  ]) {
+    if (clientId) protectedClientIds.add(clientId);
+  }
+
+  sink.line(`✓ Auth0 tenant selected (${tenant})`);
+  sink.line("• Inspecting ChatGPT DCR clients and recent Auth0 activity...");
+  const plan = await planChatGptDcrPrune(tenant, protectedClientIds);
+  sink.line(
+    `Auth0 inventory: ${plan.countedApplications} counted applications, ${plan.chatGptDcrClients} ChatGPT DCR clients.`,
+  );
+
+  sink.line("");
+  sink.line(`Protected clients (${plan.keep.length}):`);
+  if (plan.keep.length === 0) {
+    sink.line("- none");
+  } else {
+    for (const activity of plan.keep) {
+      sink.line(
+        `- ${describeDcrClient(activity)} | keep=${activity.protectionReasons.join(",")}`,
+      );
+    }
+  }
+
+  sink.line("");
+  sink.line(`Safe deletion candidates (${plan.remove.length}):`);
+  if (plan.remove.length === 0) {
+    sink.line("- none");
+    sink.line("✓ No safely removable duplicate ChatGPT DCR clients were found");
+    return;
+  }
+  for (const activity of plan.remove) {
+    sink.line(`- ${describeDcrClient(activity)}`);
+  }
+
+  if (!options.yes || options.dryRun) {
+    sink.line("");
+    sink.line("• No Auth0 clients were deleted.");
+    sink.line(
+      `  Review the list, then apply the irreversible cleanup with: folderforge chatgpt prune-dcr --tenant ${tenant} --project ${JSON.stringify(options.projectRoot)} --yes`,
+    );
+    return;
+  }
+
+  for (const activity of plan.remove) {
+    await deleteChatGptDcrClient(tenant, activity.clientId);
+    sink.line(`✓ Deleted stale ChatGPT DCR client ${activity.clientId}`);
+  }
+  const remaining = await listAuth0Clients(tenant);
+  sink.line(
+    `✓ Cleanup verified: ${countAuth0Applications(remaining)} counted applications remain; ${plan.remove.length} slot(s) freed.`,
+  );
+}
+
 async function repairWithoutRestart(
   options: ParsedOptions,
   sink: ProgressSink,
@@ -3386,6 +3485,9 @@ export async function executeChatGptCli(
         break;
       case "disconnect":
         receipt = await disconnect(parsed, sink);
+        break;
+      case "prune-dcr":
+        await pruneDcrClients(parsed, sink);
         break;
     }
     const statusOnly = parsed.action === "status" || parsed.action === "doctor";
