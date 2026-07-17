@@ -73,21 +73,18 @@ if (method === 'get' && path === 'logs') {
 if (method === 'get' && path === 'connections') {
   console.log(JSON.stringify(paginate(state.connections || []))); process.exit(0);
 }
-const connectionPath = path.startsWith('connections/') && path.endsWith('/clients');
-const connectionId = connectionPath ? decodeURIComponent(path.slice('connections/'.length, -'/clients'.length)) : '';
+const connectionPath = path.startsWith('connections/') ? decodeURIComponent(path.slice('connections/'.length)) : '';
 if (connectionPath && method === 'get') {
-  const connection = state.connections.find((entry) => entry.id === connectionId);
-  console.log(JSON.stringify({ clients: (connection?.clients || []).map((client_id) => ({ client_id })) }));
-  process.exit(0);
-}
-if (connectionPath && method === 'post') {
-  const connection = state.connections.find((entry) => entry.id === connectionId);
+  const connection = state.connections.find((entry) => entry.id === connectionPath);
   if (!connection) process.exit(1);
-  connection.clients ||= [];
-  const clientId = data().client_id;
-  if (!connection.clients.includes(clientId)) connection.clients.push(clientId);
+  console.log(JSON.stringify(connection)); process.exit(0);
+}
+if (connectionPath && method === 'patch') {
+  const connection = state.connections.find((entry) => entry.id === connectionPath);
+  if (!connection) process.exit(1);
+  Object.assign(connection, data());
   state.connectionWrites = (state.connectionWrites || 0) + 1;
-  write(state); process.exit(0);
+  write(state); console.log(JSON.stringify(connection)); process.exit(0);
 }
 if (method === 'get' && path === 'client-grants') {
   console.log(JSON.stringify(paginate(state.grants || []))); process.exit(0);
@@ -275,8 +272,8 @@ describe("ChatGPT Auth0 lifecycle management", () => {
             id: "con_db",
             name: "Username-Password-Authentication",
             strategy: "auth0",
+            is_domain_connection: false,
             authentication: { active: true },
-            clients: [],
           },
         ],
         grants: [],
@@ -348,7 +345,7 @@ describe("ChatGPT Auth0 lifecycle management", () => {
       connectionWrites: number;
       grantCreates: number;
       grantUpdates?: number;
-      connections: Array<{ clients: string[] }>;
+      connections: Array<{ is_domain_connection: boolean }>;
       grants: Array<{
         client_id: string;
         audience: string;
@@ -359,13 +356,60 @@ describe("ChatGPT Auth0 lifecycle management", () => {
     expect(state.connectionWrites).toBe(1);
     expect(state.grantCreates).toBe(1);
     expect(state.grantUpdates ?? 0).toBe(0);
-    expect(state.connections[0]?.clients).toEqual(["tpc_new"]);
+    expect(state.connections[0]?.is_domain_connection).toBe(true);
     expect(state.grants[0]).toMatchObject({
       client_id: "tpc_new",
       audience: "https://mcp.example.com/mcp",
       subject_type: "user",
       scope: ["folderforge:read", "folderforge:write"],
     });
+  });
+
+  it("recovers a recent existing ChatGPT client that already entered the baseline", async () => {
+    const root = mkdtempSync(join(tmpdir(), "folderforge-auth0-recover-"));
+    const statePath = join(root, "state.json");
+    const client = chatGptClient("tpc_existing");
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        clients: [client],
+        logs: [
+          {
+            date: new Date().toISOString(),
+            client_id: client.client_id,
+            details: {
+              qs: {
+                resource: "https://mcp.example.com/mcp",
+                redirect_uri:
+                  "https://chatgpt.com/connector/oauth/callback-123",
+              },
+            },
+          },
+        ],
+        connections: [],
+        grants: [],
+      }),
+    );
+    process.env.PATH = `${installFakeAuth0(root)}${delimiter}${originalPath ?? ""}`;
+    process.env.FAKE_AUTH0_STATE = statePath;
+    const progress: string[] = [];
+
+    await expect(
+      waitForChatGptClient({
+        tenant: "tenant.example.auth0.com",
+        resource: "https://mcp.example.com/mcp",
+        baselineClientIds: new Set([client.client_id]),
+        timeoutMs: 200,
+        pollIntervalMs: 5,
+        onProgress: (message) => progress.push(message),
+      }),
+    ).resolves.toMatchObject({
+      clientId: client.client_id,
+      resource: "https://mcp.example.com/mcp",
+    });
+    expect(progress).toContain(
+      "✓ Recent existing ChatGPT DCR client recovered from an exact Auth0 resource log",
+    );
   });
 
   it("times out cleanly when no new ChatGPT client appears", async () => {
@@ -509,6 +553,21 @@ describe("ChatGPT Auth0 lifecycle management", () => {
       }),
     ).rejects.toMatchObject<Partial<ChatGptAuth0Error>>({
       code: "CLIENT_NOT_AUTHORIZED",
+    });
+
+    globalThis.fetch = vi.fn(
+      async () => new Response("oauth error: login_required", { status: 400 }),
+    ) as typeof fetch;
+    await expect(
+      verifyAuthorizeEndpoint({
+        authorizationEndpoint: "https://tenant.example.auth0.com/authorize",
+        client: detected,
+        resource: detected.resource,
+        scopes: ["folderforge:read"],
+      }),
+    ).resolves.toMatchObject({
+      status: 400,
+      outcome: "login_required",
     });
   });
 });

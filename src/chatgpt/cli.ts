@@ -2333,7 +2333,9 @@ async function connect(
             receipt,
             tunnelPid ? isPidAlive(tunnelPid) : true,
           );
-          sink.line("✓ Current connection state saved before waiting for ChatGPT");
+          sink.line(
+            "✓ Current connection state saved before waiting for ChatGPT",
+          );
           sink.line("Waiting for ChatGPT to register an OAuth client...");
           try {
             const detected = await waitForChatGptClient({
@@ -2399,13 +2401,13 @@ async function connect(
                   "auth0.login_connections",
                   "LOGIN_CONNECTIONS_READY",
                   "pass",
-                  `${connections.map((entry) => entry.name).join(", ")} enabled only for the verified ChatGPT client.`,
+                  `${connections.map((entry) => entry.name).join(", ")} promoted to Auth0 domain level for third-party DCR clients.`,
                   true,
                   "enable_login_connection",
                 ),
               );
               sink.line(
-                `✓ Login connection enabled (${connections.map((entry) => entry.name).join(", ")})`,
+                `✓ Domain-level login connection ready (${connections.map((entry) => entry.name).join(", ")})`,
               );
 
               const grant = await ensureUserClientGrant(
@@ -2585,7 +2587,7 @@ async function verifyManagedDcrLifecycle(
         "auth0.login_connections",
         "LOGIN_CONNECTIONS_READY",
         "pass",
-        `${connections.map((entry) => entry.name).join(", ")} enabled for the verified client.`,
+        `${connections.map((entry) => entry.name).join(", ")} is available at Auth0 domain level for third-party DCR clients.`,
         true,
         "enable_login_connection",
       ),

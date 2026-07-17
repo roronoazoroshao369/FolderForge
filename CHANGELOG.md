@@ -60,15 +60,26 @@ semantic versioning.
 - Persist the current tenant, issuer, server PID, metadata checks, and waiting
   lifecycle before blocking for ChatGPT DCR, so concurrent status checks do not
   read or overwrite a stale receipt from a previous connection attempt.
+- Recover a unique recent ChatGPT DCR client from an exact Auth0 resource log even
+  when an interrupted connection attempt already placed that client in the next
+  baseline, instead of waiting forever for another newly created client.
+- Configure selected Auth0 login connections as domain-level connections required
+  by strict third-party DCR clients, replacing the unsupported
+  `/connections/{id}/clients` flow that returned 404 before user grants were made.
+- Treat Auth0's expected `login_required` response to the non-interactive
+  `prompt=none` authorize probe as readiness instead of misclassifying its HTTP 400
+  error page as a public-endpoint failure.
 
 ### Security
 
 - Automatic Auth0 mutations are limited to a safely matched ChatGPT DCR client:
   exact name, DCR metadata, public authorization-code behavior, bounded ChatGPT
   callbacks, connect-session boundary, and an exact Auth0 resource log.
-- Login connections are enabled only for the verified client, and grants are
-  scoped to that client, audience, and required scopes. Multiple matches fail
-  closed; remote Auth0 resources are never deleted automatically.
+- Only an explicitly selected login connection is promoted to Auth0 domain level,
+  as required for third-party DCR clients. MCP authorization remains scoped by a
+  per-client `subject_type=user` grant for the exact audience and required scopes.
+  Multiple client matches fail closed; remote Auth0 resources are never deleted
+  automatically.
 - Extend CLI/dashboard redaction to bearer credentials, complete JWTs, common
   token/secret assignments, and API-key-shaped values.
 

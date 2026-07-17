@@ -8,6 +8,7 @@ const AUTH0_MAX_PAGE_SIZE = 100;
 const AUTH0_MAX_PAGES = 1000;
 const CHATGPT_CALLBACK_ORIGIN = "https://chatgpt.com";
 const CHATGPT_CALLBACK_PREFIX = "/connector/oauth/";
+const CHATGPT_EXISTING_CLIENT_RECOVERY_MS = 15 * 60_000;
 
 export interface Auth0DcrClient {
   client_id: string;
@@ -26,6 +27,7 @@ export interface Auth0Connection {
   id: string;
   name: string;
   strategy?: string;
+  is_domain_connection?: boolean;
   authentication?: { active?: boolean };
 }
 
@@ -189,11 +191,7 @@ async function auth0ApiList<T>(
   const items: T[] = [];
   for (let page = 0; page < AUTH0_MAX_PAGES; page += 1) {
     const batch = await auth0Api<T[]>(tenant, "get", path, {
-      query: [
-        ...query,
-        `page=${page}`,
-        `per_page=${AUTH0_MAX_PAGE_SIZE}`,
-      ],
+      query: [...query, `page=${page}`, `per_page=${AUTH0_MAX_PAGE_SIZE}`],
     });
     if (!Array.isArray(batch)) {
       throw new ChatGptAuth0Error(
@@ -342,6 +340,41 @@ export async function validateChatGptClientForResource(
   };
 }
 
+async function matchingChatGptClientsForResource(
+  tenant: string,
+  clients: Auth0DcrClient[],
+  resource: string,
+): Promise<ChatGptDetectedClient[]> {
+  const matches: ChatGptDetectedClient[] = [];
+  for (const candidate of clients) {
+    try {
+      matches.push(
+        await validateChatGptClientForResource(tenant, candidate, resource),
+      );
+    } catch (error) {
+      if (
+        !(error instanceof ChatGptAuth0Error) ||
+        error.code !== "CLIENT_NOT_AUTHORIZED"
+      ) {
+        throw error;
+      }
+    }
+  }
+  return matches;
+}
+
+function isRecentRecoveredClient(
+  client: ChatGptDetectedClient,
+  now = Date.now(),
+): boolean {
+  const detectedAt = Date.parse(client.detectedAt);
+  return (
+    Number.isFinite(detectedAt) &&
+    detectedAt <= now &&
+    now - detectedAt <= CHATGPT_EXISTING_CLIENT_RECOVERY_MS
+  );
+}
+
 export interface WaitForChatGptClientOptions {
   tenant: string;
   resource: string;
@@ -368,42 +401,55 @@ export async function waitForChatGptClient(
   }
   const deadline = Date.now() + options.timeoutMs;
   let announcedCandidate = false;
+  let announcedRecovery = false;
   while (Date.now() < deadline) {
-    const clients = await listAuth0Clients(options.tenant);
-    const candidates = clients.filter(
-      (client) =>
-        !options.baselineClientIds.has(client.client_id) &&
-        isChatGptDcrClient(client),
+    const clients = (await listAuth0Clients(options.tenant)).filter(
+      isChatGptDcrClient,
     );
-    if (candidates.length > 0 && !announcedCandidate) {
+    const newCandidates = clients.filter(
+      (client) => !options.baselineClientIds.has(client.client_id),
+    );
+    if (newCandidates.length > 0 && !announcedCandidate) {
       announcedCandidate = true;
       options.onProgress?.(
         "✓ ChatGPT DCR client detected; verifying its requested resource",
       );
     }
-    const matches: ChatGptDetectedClient[] = [];
-    for (const candidate of candidates) {
-      try {
-        matches.push(
-          await validateChatGptClientForResource(
-            options.tenant,
-            candidate,
-            options.resource,
-          ),
-        );
-      } catch (error) {
-        if (
-          !(error instanceof ChatGptAuth0Error) ||
-          error.code !== "CLIENT_NOT_AUTHORIZED"
-        ) {
-          throw error;
-        }
-      }
-    }
-    if (matches.length === 1) return matches[0];
-    if (matches.length > 1) {
+    const newMatches = await matchingChatGptClientsForResource(
+      options.tenant,
+      newCandidates,
+      options.resource,
+    );
+    if (newMatches.length === 1) return newMatches[0];
+    if (newMatches.length > 1) {
       throw new ChatGptAuth0Error(
         "Multiple new ChatGPT DCR clients requested this resource. Re-run with an explicit --client-id after reviewing them.",
+        "MULTIPLE_CHATGPT_CLIENTS",
+      );
+    }
+
+    const existingCandidates = clients.filter((client) =>
+      options.baselineClientIds.has(client.client_id),
+    );
+    const recoveredMatches = (
+      await matchingChatGptClientsForResource(
+        options.tenant,
+        existingCandidates,
+        options.resource,
+      )
+    ).filter((client) => isRecentRecoveredClient(client));
+    if (recoveredMatches.length === 1) {
+      if (!announcedRecovery) {
+        announcedRecovery = true;
+        options.onProgress?.(
+          "✓ Recent existing ChatGPT DCR client recovered from an exact Auth0 resource log",
+        );
+      }
+      return recoveredMatches[0];
+    }
+    if (recoveredMatches.length > 1) {
+      throw new ChatGptAuth0Error(
+        "Multiple recent ChatGPT DCR clients requested this resource. Re-run with an explicit --client-id after reviewing them.",
         "MULTIPLE_CHATGPT_CLIENTS",
       );
     }
@@ -458,23 +504,20 @@ export function selectLoginConnections(
   );
 }
 
-async function connectionClientIds(
+async function getAuth0Connection(
   tenant: string,
   connectionId: string,
-): Promise<string[]> {
-  const result = await auth0Api<{ clients?: Array<{ client_id?: string }> }>(
+): Promise<Auth0Connection> {
+  return await auth0Api<Auth0Connection>(
     tenant,
     "get",
-    `connections/${encodeURIComponent(connectionId)}/clients`,
+    `connections/${encodeURIComponent(connectionId)}`,
   );
-  return (result.clients ?? [])
-    .map((entry) => entry.client_id)
-    .filter((value): value is string => Boolean(value));
 }
 
 export async function ensureLoginConnections(
   tenant: string,
-  clientId: string,
+  _clientId: string,
   requestedNames: string[],
   repair: boolean,
 ): Promise<Array<{ id: string; name: string }>> {
@@ -483,24 +526,23 @@ export async function ensureLoginConnections(
     requestedNames,
   );
   for (const connection of selected) {
-    const clients = await connectionClientIds(tenant, connection.id);
-    if (clients.includes(clientId)) continue;
+    if (connection.is_domain_connection === true) continue;
     if (!repair) {
       throw new ChatGptAuth0Error(
-        `No connections enabled for the ChatGPT client (${connection.name}).`,
+        `Login connection ${connection.name} is not promoted to the Auth0 domain level required by third-party DCR clients.`,
         "NO_CONNECTIONS_ENABLED",
       );
     }
-    await auth0Api<Record<string, unknown>>(
+    await auth0Api<Auth0Connection>(
       tenant,
-      "post",
-      `connections/${encodeURIComponent(connection.id)}/clients`,
-      { data: { client_id: clientId } },
+      "patch",
+      `connections/${encodeURIComponent(connection.id)}`,
+      { data: { is_domain_connection: true } },
     );
-    const verified = await connectionClientIds(tenant, connection.id);
-    if (!verified.includes(clientId)) {
+    const verified = await getAuth0Connection(tenant, connection.id);
+    if (verified.is_domain_connection !== true) {
       throw new ChatGptAuth0Error(
-        `Auth0 did not retain the client membership for ${connection.name}.`,
+        `Auth0 did not promote ${connection.name} to a domain-level connection.`,
         "NO_CONNECTIONS_ENABLED",
       );
     }
@@ -644,6 +686,13 @@ export async function verifyAuthorizeEndpoint(options: {
       "Auth0 rejected the ChatGPT callback URI.",
       "CALLBACK_MISMATCH",
     );
+  }
+  if (lower.includes("login_required")) {
+    return {
+      checkedAt: new Date().toISOString(),
+      status: response.status,
+      outcome: "login_required",
+    };
   }
   if (response.status >= 400) {
     throw new ChatGptAuth0Error(
