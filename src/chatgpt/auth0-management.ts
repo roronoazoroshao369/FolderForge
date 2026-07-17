@@ -70,6 +70,13 @@ interface Auth0LogEntry {
       redirect_uri?: string;
       client_id?: string;
     };
+    requested_audience?: string;
+    audience?: string;
+    prompts?: Array<{
+      grantInfo?: {
+        audience?: string;
+      };
+    }>;
     error?: { message?: string; oauthError?: string; type?: string };
   };
 }
@@ -303,6 +310,17 @@ async function listClientLogs(
   });
 }
 
+function resourceFromAuth0Log(log: Auth0LogEntry): string | undefined {
+  return (
+    log.details?.qs?.resource ??
+    log.details?.requested_audience ??
+    log.details?.audience ??
+    log.details?.prompts
+      ?.map((prompt) => prompt.grantInfo?.audience)
+      .find((audience): audience is string => Boolean(audience))
+  );
+}
+
 function callbackGroupKey(callbacks: string[]): string {
   return [...callbacks].sort().join("\n");
 }
@@ -324,8 +342,9 @@ export async function planChatGptDcrPrune(
   for (const client of dcrClients) {
     const logs = await listClientLogs(tenant, client.client_id);
     const latest = logs[0];
-    const latestResource = logs.find((log) => log.details?.qs?.resource)
-      ?.details?.qs?.resource;
+    const latestResource = logs
+      .map(resourceFromAuth0Log)
+      .find((resource): resource is string => Boolean(resource));
     const protectionReasons: string[] = [];
     if (protectedClientIds.has(client.client_id)) {
       protectionReasons.push("current_receipt");
@@ -410,7 +429,7 @@ async function resourceFromClientLogs(
     query: [`q=client_id:${clientId}`, "sort=date:-1", "per_page=20"],
   });
   for (const log of logs) {
-    const loggedResource = log.details?.qs?.resource;
+    const loggedResource = resourceFromAuth0Log(log);
     if (loggedResource !== resource) continue;
     return {
       resource: loggedResource,

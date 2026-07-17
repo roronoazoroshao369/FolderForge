@@ -680,6 +680,59 @@ describe("ChatGPT Auth0 lifecycle management", () => {
     });
   });
 
+  it.each([
+    [
+      "consent grant audience",
+      {
+        prompts: [
+          {
+            grantInfo: { audience: "https://mcp.example.com/mcp" },
+          },
+        ],
+      },
+    ],
+    [
+      "refresh-token requested audience",
+      { requested_audience: "https://mcp.example.com/mcp" },
+    ],
+    ["revocation audience", { audience: "https://mcp.example.com/mcp" }],
+  ])(
+    "accepts the modern Auth0 %s log shape as exact resource evidence",
+    async (_label, details) => {
+      const root = mkdtempSync(join(tmpdir(), "folderforge-auth0-modern-log-"));
+      const statePath = join(root, "state.json");
+      const candidate = chatGptClient("tpc_modern_log");
+      writeFileSync(
+        statePath,
+        JSON.stringify({
+          clients: [candidate],
+          logs: [
+            {
+              date: "2026-07-17T09:39:19.901Z",
+              type: "s",
+              client_id: candidate.client_id,
+              details,
+            },
+          ],
+        }),
+      );
+      process.env.PATH = `${installFakeAuth0(root)}${delimiter}${originalPath ?? ""}`;
+      process.env.FAKE_AUTH0_STATE = statePath;
+
+      await expect(
+        validateChatGptClientForResource(
+          "tenant.example.auth0.com",
+          candidate,
+          "https://mcp.example.com/mcp",
+        ),
+      ).resolves.toMatchObject({
+        clientId: candidate.client_id,
+        resource: "https://mcp.example.com/mcp",
+        detectedAt: "2026-07-17T09:39:19.901Z",
+      });
+    },
+  );
+
   it("rejects a ChatGPT-looking client without an exact resource log", async () => {
     const root = mkdtempSync(join(tmpdir(), "folderforge-auth0-resource-"));
     const statePath = join(root, "state.json");

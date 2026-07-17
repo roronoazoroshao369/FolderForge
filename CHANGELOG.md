@@ -81,6 +81,10 @@ semantic versioning.
   and add `chatgpt prune-dcr` to preview or explicitly remove only stale duplicate
   ChatGPT clients while preserving successful, current-receipt, and latest-per-
   callback clients.
+- Accept modern Auth0 resource evidence from consent `grantInfo.audience`, refresh
+  token `requested_audience`, and revocation `audience` log fields instead of
+  requiring the legacy `details.qs.resource` shape, preventing false
+  `CLIENT_NOT_AUTHORIZED` results after a successful ChatGPT OAuth exchange.
 
 ### Security
 
