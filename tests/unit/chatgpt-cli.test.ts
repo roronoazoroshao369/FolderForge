@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import YAML from "yaml";
 import {
+  checkpointWaitingForChatGptClient,
   executeChatGptCli,
   normalizeMcpUrl,
   parseChatGptArgs,
@@ -308,6 +309,51 @@ describe("ChatGPT connect CLI", () => {
     expect(config.server.http.auth.oauth.clientRegistration).toBe("dcr");
     if (process.platform !== "win32")
       expect(statSync(receiptPath).mode & 0o777).toBe(0o600);
+  });
+
+  it("checkpoints the current tenant and server before waiting for ChatGPT", () => {
+    const root = mkdtempSync(join(tmpdir(), "folderforge-chatgpt-checkpoint-"));
+    const stateDir = join(root, ".folderforge");
+    mkdirSync(stateDir, { recursive: true });
+    const receiptPath = join(stateDir, "chatgpt-connection.json");
+
+    const stale = receipt(root);
+    stale.tenant = "old-tenant.example.auth0.com";
+    stale.issuer = "https://old-tenant.example.auth0.com/";
+    writeConnectionReceipt(receiptPath, stale);
+
+    const current = receipt(root);
+    current.version = 2;
+    current.tenant = "tenant.example.auth0.com";
+    current.issuer = "https://tenant.example.auth0.com/";
+    current.processes.serverPid = 424242;
+    current.checks.localServer = "pass";
+    current.checks.publicEndpoint = "pass";
+    current.checks.resourceMetadata = "pass";
+    current.checks.unauthorizedChallenge = "pass";
+    current.lifecycle = {
+      sessionId: "current-session",
+      sessionStartedAt: "2026-07-17T00:00:00.000Z",
+      stage: "OAUTH_METADATA_READY",
+      diagnostics: [],
+    };
+
+    checkpointWaitingForChatGptClient(receiptPath, current, true);
+
+    const saved = readConnectionReceipt(receiptPath);
+    expect(saved.tenant).toBe("tenant.example.auth0.com");
+    expect(saved.issuer).toBe("https://tenant.example.auth0.com/");
+    expect(saved.processes.serverPid).toBe(424242);
+    expect(saved.checks.localServer).toBe("pass");
+    expect(saved.checks.resourceMetadata).toBe("pass");
+    expect(saved.checks.chatgptClient).toBe("pending");
+    expect(saved.lifecycle?.stage).toBe("WAITING_FOR_CHATGPT_CLIENT");
+    expect(saved.lifecycle?.diagnostics).toContainEqual(
+      expect.objectContaining({
+        id: "auth0.chatgpt_client",
+        status: "pending",
+      }),
+    );
   });
 
   it("preserves existing scope descriptions while repairing Auth0 API settings idempotently", async () => {

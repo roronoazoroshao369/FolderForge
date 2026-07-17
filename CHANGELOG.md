@@ -57,6 +57,9 @@ semantic versioning.
 - Paginate Auth0 clients, connections, and client grants at the Management API
   maximum of 100 items per page instead of requesting the invalid
   `per_page=1000`, while still collecting tenants with more than 100 records.
+- Persist the current tenant, issuer, server PID, metadata checks, and waiting
+  lifecycle before blocking for ChatGPT DCR, so concurrent status checks do not
+  read or overwrite a stale receipt from a previous connection attempt.
 
 ### Security
 

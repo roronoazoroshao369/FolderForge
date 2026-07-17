@@ -1280,6 +1280,35 @@ export function writeConnectionReceipt(
   chmodSync(path, 0o600);
 }
 
+export function checkpointWaitingForChatGptClient(
+  path: string,
+  receipt: ChatGptConnectionReceipt,
+  tunnelAlive: boolean,
+): void {
+  receipt.checks.chatgptClient = "pending";
+  receipt.lifecycle ??= {
+    sessionId: randomUUID(),
+    sessionStartedAt: receipt.updatedAt,
+    stage: "WAITING_FOR_CHATGPT_CLIENT",
+    diagnostics: [],
+  };
+  receipt.lifecycle.stage = "WAITING_FOR_CHATGPT_CLIENT";
+  setLifecycleDiagnostic(
+    receipt,
+    diagnostic(
+      "auth0.chatgpt_client",
+      "WAITING_FOR_CHATGPT_CLIENT",
+      "pending",
+      "FolderForge is waiting for ChatGPT to register an OAuth client for this exact MCP resource.",
+      true,
+      "wait_for_dcr_client",
+    ),
+  );
+  receipt.updatedAt = new Date().toISOString();
+  refreshChatGptLifecycle(receipt, true, tunnelAlive);
+  writeConnectionReceipt(path, receipt);
+}
+
 export function readConnectionReceipt(path: string): ChatGptConnectionReceipt {
   const raw = JSON.parse(
     readFileSync(path, "utf8"),
@@ -2299,6 +2328,12 @@ async function connect(
             ? previous.lifecycle?.detectedClient?.clientId
             : undefined);
         if (options.waitForClient || reusableClientId) {
+          checkpointWaitingForChatGptClient(
+            paths.receipt,
+            receipt,
+            tunnelPid ? isPidAlive(tunnelPid) : true,
+          );
+          sink.line("✓ Current connection state saved before waiting for ChatGPT");
           sink.line("Waiting for ChatGPT to register an OAuth client...");
           try {
             const detected = await waitForChatGptClient({
