@@ -556,6 +556,97 @@ export async function listAuth0ClientGrants(
   return await auth0ApiList<Auth0ClientGrant>(tenant, "client-grants");
 }
 
+async function ensureGrantScopes(
+  tenant: string,
+  grant: Auth0ClientGrant,
+  scopes: string[],
+  repair: boolean,
+  errorLabel: string,
+): Promise<string[]> {
+  const currentScopes = new Set(grant.scope ?? []);
+  const missing = scopes.filter((scope) => !currentScopes.has(scope));
+  if (missing.length === 0) return [...currentScopes];
+  if (!repair || !grant.id) {
+    throw new ChatGptAuth0Error(
+      `${errorLabel} is missing scope(s): ${missing.join(", ")}`,
+      "CLIENT_NOT_AUTHORIZED",
+    );
+  }
+  const merged = [...new Set([...(grant.scope ?? []), ...scopes])];
+  await auth0Api<Auth0ClientGrant>(
+    tenant,
+    "patch",
+    `client-grants/${encodeURIComponent(grant.id)}`,
+    { data: { scope: merged } },
+  );
+  grant.scope = merged;
+  return merged;
+}
+
+export async function ensureDefaultThirdPartyUserGrant(
+  tenant: string,
+  audience: string,
+  scopes: string[],
+  repair: boolean,
+): Promise<{
+  id?: string;
+  defaultFor: "third_party_clients";
+  audience: string;
+  scopes: string[];
+  subjectType: "user";
+}> {
+  const grants = await listAuth0ClientGrants(tenant);
+  const matching = grants.find(
+    (grant) =>
+      grant.default_for === "third_party_clients" &&
+      grant.audience === audience &&
+      grant.subject_type === "user" &&
+      !grant.client_id,
+  );
+  if (!matching) {
+    if (!repair) {
+      throw new ChatGptAuth0Error(
+        "No default third-party user grant exists for this FolderForge resource server.",
+        "CLIENT_NOT_AUTHORIZED",
+      );
+    }
+    const created = await auth0Api<Auth0ClientGrant>(
+      tenant,
+      "post",
+      "client-grants",
+      {
+        data: {
+          default_for: "third_party_clients",
+          audience,
+          scope: scopes,
+          subject_type: "user",
+        },
+      },
+    );
+    return {
+      ...(created.id ? { id: created.id } : {}),
+      defaultFor: "third_party_clients",
+      audience,
+      scopes: [...scopes],
+      subjectType: "user",
+    };
+  }
+  const mergedScopes = await ensureGrantScopes(
+    tenant,
+    matching,
+    scopes,
+    repair,
+    "The default third-party user grant",
+  );
+  return {
+    ...(matching.id ? { id: matching.id } : {}),
+    defaultFor: "third_party_clients",
+    audience,
+    scopes: mergedScopes,
+    subjectType: "user",
+  };
+}
+
 export async function ensureUserClientGrant(
   tenant: string,
   clientId: string,
@@ -577,6 +668,29 @@ export async function ensureUserClientGrant(
       grant.subject_type === "user" &&
       !grant.default_for,
   );
+  const defaultGrant = grants.find(
+    (grant) =>
+      grant.default_for === "third_party_clients" &&
+      grant.audience === audience &&
+      grant.subject_type === "user" &&
+      !grant.client_id,
+  );
+  if (!matching && defaultGrant) {
+    const mergedScopes = await ensureGrantScopes(
+      tenant,
+      defaultGrant,
+      scopes,
+      repair,
+      "The default third-party user grant",
+    );
+    return {
+      ...(defaultGrant.id ? { id: defaultGrant.id } : {}),
+      clientId,
+      audience,
+      scopes: mergedScopes,
+      subjectType: "user",
+    };
+  }
   if (!matching) {
     if (!repair) {
       throw new ChatGptAuth0Error(
@@ -605,29 +719,18 @@ export async function ensureUserClientGrant(
       subjectType: "user",
     };
   }
-  const currentScopes = new Set(matching.scope ?? []);
-  const missing = scopes.filter((scope) => !currentScopes.has(scope));
-  if (missing.length > 0) {
-    if (!repair || !matching.id) {
-      throw new ChatGptAuth0Error(
-        `The ChatGPT user grant is missing scope(s): ${missing.join(", ")}`,
-        "CLIENT_NOT_AUTHORIZED",
-      );
-    }
-    const merged = [...new Set([...(matching.scope ?? []), ...scopes])];
-    await auth0Api<Auth0ClientGrant>(
-      tenant,
-      "patch",
-      `client-grants/${encodeURIComponent(matching.id)}`,
-      { data: { scope: merged } },
-    );
-    matching.scope = merged;
-  }
+  const mergedScopes = await ensureGrantScopes(
+    tenant,
+    matching,
+    scopes,
+    repair,
+    "The ChatGPT user grant",
+  );
   return {
     ...(matching.id ? { id: matching.id } : {}),
     clientId,
     audience,
-    scopes: [...new Set([...(matching.scope ?? []), ...scopes])],
+    scopes: mergedScopes,
     subjectType: "user",
   };
 }

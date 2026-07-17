@@ -9,9 +9,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import { delimiter, join } from "node:path";
 import YAML from "yaml";
 import {
+  assertChatGptRuntimePortsAvailable,
   checkpointWaitingForChatGptClient,
   executeChatGptCli,
   normalizeMcpUrl,
@@ -114,6 +116,7 @@ if (args[0] === 'apis' && args[1] === 'create') {
     id: 'api_1', name: flag('--name'), identifier: flag('--identifier'), scopes,
     signing_alg: 'RS256', token_dialect: 'rfc9068_profile', token_lifetime: 3600,
     allow_offline_access: args.includes('--offline-access=true'),
+    enforce_policies: args.includes('--enforce-policies'),
     subject_type_authorization: subjectAuthorization
   };
   state.apis.push(api); state.creates += 1; write(state); console.log(JSON.stringify(api)); process.exit(0);
@@ -129,6 +132,24 @@ if (args[0] === 'api' && args[1] === 'patch' && args[2]?.startsWith('resource-se
   }
   Object.assign(api, patch);
   state.updates += 1; write(state); console.log(JSON.stringify(api)); process.exit(0);
+}
+if (args[0] === 'api' && args[1] === 'get' && args[2] === 'client-grants') {
+  console.log(JSON.stringify(read().grants || [])); process.exit(0);
+}
+if (args[0] === 'api' && args[1] === 'post' && args[2] === 'client-grants') {
+  const state = read(); state.grants ||= [];
+  const grant = { id: 'grant_' + (state.grants.length + 1), ...JSON.parse(flag('--data') || '{}') };
+  state.grants.push(grant); state.grantCreates = (state.grantCreates || 0) + 1;
+  write(state); console.log(JSON.stringify(grant)); process.exit(0);
+}
+if (args[0] === 'api' && args[1] === 'patch' && args[2]?.startsWith('client-grants/')) {
+  const state = read();
+  const id = decodeURIComponent(args[2].slice('client-grants/'.length));
+  const grant = (state.grants || []).find((item) => item.id === id);
+  if (!grant) process.exit(1);
+  Object.assign(grant, JSON.parse(flag('--data') || '{}'));
+  state.grantUpdates = (state.grantUpdates || 0) + 1;
+  write(state); console.log(JSON.stringify(grant)); process.exit(0);
 }
 console.error('unsupported fake auth0 invocation', args.join(' ')); process.exit(2);
 `,
@@ -246,6 +267,51 @@ describe("ChatGPT connect CLI", () => {
     );
   });
 
+  it("rejects an occupied dashboard port before starting FolderForge", async () => {
+    const mainProbe = createServer();
+    const dashboardProbe = createServer();
+    await Promise.all([
+      new Promise<void>((resolve, reject) => {
+        mainProbe.once("error", reject);
+        mainProbe.listen(0, "127.0.0.1", resolve);
+      }),
+      new Promise<void>((resolve, reject) => {
+        dashboardProbe.once("error", reject);
+        dashboardProbe.listen(0, "127.0.0.1", resolve);
+      }),
+    ]);
+    const mainAddress = mainProbe.address();
+    const dashboardAddress = dashboardProbe.address();
+    expect(mainAddress && typeof mainAddress !== "string").toBe(true);
+    expect(dashboardAddress && typeof dashboardAddress !== "string").toBe(true);
+    const mainPort =
+      mainAddress && typeof mainAddress !== "string" ? mainAddress.port : 0;
+    const dashboardPort =
+      dashboardAddress && typeof dashboardAddress !== "string"
+        ? dashboardAddress.port
+        : 0;
+    await new Promise<void>((resolve, reject) =>
+      mainProbe.close((error) => (error ? reject(error) : resolve())),
+    );
+
+    try {
+      await expect(
+        assertChatGptRuntimePortsAvailable({
+          host: "127.0.0.1",
+          port: mainPort,
+          dashboard: true,
+          dashboardPort,
+        }),
+      ).rejects.toThrow(
+        `Dashboard port 127.0.0.1:${dashboardPort} is already in use. Stop the existing service or pass a different --dashboard-port.`,
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        dashboardProbe.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
   it("provisions the Auth0 API idempotently and writes a secret-free config and receipt", async () => {
     const root = mkdtempSync(join(tmpdir(), "Folder Forge ü-"));
     const project = join(root, "Project With Space Ω");
@@ -276,9 +342,30 @@ describe("ChatGPT connect CLI", () => {
     const state = JSON.parse(readFileSync(statePath, "utf8")) as {
       creates: number;
       updates: number;
+      grantCreates: number;
+      grants: Array<{
+        client_id?: string;
+        default_for?: string;
+        audience: string;
+        scope: string[];
+        subject_type: string;
+      }>;
     };
     expect(state.creates).toBe(1);
     expect(state.updates).toBe(0);
+    expect(state.grantCreates).toBe(1);
+    expect(state.grants).toEqual([
+      expect.objectContaining({
+        default_for: "third_party_clients",
+        audience: "https://mcp.example.com/mcp",
+        scope: ["folderforge:read", "folderforge:write"],
+        subject_type: "user",
+      }),
+    ]);
+    expect(state.grants[0]).not.toHaveProperty("client_id");
+    expect(first.output).toContain(
+      "✓ Default third-party Auth0 user grant created or verified",
+    );
 
     const receiptPath = join(
       project,
@@ -288,6 +375,7 @@ describe("ChatGPT connect CLI", () => {
     const saved = readConnectionReceipt(receiptPath);
     expect(saved.resource).toBe("https://mcp.example.com/mcp");
     expect(saved.registration).toBe("dcr");
+    expect(saved.checks.userGrant).toBe("pass");
     expect(saved.checks.tokenValidation).toBe("pending_user_login");
     const serialized = readFileSync(receiptPath, "utf8");
     expect(serialized).not.toMatch(

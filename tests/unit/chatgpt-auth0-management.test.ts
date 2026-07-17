@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import {
   ChatGptAuth0Error,
+  ensureDefaultThirdPartyUserGrant,
   ensureLoginConnections,
   ensureUserClientGrant,
   isChatGptCallback,
@@ -241,6 +242,78 @@ describe("ChatGPT Auth0 lifecycle management", () => {
     await expect(
       listAuth0ClientGrants("tenant.example.auth0.com"),
     ).resolves.toHaveLength(101);
+  });
+
+  it("provisions a scoped default user grant for all current and future third-party DCR clients", async () => {
+    const root = mkdtempSync(
+      join(tmpdir(), "folderforge-auth0-default-grant-"),
+    );
+    const statePath = join(root, "state.json");
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        clients: [],
+        logs: [],
+        connections: [],
+        grants: [],
+      }),
+    );
+    process.env.PATH = `${installFakeAuth0(root)}${delimiter}${originalPath ?? ""}`;
+    process.env.FAKE_AUTH0_STATE = statePath;
+
+    const first = await ensureDefaultThirdPartyUserGrant(
+      "tenant.example.auth0.com",
+      "https://mcp.example.com/mcp",
+      ["folderforge:read"],
+      true,
+    );
+    const second = await ensureDefaultThirdPartyUserGrant(
+      "tenant.example.auth0.com",
+      "https://mcp.example.com/mcp",
+      ["folderforge:read", "folderforge:write"],
+      true,
+    );
+    const clientGrant = await ensureUserClientGrant(
+      "tenant.example.auth0.com",
+      "tpc_future",
+      "https://mcp.example.com/mcp",
+      ["folderforge:read", "folderforge:write"],
+      false,
+    );
+
+    expect(first).toMatchObject({
+      defaultFor: "third_party_clients",
+      subjectType: "user",
+      scopes: ["folderforge:read"],
+    });
+    expect(second.scopes).toEqual(["folderforge:read", "folderforge:write"]);
+    expect(clientGrant).toMatchObject({
+      clientId: "tpc_future",
+      subjectType: "user",
+      scopes: ["folderforge:read", "folderforge:write"],
+    });
+    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+      grantCreates: number;
+      grantUpdates: number;
+      grants: Array<{
+        client_id?: string;
+        default_for?: string;
+        audience: string;
+        subject_type: string;
+        scope: string[];
+      }>;
+    };
+    expect(state.grantCreates).toBe(1);
+    expect(state.grantUpdates).toBe(1);
+    expect(state.grants).toEqual([
+      expect.objectContaining({
+        default_for: "third_party_clients",
+        audience: "https://mcp.example.com/mcp",
+        subject_type: "user",
+        scope: ["folderforge:read", "folderforge:write"],
+      }),
+    ]);
+    expect(state.grants[0]).not.toHaveProperty("client_id");
   });
 
   it("detects a delayed session client, proves its resource, and repairs connection and user grant idempotently", async () => {

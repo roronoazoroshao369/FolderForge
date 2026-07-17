@@ -69,6 +69,13 @@ semantic versioning.
 - Treat Auth0's expected `login_required` response to the non-interactive
   `prompt=none` authorize probe as readiness instead of misclassifying its HTTP 400
   error page as a public-endpoint failure.
+- Provision a scoped `subject_type=user` default grant with
+  `default_for=third_party_clients` before exposing each DCR MCP URL, so every
+  current or future ChatGPT `tpc_*` client can authorize the exact folder audience
+  without a timing-dependent per-client repair.
+- Check the dashboard port before starting the managed server and report the
+  conflicting `--dashboard-port` directly instead of allowing an `EADDRINUSE`
+  crash to surface later as an ambiguous `fetch failed` error.
 
 ### Security
 
@@ -76,10 +83,11 @@ semantic versioning.
   exact name, DCR metadata, public authorization-code behavior, bounded ChatGPT
   callbacks, connect-session boundary, and an exact Auth0 resource log.
 - Only an explicitly selected login connection is promoted to Auth0 domain level,
-  as required for third-party DCR clients. MCP authorization remains scoped by a
-  per-client `subject_type=user` grant for the exact audience and required scopes.
-  Multiple client matches fail closed; remote Auth0 resources are never deleted
-  automatically.
+  as required for third-party DCR clients. Quick-mode MCP authorization uses a
+  `subject_type=user` default grant restricted to the exact folder audience and
+  required scopes; secure predefined clients continue to use client-specific
+  authorization. Multiple client matches fail closed; remote Auth0 resources are
+  never deleted automatically.
 - Extend CLI/dashboard redaction to bearer credentials, complete JWTs, common
   token/secret assignments, and API-key-shaped values.
 

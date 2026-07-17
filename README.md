@@ -170,10 +170,10 @@ tools:
 
 ## Status
 
-The package metadata currently targets **2.2.2**. Changes under
+The package metadata currently targets **2.2.3**. Changes under
 `[Unreleased]` add the complete ChatGPT DCR lifecycle, shared CLI/dashboard state,
-per-client Auth0 grants, repair actions, receipt v2 migration, and expanded
-regression coverage.
+scoped default third-party Auth0 grants, repair actions, receipt v2 migration, and
+expanded regression coverage.
 
 Release readiness is established by the repository gates documented in
 `docs/releasing.md`: typecheck, lint, the complete unit/integration suite, build,
@@ -423,11 +423,12 @@ challenge, prints the MCP URL, and waits for ChatGPT:
 Waiting for ChatGPT to register an OAuth client...
 ```
 
-Create the connector in ChatGPT with that URL and click Connect. FolderForge then
-safely detects the new DCR client, enables the intended login connection, creates
-or repairs its per-client `subject_type=user` grant, and verifies `/authorize`
-with the exact callback, PKCE S256, scopes, and resource indicator. The normal
-flow does not require copying a `tpc_*` client ID or running Auth0 API commands.
+Create the connector in ChatGPT with that URL and click Connect. Before exposing
+the URL, FolderForge creates a `subject_type=user` default grant restricted to the
+exact MCP audience and required scopes, so current and future third-party DCR
+clients are authorized without a timing-dependent repair. FolderForge then safely
+detects the new client, verifies the login connection and `/authorize` request,
+and does not require copying a `tpc_*` client ID or running Auth0 API commands.
 
 When the CLI reports:
 

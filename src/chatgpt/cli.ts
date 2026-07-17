@@ -21,6 +21,7 @@ import { stdin as input, stdout as output } from "node:process";
 import YAML from "yaml";
 import {
   ChatGptAuth0Error,
+  ensureDefaultThirdPartyUserGrant,
   ensureLoginConnections,
   ensureUserClientGrant,
   getAuth0Client,
@@ -159,6 +160,7 @@ interface Auth0Api {
   token_dialect?: string;
   token_lifetime?: number;
   allow_offline_access?: boolean;
+  enforce_policies?: boolean;
   scopes?: Array<{ value?: string; description?: string }>;
   subject_type_authorization?: {
     user?: { policy?: "allow_all" | "require_client_grant" };
@@ -542,7 +544,7 @@ export function chatGptHelp(): string {
     "      --dashboard-port <n> Local dashboard port (default 7332)",
     "      --offline-access    Allow refresh tokens (default for ChatGPT)",
     "      --no-offline-access Disable refresh-token issuance",
-    "      --dcr-client-policy <id> allow-all|require-grant; quick default require-grant with per-client user grant",
+    "      --dcr-client-policy <id> allow-all|require-grant; quick default provisions a scoped third-party DCR user grant",
     "      --auto-enable-dcr   Enable Auth0 DCR automatically in quick mode (default)",
     "      --no-auto-enable-dcr Fail instead of changing the Auth0 DCR tenant flag",
     "      --force-config      Ignore prior runtime settings and rebuild generated YAML from CLI/defaults",
@@ -1000,6 +1002,7 @@ async function provisionAuth0Api(
         "--token-lifetime",
         "3600",
         `--offline-access=${offlineAccess ? "true" : "false"}`,
+        "--enforce-policies",
         "--subject-type-authorization",
         JSON.stringify(subjectTypeAuthorization),
         "--json-compact",
@@ -1052,6 +1055,7 @@ async function provisionAuth0Api(
     current.token_dialect !== "rfc9068_profile" ||
     current.token_lifetime !== 3600 ||
     current.allow_offline_access !== offlineAccess ||
+    current.enforce_policies !== true ||
     currentSubject?.user?.policy !== subjectTypeAuthorization.user?.policy ||
     currentSubject?.client?.policy !== subjectTypeAuthorization.client?.policy;
   if (!needsUpdate || dryRun)
@@ -1070,6 +1074,7 @@ async function provisionAuth0Api(
         token_dialect: "rfc9068_profile",
         token_lifetime: 3600,
         allow_offline_access: offlineAccess,
+        enforce_policies: true,
         subject_type_authorization: subjectTypeAuthorization,
       }),
       "--no-color",
@@ -1795,7 +1800,12 @@ async function waitForPidExit(pid: number, timeoutMs = 5_000): Promise<void> {
   }
 }
 
-async function assertPortAvailable(host: string, port: number): Promise<void> {
+async function assertPortAvailable(
+  host: string,
+  port: number,
+  label = "Local port",
+  option = "--port",
+): Promise<void> {
   await new Promise<void>((resolvePort, rejectPort) => {
     const server = createNetServer();
     server.unref();
@@ -1803,7 +1813,7 @@ async function assertPortAvailable(host: string, port: number): Promise<void> {
       if (error.code === "EADDRINUSE") {
         rejectPort(
           new Error(
-            `Local port ${host}:${port} is already in use. Stop the existing service or pass a different --port.`,
+            `${label} ${host}:${port} is already in use. Stop the existing service or pass a different ${option}.`,
           ),
         );
         return;
@@ -1814,6 +1824,27 @@ async function assertPortAvailable(host: string, port: number): Promise<void> {
       server.close((error) => (error ? rejectPort(error) : resolvePort()));
     });
   });
+}
+
+export async function assertChatGptRuntimePortsAvailable(settings: {
+  host: string;
+  port: number;
+  dashboard: boolean;
+  dashboardPort: number;
+}): Promise<void> {
+  await assertPortAvailable(settings.host, settings.port);
+  if (!settings.dashboard) return;
+  if (settings.dashboardPort === settings.port) {
+    throw new Error(
+      `Dashboard port 127.0.0.1:${settings.dashboardPort} conflicts with the local MCP port. Pass a different --dashboard-port.`,
+    );
+  }
+  await assertPortAvailable(
+    "127.0.0.1",
+    settings.dashboardPort,
+    "Dashboard port",
+    "--dashboard-port",
+  );
 }
 
 function lifecycleCheckState(
@@ -2107,8 +2138,13 @@ async function connect(
           "✓ Previous FolderForge server stopped before applying the new configuration",
         );
       }
-      await assertPortAvailable(settings.host, settings.port);
+      await assertChatGptRuntimePortsAvailable(settings);
       sink.line(`✓ Local port ${settings.host}:${settings.port} is available`);
+      if (settings.dashboard) {
+        sink.line(
+          `✓ Dashboard port 127.0.0.1:${settings.dashboardPort} is available`,
+        );
+      }
     }
 
     let mcpUrl: string;
@@ -2176,6 +2212,21 @@ async function connect(
             : "✓ FolderForge API updated in Auth0"
           : "✓ Existing FolderForge API reused without changes",
     );
+    if (registration === "dcr") {
+      if (options.dryRun) {
+        sink.line(
+          "• Default third-party Auth0 user grant would be created or updated",
+        );
+      } else {
+        await ensureDefaultThirdPartyUserGrant(
+          tenant,
+          resource,
+          [...DEFAULT_SCOPES],
+          true,
+        );
+        sink.line("✓ Default third-party Auth0 user grant created or verified");
+      }
+    }
     sink.line("✓ OAuth scopes and ChatGPT client access configured");
     sink.line(
       `✓ Runtime profile ${settings.profile}: policy=${settings.policyMode}, tools=${settings.toolsPreset}`,
@@ -2255,7 +2306,12 @@ async function connect(
               ? "pass"
               : "not_run",
         loginConnections: registration === "dcr" ? "pending" : "not_run",
-        userGrant: registration === "dcr" ? "pending" : "not_run",
+        userGrant:
+          registration === "dcr"
+            ? options.dryRun
+              ? "pending"
+              : "pass"
+            : "not_run",
         authorize: options.start ? "pending" : "not_run",
         tokenValidation: "pending_user_login",
         mcpInitialize: "pending_user_login",
@@ -2425,12 +2481,12 @@ async function connect(
                   "auth0.user_grant",
                   "USER_GRANT_READY",
                   "pass",
-                  "Per-client grant uses subject_type=user and matches this audience and scopes.",
+                  "A user grant covers this third-party client, audience and scopes.",
                   true,
                   "repair_user_grant",
                 ),
               );
-              sink.line("✓ User-type Auth0 client grant created or verified");
+              sink.line("✓ User-type Auth0 grant created or verified");
 
               const authorize = await verifyAuthorizeEndpoint({
                 authorizationEndpoint: discovery.authorization_endpoint,
@@ -2608,7 +2664,7 @@ async function verifyManagedDcrLifecycle(
         "auth0.user_grant",
         "USER_GRANT_READY",
         "pass",
-        "Per-client user grant matches the current audience and scopes.",
+        "A user grant covers the current third-party client, audience and scopes.",
         true,
         "repair_user_grant",
       ),
@@ -3073,6 +3129,16 @@ async function repairWithoutRestart(
         ? "✓ Auth0 resource server repaired"
         : "✓ Auth0 resource server already matches FolderForge policy",
     );
+    if (receipt.registration === "dcr") {
+      await ensureDefaultThirdPartyUserGrant(
+        tenant,
+        receipt.resource,
+        receipt.scopes,
+        true,
+      );
+      receipt.checks.userGrant = "pass";
+      sink.line("✓ Default third-party Auth0 user grant created or verified");
+    }
 
     const hasStoredClient = Boolean(
       options.clientId ??
