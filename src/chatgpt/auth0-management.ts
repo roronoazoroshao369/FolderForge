@@ -4,6 +4,8 @@ import type { ChatGptDetectedClient, ChatGptErrorCode } from "./lifecycle.js";
 import { classifyChatGptError } from "./lifecycle.js";
 
 const MAX_OUTPUT = 1024 * 1024;
+const AUTH0_MAX_PAGE_SIZE = 100;
+const AUTH0_MAX_PAGES = 1000;
 const CHATGPT_CALLBACK_ORIGIN = "https://chatgpt.com";
 const CHATGPT_CALLBACK_PREFIX = "/connector/oauth/";
 
@@ -179,6 +181,33 @@ async function auth0Api<T>(
   return parseJson<T>(raw);
 }
 
+async function auth0ApiList<T>(
+  tenant: string,
+  path: string,
+  query: string[] = [],
+): Promise<T[]> {
+  const items: T[] = [];
+  for (let page = 0; page < AUTH0_MAX_PAGES; page += 1) {
+    const batch = await auth0Api<T[]>(tenant, "get", path, {
+      query: [
+        ...query,
+        `page=${page}`,
+        `per_page=${AUTH0_MAX_PAGE_SIZE}`,
+      ],
+    });
+    if (!Array.isArray(batch)) {
+      throw new ChatGptAuth0Error(
+        `Auth0 API GET ${path} returned an invalid collection`,
+      );
+    }
+    items.push(...batch);
+    if (batch.length < AUTH0_MAX_PAGE_SIZE) return items;
+  }
+  throw new ChatGptAuth0Error(
+    `Auth0 API GET ${path} exceeded ${AUTH0_MAX_PAGES} pages`,
+  );
+}
+
 function redactEvidence(value: string): string {
   return value
     .replace(
@@ -196,13 +225,10 @@ function redactEvidence(value: string): string {
 export async function listAuth0Clients(
   tenant: string,
 ): Promise<Auth0DcrClient[]> {
-  return await auth0Api<Auth0DcrClient[]>(tenant, "get", "clients", {
-    query: [
-      "fields=client_id,name,callbacks,app_type,is_first_party,external_metadata_type,external_metadata_created_by,resource_server_identifier,grant_types,token_endpoint_auth_method",
-      "include_fields=true",
-      "per_page=1000",
-    ],
-  });
+  return await auth0ApiList<Auth0DcrClient>(tenant, "clients", [
+    "fields=client_id,name,callbacks,app_type,is_first_party,external_metadata_type,external_metadata_created_by,resource_server_identifier,grant_types,token_endpoint_auth_method",
+    "include_fields=true",
+  ]);
 }
 
 export async function getAuth0Client(
@@ -389,13 +415,10 @@ export async function waitForChatGptClient(
 export async function listAuth0Connections(
   tenant: string,
 ): Promise<Auth0Connection[]> {
-  return await auth0Api<Auth0Connection[]>(tenant, "get", "connections", {
-    query: [
-      "fields=id,name,strategy,authentication",
-      "include_fields=true",
-      "per_page=100",
-    ],
-  });
+  return await auth0ApiList<Auth0Connection>(tenant, "connections", [
+    "fields=id,name,strategy,authentication",
+    "include_fields=true",
+  ]);
 }
 
 export function selectLoginConnections(
@@ -488,9 +511,7 @@ export async function ensureLoginConnections(
 export async function listAuth0ClientGrants(
   tenant: string,
 ): Promise<Auth0ClientGrant[]> {
-  return await auth0Api<Auth0ClientGrant[]>(tenant, "get", "client-grants", {
-    query: ["per_page=1000"],
-  });
+  return await auth0ApiList<Auth0ClientGrant>(tenant, "client-grants");
 }
 
 export async function ensureUserClientGrant(

@@ -52,6 +52,12 @@ semantic versioning.
 - A changed Cloudflare quick-tunnel URL no longer silently reuses the old ChatGPT
   client for a different resource/audience.
 
+### Fixed
+
+- Paginate Auth0 clients, connections, and client grants at the Management API
+  maximum of 100 items per page instead of requesting the invalid
+  `per_page=1000`, while still collecting tenants with more than 100 records.
+
 ### Security
 
 - Automatic Auth0 mutations are limited to a safely matched ChatGPT DCR client:

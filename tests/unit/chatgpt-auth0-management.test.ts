@@ -14,7 +14,9 @@ import {
   ensureUserClientGrant,
   isChatGptCallback,
   isChatGptDcrClient,
+  listAuth0ClientGrants,
   listAuth0Clients,
+  listAuth0Connections,
   selectLoginConnections,
   validateChatGptClientForResource,
   verifyAuthorizeEndpoint,
@@ -39,6 +41,15 @@ const statePath = process.env.FAKE_AUTH0_STATE;
 const read = () => JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const write = (state) => fs.writeFileSync(statePath, JSON.stringify(state));
 const data = () => { const i = args.indexOf('--data'); return i >= 0 ? JSON.parse(args[i + 1]) : {}; };
+const queryValues = args.flatMap((value, index) => value === '-q' ? [args[index + 1] || ''] : []);
+const query = (name) => { const value = queryValues.find((entry) => entry.startsWith(name + '=')); return value?.slice(name.length + 1); };
+const perPage = Number(query('per_page') || 50);
+const page = Number(query('page') || 0);
+if (!Number.isInteger(perPage) || perPage < 1 || perPage > 100) {
+  console.error("Query validation error: 'Value " + perPage + " is greater than maximum 100' on property per_page");
+  process.exit(1);
+}
+const paginate = (values) => values.slice(page * perPage, (page + 1) * perPage);
 const method = args[1];
 const path = args[2] || '';
 const state = read();
@@ -47,7 +58,7 @@ if (method === 'get' && path === 'clients') {
   state.clientListCalls = (state.clientListCalls || 0) + 1;
   write(state);
   const revealAfter = state.revealAfter ?? 0;
-  console.log(JSON.stringify(state.clients.filter((client) => !client.delayed || state.clientListCalls > revealAfter)));
+  console.log(JSON.stringify(paginate(state.clients.filter((client) => !client.delayed || state.clientListCalls > revealAfter))));
   process.exit(0);
 }
 if (method === 'get' && path.startsWith('clients/')) {
@@ -60,7 +71,7 @@ if (method === 'get' && path === 'logs') {
   console.log(JSON.stringify(state.logs || [])); process.exit(0);
 }
 if (method === 'get' && path === 'connections') {
-  console.log(JSON.stringify(state.connections || [])); process.exit(0);
+  console.log(JSON.stringify(paginate(state.connections || []))); process.exit(0);
 }
 const connectionPath = path.startsWith('connections/') && path.endsWith('/clients');
 const connectionId = connectionPath ? decodeURIComponent(path.slice('connections/'.length, -'/clients'.length)) : '';
@@ -79,7 +90,7 @@ if (connectionPath && method === 'post') {
   write(state); process.exit(0);
 }
 if (method === 'get' && path === 'client-grants') {
-  console.log(JSON.stringify(state.grants || [])); process.exit(0);
+  console.log(JSON.stringify(paginate(state.grants || []))); process.exit(0);
 }
 if (method === 'post' && path === 'client-grants') {
   state.grants ||= [];
@@ -199,6 +210,40 @@ describe("ChatGPT Auth0 lifecycle management", () => {
         { id: "con_google", name: "Google", strategy: "google-oauth2" },
       ]),
     ).toThrow(/unique safe default/);
+  });
+
+  it("paginates Auth0 collections without exceeding the API page limit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "folderforge-auth0-pagination-"));
+    const statePath = join(root, "state.json");
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        clients: Array.from({ length: 101 }, (_, index) => ({
+          client_id: `client_${index}`,
+        })),
+        logs: [],
+        connections: Array.from({ length: 101 }, (_, index) => ({
+          id: `connection_${index}`,
+          name: `Connection ${index}`,
+        })),
+        grants: Array.from({ length: 101 }, (_, index) => ({
+          id: `grant_${index}`,
+          client_id: `client_${index}`,
+        })),
+      }),
+    );
+    process.env.PATH = `${installFakeAuth0(root)}${delimiter}${originalPath ?? ""}`;
+    process.env.FAKE_AUTH0_STATE = statePath;
+
+    await expect(
+      listAuth0Clients("tenant.example.auth0.com"),
+    ).resolves.toHaveLength(101);
+    await expect(
+      listAuth0Connections("tenant.example.auth0.com"),
+    ).resolves.toHaveLength(101);
+    await expect(
+      listAuth0ClientGrants("tenant.example.auth0.com"),
+    ).resolves.toHaveLength(101);
   });
 
   it("detects a delayed session client, proves its resource, and repairs connection and user grant idempotently", async () => {
