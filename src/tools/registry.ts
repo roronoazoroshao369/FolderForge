@@ -6,11 +6,11 @@ import type {
   ToolAnnotations,
   ToolAudience,
   ToolPrincipal,
-} from '../core/types.js';
-import type { Container } from '../core/container.js';
-import { TOOL_RISK, RISK_ORDER } from '../policy/risk.js';
-import { ApprovalRequiredError, PolicyDeniedError } from '../core/errors.js';
-import { logger } from '../core/logger.js';
+} from "../core/types.js";
+import type { Container } from "../core/container.js";
+import { TOOL_RISK, RISK_ORDER } from "../policy/risk.js";
+import { ApprovalRequiredError, PolicyDeniedError } from "../core/errors.js";
+import { logger } from "../core/logger.js";
 
 /**
  * Derive MCP tool annotations from the existing `mutates` / `risk` contract.
@@ -27,7 +27,7 @@ export function deriveAnnotations(
   name: string,
   mutates: boolean,
   risk: RiskLevel,
-  override?: Partial<ToolAnnotations>
+  override?: Partial<ToolAnnotations>,
 ): ToolAnnotations {
   const destructive = mutates && RISK_ORDER[risk] >= RISK_ORDER.HIGH;
   const annotations: ToolAnnotations = {
@@ -43,9 +43,9 @@ export function deriveAnnotations(
 
 function titleCase(name: string): string {
   return name
-    .split('_')
-    .map((p) => (p ? (p[0] ?? '').toUpperCase() + p.slice(1) : p))
-    .join(' ');
+    .split("_")
+    .map((p) => (p ? (p[0] ?? "").toUpperCase() + p.slice(1) : p))
+    .join(" ");
 }
 
 /**
@@ -62,19 +62,26 @@ export function defineTool(def: {
   outputSchema?: Record<string, unknown>;
   /** Per-tool annotation overrides (e.g. openWorldHint for web tools). */
   annotations?: Partial<ToolAnnotations>;
-  handler: ToolDefinition['handler'];
+  handler: ToolDefinition["handler"];
 }): ToolDefinition {
-  const risk = def.risk ?? TOOL_RISK[def.name] ?? 'MEDIUM';
+  const risk = def.risk ?? TOOL_RISK[def.name] ?? "MEDIUM";
   return {
     name: def.name,
     description: def.description,
     inputSchema: def.inputSchema,
-    ...(def.outputSchema !== undefined ? { outputSchema: def.outputSchema } : {}),
+    ...(def.outputSchema !== undefined
+      ? { outputSchema: def.outputSchema }
+      : {}),
     group: def.group,
-    audience: def.audience ?? 'agent',
+    audience: def.audience ?? "agent",
     mutates: def.mutates,
     risk,
-    annotations: deriveAnnotations(def.name, def.mutates, risk, def.annotations),
+    annotations: deriveAnnotations(
+      def.name,
+      def.mutates,
+      risk,
+      def.annotations,
+    ),
     handler: def.handler,
   };
 }
@@ -132,7 +139,7 @@ export class ToolRegistry {
 
   /** Tools visible to an agent-facing MCP client. Admin tools never cross this boundary. */
   listAgentActive(): ToolDefinition[] {
-    return this.listActive().filter((tool) => tool.audience === 'agent');
+    return this.listActive().filter((tool) => tool.audience === "agent");
   }
 
   listAll(): ToolDefinition[] {
@@ -143,12 +150,12 @@ export class ToolRegistry {
   async callAgent(
     name: string,
     rawArgs: Record<string, unknown>,
-    control?: ToolCallControl
+    control?: ToolCallControl,
   ): Promise<ToolResult> {
     const principal: ToolPrincipal = {
       ...(control?.principal ?? {}),
-      id: control?.principal?.id ?? 'agent:unknown',
-      role: 'agent',
+      id: control?.principal?.id ?? "agent:unknown",
+      role: "agent",
     };
     return this.call(name, rawArgs, { ...control, principal });
   }
@@ -157,33 +164,36 @@ export class ToolRegistry {
   async call(
     name: string,
     rawArgs: Record<string, unknown>,
-    control?: ToolCallControl
+    control?: ToolCallControl,
   ): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
       return { ok: false, error: `Unknown tool: ${name}` };
     }
-    if (tool.audience === 'admin' && control?.principal?.role !== 'admin') {
+    if (tool.audience === "admin" && control?.principal?.role !== "admin") {
       return { ok: false, error: `Admin-only tool: ${name}` };
     }
     const principal = control?.principal;
-    if (principal?.authMode === 'oauth') {
+    if (principal?.authMode === "oauth") {
       const requiredScopes = tool.mutates
         ? [principal.readScope, principal.writeScope]
         : [principal.readScope];
-      const presentScopes = requiredScopes.filter(
-        (scope): scope is string => Boolean(scope)
+      const presentScopes = requiredScopes.filter((scope): scope is string =>
+        Boolean(scope),
       );
       if (presentScopes.length !== requiredScopes.length) {
-        return { ok: false, error: 'OAuth principal is missing scope policy context' };
+        return {
+          ok: false,
+          error: "OAuth principal is missing scope policy context",
+        };
       }
       const missing = presentScopes.filter(
-        (scope) => !(principal.scopes ?? []).includes(scope)
+        (scope) => !(principal.scopes ?? []).includes(scope),
       );
       if (missing.length > 0) {
         return {
           ok: false,
-          error: `OAuth scope required before tool execution: ${missing.join(' ')}`,
+          error: `OAuth scope required before tool execution: ${missing.join(" ")}`,
         };
       }
     }
@@ -193,27 +203,27 @@ export class ToolRegistry {
     // but we evaluate the base risk here too).
     let risk = tool.risk;
     let mutates = tool.mutates;
-    if (name === 'shell_exec' && typeof args.command === 'string') {
+    if (name === "shell_exec" && typeof args.command === "string") {
       const cls = this.container.policy.command.classify(args.command);
       risk = cls.risk;
-    } else if (name === 'patch_transaction') {
-      const action = String(args.action ?? 'preview');
-      if (action === 'preview' || action === 'status') {
-        risk = 'LOW';
+    } else if (name === "patch_transaction") {
+      const action = String(args.action ?? "preview");
+      if (action === "preview" || action === "status") {
+        risk = "LOW";
         mutates = false;
       } else {
-        risk = args.force === true ? 'HIGH' : 'MEDIUM';
+        risk = args.force === true ? "HIGH" : "MEDIUM";
         mutates = true;
       }
-    } else if (name === 'project_verify') {
+    } else if (name === "project_verify") {
       if (args.dryRun === true) {
-        risk = 'LOW';
+        risk = "LOW";
         mutates = false;
       } else {
         // Test/lint/typecheck scripts are executable project code even when no
         // build step is requested. Keep all real verification runs governed as
         // MEDIUM; only a non-executing dry run is safe in readonly mode.
-        risk = 'MEDIUM';
+        risk = "MEDIUM";
         mutates = true;
       }
     }
@@ -221,7 +231,7 @@ export class ToolRegistry {
     return this.runPipeline(
       { name, risk, mutates, handler: tool.handler },
       args,
-      control
+      control,
     );
   }
 
@@ -242,10 +252,10 @@ export class ToolRegistry {
       name: string;
       risk: RiskLevel;
       mutates: boolean;
-      handler: ToolDefinition['handler'];
+      handler: ToolDefinition["handler"];
     },
     rawArgs: Record<string, unknown>,
-    control?: ToolCallControl
+    control?: ToolCallControl,
   ): Promise<ToolResult> {
     return this.runPipeline(descriptor, rawArgs ?? {}, control);
   }
@@ -261,10 +271,10 @@ export class ToolRegistry {
       name: string;
       risk: RiskLevel;
       mutates: boolean;
-      handler: ToolDefinition['handler'];
+      handler: ToolDefinition["handler"];
     },
     args: Record<string, unknown>,
-    control?: ToolCallControl
+    control?: ToolCallControl,
   ): Promise<ToolResult> {
     const { name, risk, mutates } = descriptor;
     const started = Date.now();
@@ -273,25 +283,44 @@ export class ToolRegistry {
     // cancels during the synchronous policy/rate-limit checks below), refuse
     // early instead of doing work the caller no longer wants.
     if (control?.signal?.aborted) {
-      return { ok: false, error: 'Tool call cancelled before execution.' };
+      return { ok: false, error: "Tool call cancelled before execution." };
     }
 
+    const requesterId = control?.principal?.id ?? "agent:unknown";
     this.container.audit.record({
-      type: 'tool_call',
+      type: "tool_call",
       tool: name,
       risk,
-      summary: summarizeArgs(name, args, (value) => this.container.policy.secret.redactValue(value)),
+      summary: summarizeArgs(name, args, (value) =>
+        this.container.policy.secret.redactValue(value),
+      ),
+      detail: {
+        requesterId,
+        authMode: control?.principal?.authMode ?? "none",
+        ...(control?.principal?.oauthClientId
+          ? { oauthClientId: control.principal.oauthClientId }
+          : {}),
+      },
     });
-
-    const requesterId = control?.principal?.id ?? 'agent:unknown';
-    const decision = this.container.policy.evaluate(name, risk, mutates, args, requesterId);
-    if (decision.kind === 'deny') {
-      this.container.audit.record({ type: 'policy_deny', tool: name, risk, summary: decision.reason });
+    const decision = this.container.policy.evaluate(
+      name,
+      risk,
+      mutates,
+      args,
+      requesterId,
+    );
+    if (decision.kind === "deny") {
+      this.container.audit.record({
+        type: "policy_deny",
+        tool: name,
+        risk,
+        summary: decision.reason,
+      });
       return { ok: false, error: `Denied: ${decision.reason}` };
     }
-    if (decision.kind === 'approval') {
+    if (decision.kind === "approval") {
       this.container.audit.record({
-        type: 'approval_request',
+        type: "approval_request",
         tool: name,
         risk,
         summary: decision.reason,
@@ -312,11 +341,15 @@ export class ToolRegistry {
     const rl = this.container.rateLimiter.hit(name);
     if (!rl.allowed) {
       this.container.audit.record({
-        type: 'rate_limited',
+        type: "rate_limited",
         tool: name,
         risk,
-        summary: rl.reason ?? 'rate limited',
-        detail: { retryAfterMs: rl.retryAfterMs, windowCount: rl.windowCount, dailyCount: rl.dailyCount },
+        summary: rl.reason ?? "rate limited",
+        detail: {
+          retryAfterMs: rl.retryAfterMs,
+          windowCount: rl.windowCount,
+          dailyCount: rl.dailyCount,
+        },
       });
       return {
         ok: false,
@@ -332,12 +365,12 @@ export class ToolRegistry {
         container: this.container,
       });
       this.container.audit.record({
-        type: result.ok ? 'tool_result' : 'tool_error',
+        type: result.ok ? "tool_result" : "tool_error",
         tool: name,
         risk,
         ok: result.ok,
         durationMs: Date.now() - started,
-        summary: result.ok ? 'ok' : result.error ?? 'error',
+        summary: result.ok ? "ok" : (result.error ?? "error"),
       });
       return result;
     } catch (err) {
@@ -349,9 +382,9 @@ export class ToolRegistry {
             : err instanceof Error
               ? err.message
               : String(err);
-      logger.error({ tool: name, err: message }, 'tool error');
+      logger.error({ tool: name, err: message }, "tool error");
       this.container.audit.record({
-        type: 'tool_error',
+        type: "tool_error",
         tool: name,
         risk,
         ok: false,
@@ -364,14 +397,15 @@ export class ToolRegistry {
 }
 
 function boundSummaryValue(value: unknown, depth = 0): unknown {
-  if (depth >= 3) return '[TRUNCATED]';
-  if (typeof value === 'string') return value.slice(0, 256);
-  if (Array.isArray(value)) return value.slice(0, 4).map((item) => boundSummaryValue(item, depth + 1));
-  if (value && typeof value === 'object') {
+  if (depth >= 3) return "[TRUNCATED]";
+  if (typeof value === "string") return value.slice(0, 256);
+  if (Array.isArray(value))
+    return value.slice(0, 4).map((item) => boundSummaryValue(item, depth + 1));
+  if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .slice(0, 8)
-        .map(([key, child]) => [key, boundSummaryValue(child, depth + 1)])
+        .map(([key, child]) => [key, boundSummaryValue(child, depth + 1)]),
     );
   }
   return value;
@@ -380,17 +414,21 @@ function boundSummaryValue(value: unknown, depth = 0): unknown {
 function summarizeArgs(
   name: string,
   args: Record<string, unknown>,
-  redact: (value: unknown) => unknown
+  redact: (value: unknown) => unknown,
 ): string {
   const keys = Object.keys(args);
   if (keys.length === 0) return name;
   const preview = Object.fromEntries(
-    keys.slice(0, 4).map((key) => [key, boundSummaryValue(args[key])])
+    keys.slice(0, 4).map((key) => [key, boundSummaryValue(args[key])]),
   );
   const safeArgs = redact(preview) as Record<string, unknown>;
-  return keys.slice(0, 4).map((key) => {
-    const value = safeArgs[key];
-    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
-    return `${key}=${String(serialized).slice(0, 60)}`;
-  }).join(' ');
+  return keys
+    .slice(0, 4)
+    .map((key) => {
+      const value = safeArgs[key];
+      const serialized =
+        typeof value === "string" ? value : JSON.stringify(value);
+      return `${key}=${String(serialized).slice(0, 60)}`;
+    })
+    .join(" ");
 }

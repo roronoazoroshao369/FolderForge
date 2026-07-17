@@ -3,193 +3,769 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>FolderForge Control Plane</title>
+    <title>FolderForge · ChatGPT Connection</title>
     <style>
       :root {
-        --bg: #0e1116;
-        --panel: #161b22;
-        --border: #232b36;
-        --fg: #e6edf3;
-        --muted: #8b949e;
-        --accent: #4cc38a;
-        --warn: #d29922;
-        --danger: #f85149;
+        color-scheme: dark;
+        --bg: #0b0f14;
+        --panel: #121821;
+        --panel-2: #171f2b;
+        --border: #283344;
+        --fg: #edf3f8;
+        --muted: #93a2b5;
+        --accent: #57d49b;
+        --blue: #6bb6ff;
+        --warn: #f2c35b;
+        --danger: #ff716a;
         --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
       }
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-        background: var(--bg);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+        background: radial-gradient(
+          circle at top left,
+          #132033 0,
+          var(--bg) 42%
+        );
         color: var(--fg);
       }
       header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 14px 22px;
+        gap: 16px;
+        padding: 15px 24px;
+        background: rgba(11, 15, 20, 0.9);
         border-bottom: 1px solid var(--border);
+        backdrop-filter: blur(12px);
       }
-      header h1 { font-size: 16px; margin: 0; letter-spacing: 0.5px; }
-      header .brand { color: var(--accent); }
-      header .meta { color: var(--muted); font-size: 12px; font-family: var(--mono); }
-      main { padding: 22px; display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
-      section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+      header h1 {
+        margin: 0;
+        font-size: 16px;
+        letter-spacing: 0.2px;
+      }
+      .brand {
+        color: var(--accent);
+      }
+      .meta,
+      .refresh {
+        color: var(--muted);
+        font: 11px var(--mono);
+      }
+      main {
+        width: min(1500px, 100%);
+        margin: 0 auto;
+        padding: 24px;
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 18px;
+      }
+      section {
+        grid-column: span 6;
+        background: linear-gradient(
+          180deg,
+          rgba(23, 31, 43, 0.96),
+          rgba(18, 24, 33, 0.96)
+        );
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18);
+      }
+      section.wide {
+        grid-column: 1 / -1;
+      }
+      section.third {
+        grid-column: span 4;
+      }
       section h2 {
-        margin: 0; padding: 12px 16px; font-size: 13px; text-transform: uppercase;
-        letter-spacing: 1px; color: var(--muted); border-bottom: 1px solid var(--border);
-        display: flex; justify-content: space-between; align-items: center;
+        margin: 0;
+        padding: 13px 16px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1.1px;
+        color: var(--muted);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
       }
-      section .body { padding: 14px 16px; max-height: 360px; overflow: auto; }
-      .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; font-size: 13px; }
-      .kv dt { color: var(--muted); }
-      .kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
-      table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
-      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
-      th { color: var(--muted); font-weight: 600; }
-      .pill { padding: 1px 7px; border-radius: 999px; font-size: 11px; font-family: var(--mono); }
-      .risk-LOW { background: #16331f; color: var(--accent); }
-      .risk-MEDIUM { background: #3a2f10; color: var(--warn); }
-      .risk-HIGH, .risk-CRITICAL { background: #3a1212; color: var(--danger); }
+      .body {
+        padding: 16px;
+        max-height: 430px;
+        overflow: auto;
+      }
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: center;
+      }
+      .hero h3 {
+        margin: 8px 0 5px;
+        font-size: 22px;
+      }
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .state-code {
+        margin-top: 10px;
+        color: var(--blue);
+        font: 12px var(--mono);
+      }
+      .progress-summary {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .status-badge,
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        font: 11px var(--mono);
+        white-space: nowrap;
+      }
+      .status-badge {
+        padding: 8px 12px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+      }
+      .pill {
+        padding: 2px 8px;
+      }
+      .status-connected,
+      .check-pass,
+      .risk-LOW {
+        background: #123b2a;
+        color: var(--accent);
+      }
+      .status-waiting_for_chatgpt,
+      .check-pending,
+      .risk-MEDIUM {
+        background: #403410;
+        color: var(--warn);
+      }
+      .status-needs_attention,
+      .check-fail,
+      .status-stopped,
+      .risk-HIGH,
+      .risk-CRITICAL {
+        background: #431918;
+        color: var(--danger);
+      }
+      .status-unconfigured,
+      .check-not_run {
+        background: #252d39;
+        color: var(--muted);
+      }
+      .mcp-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      code,
+      pre,
+      .mono {
+        font-family: var(--mono);
+      }
+      .mcp-url {
+        flex: 1;
+        min-width: 0;
+        padding: 10px 12px;
+        background: #0b1119;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--blue);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      button,
+      select {
+        font: inherit;
+        font-size: 12px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: #202a38;
+        color: var(--fg);
+        padding: 7px 11px;
+      }
       button {
-        font: inherit; font-size: 12px; cursor: pointer; border-radius: 6px;
-        border: 1px solid var(--border); background: #1f2630; color: var(--fg); padding: 4px 10px;
+        cursor: pointer;
       }
-      button.approve { border-color: var(--accent); color: var(--accent); }
-      button.deny { border-color: var(--danger); color: var(--danger); }
-      button:hover { filter: brightness(1.2); }
-      .empty { color: var(--muted); font-size: 12px; font-style: italic; }
-      .refresh { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+      button:hover {
+        filter: brightness(1.16);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+      }
+      button.primary {
+        border-color: #297956;
+        color: var(--accent);
+      }
+      button.danger {
+        border-color: #71302d;
+        color: var(--danger);
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .action-note {
+        width: 100%;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 3px;
+      }
+      .timeline {
+        display: grid;
+        gap: 0;
+      }
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 18px 210px 88px 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 9px 0;
+        border-bottom: 1px solid rgba(40, 51, 68, 0.65);
+      }
+      .timeline-item:last-child {
+        border-bottom: 0;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        margin-top: 4px;
+        border-radius: 50%;
+        background: #344154;
+        box-shadow: 0 0 0 3px rgba(52, 65, 84, 0.25);
+      }
+      .dot.pass {
+        background: var(--accent);
+      }
+      .dot.pending {
+        background: var(--warn);
+      }
+      .dot.fail {
+        background: var(--danger);
+      }
+      .timeline-label {
+        font-weight: 650;
+      }
+      .evidence {
+        color: var(--muted);
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 8px 12px;
+        margin: 0;
+        font-size: 13px;
+      }
+      .kv dt {
+        color: var(--muted);
+      }
+      .kv dd {
+        margin: 0;
+        font-family: var(--mono);
+        overflow-wrap: anywhere;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+      }
+      td.mono {
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      .empty {
+        color: var(--muted);
+        font-size: 12px;
+        font-style: italic;
+      }
+      .logs-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      pre {
+        margin: 0;
+        padding: 12px;
+        min-height: 130px;
+        max-height: 300px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: #090e14;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: #c9d4df;
+        font-size: 11px;
+        line-height: 1.55;
+      }
+      #toast {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        max-width: 520px;
+        padding: 12px 14px;
+        border-radius: 9px;
+        background: #1e2937;
+        border: 1px solid var(--border);
+        box-shadow: 0 14px 38px rgba(0, 0, 0, 0.35);
+        font: 12px var(--mono);
+        opacity: 0;
+        transform: translateY(10px);
+        pointer-events: none;
+        transition: 0.18s ease;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      #toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      #toast.error {
+        border-color: #71302d;
+        color: var(--danger);
+      }
+      @media (max-width: 980px) {
+        section,
+        section.third {
+          grid-column: 1 / -1;
+        }
+        .timeline-item {
+          grid-template-columns: 18px 1fr 85px;
+        }
+        .timeline-item .evidence {
+          grid-column: 2 / -1;
+        }
+      }
+      @media (max-width: 620px) {
+        main {
+          padding: 13px;
+        }
+        header {
+          padding: 13px;
+        }
+        .hero {
+          grid-template-columns: 1fr;
+        }
+        button,
+        select {
+          min-height: 44px;
+        }
+        .kv {
+          grid-template-columns: 1fr;
+        }
+        .kv dd {
+          margin-bottom: 6px;
+        }
+      }
     </style>
   </head>
   <body>
     <header>
-      <h1><span class="brand">FolderForge</span> &middot; control plane</h1>
-      <span class="meta" id="server-meta">connecting&hellip;</span>
+      <h1>
+        <span class="brand">FolderForge</span> · ChatGPT connection control
+        plane
+      </h1>
+      <span class="meta" id="server-meta">connecting…</span>
     </header>
     <main>
-      <section>
-        <h2>Status</h2>
-        <div class="body" id="status">&hellip;</div>
+      <section class="wide">
+        <h2>Overall status <span class="refresh" id="last-checked"></span></h2>
+        <div class="body" id="chatgpt-overall">…</div>
+      </section>
+      <section class="wide">
+        <h2>Connection timeline</h2>
+        <div class="body timeline" id="timeline">…</div>
+      </section>
+      <section class="wide">
+        <h2>Diagnostics</h2>
+        <div class="body" id="diagnostics">…</div>
       </section>
       <section>
+        <h2>Actions</h2>
+        <div class="body" id="actions">…</div>
+      </section>
+      <section>
+        <h2>Project and runtime configuration</h2>
+        <div class="body" id="configuration">…</div>
+      </section>
+      <section class="wide">
+        <h2>Redacted logs</h2>
+        <div class="body">
+          <div class="logs-toolbar">
+            <select id="log-subsystem" aria-label="Log subsystem">
+              <option value="server">MCP server</option>
+              <option value="tunnel">Tunnel</option>
+            </select>
+            <button id="refresh-logs">Refresh logs</button>
+          </div>
+          <pre id="logs">Loading…</pre>
+        </div>
+      </section>
+      <section class="third">
+        <h2>Control-plane status</h2>
+        <div class="body" id="status">…</div>
+      </section>
+      <section class="third">
         <h2>Approvals <span class="refresh" id="approvals-count"></span></h2>
-        <div class="body" id="approvals">&hellip;</div>
+        <div class="body" id="approvals">…</div>
       </section>
-      <section>
+      <section class="third">
         <h2>Processes</h2>
-        <div class="body" id="processes">&hellip;</div>
+        <div class="body" id="processes">…</div>
       </section>
-      <section>
-        <h2>Audit <span class="refresh">last 50</span></h2>
-        <div class="body" id="audit">&hellip;</div>
+      <section class="wide">
+        <h2>Audit <span class="refresh">last 50 · redacted</span></h2>
+        <div class="body" id="audit">…</div>
       </section>
     </main>
+    <div id="toast" role="status" aria-live="polite"></div>
 
     <script>
-      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-      const risk = (r) => `<span class="pill risk-${esc(r)}">${esc(r || "-")}</span>`;
+      const esc = (value) =>
+        String(value ?? "").replace(
+          /[&<>"]/g,
+          (char) =>
+            ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char],
+        );
+      const dashboardToken = new URLSearchParams(location.search).get("token");
+      const withToken = (path) => {
+        if (!dashboardToken) return path;
+        const url = new URL(path, location.origin);
+        url.searchParams.set("token", dashboardToken);
+        return `${url.pathname}${url.search}`;
+      };
+      const pill = (status, prefix = "check") =>
+        `<span class="pill ${prefix}-${esc(status)}">${esc(status || "-")}</span>`;
+      const risk = (level) => pill(level || "-", "risk");
+      let latestChatGpt = null;
+      let actionRunning = false;
+      let toastTimer;
 
-      async function getJson(path, opts) {
-        const res = await fetch(path, opts);
-        if (!res.ok) throw new Error(`${path} -> ${res.status}`);
-        return res.json();
+      function toast(message, isError = false) {
+        const el = document.getElementById("toast");
+        el.textContent = message;
+        el.className = `show${isError ? " error" : ""}`;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          el.className = "";
+        }, 6500);
       }
 
-      function renderStatus(s) {
+      async function requestJson(path, options) {
+        const response = await fetch(withToken(path), options);
+        const text = await response.text();
+        let body;
+        try {
+          body = text ? JSON.parse(text) : {};
+        } catch {
+          body = { message: text };
+        }
+        if (!response.ok) {
+          throw new Error(
+            body.message ||
+              body.error ||
+              `${path} returned HTTP ${response.status}`,
+          );
+        }
+        return body;
+      }
+
+      function renderChatGpt(data) {
+        latestChatGpt = data;
+        const overall = document.getElementById("chatgpt-overall");
+        const badgeStatus = data.status || "unconfigured";
+        const lifecycleItems = data.timeline || [];
+        const completedChecks = lifecycleItems.filter(
+          (item) => item.status === "pass",
+        ).length;
+        overall.innerHTML = `
+          <div class="hero">
+            <div>
+              <span class="status-badge status-${esc(badgeStatus)}">${esc(badgeStatus.replaceAll("_", " "))}</span>
+              <h3>${esc(data.summary)}</h3>
+              <div class="state-code">${esc(data.state)}</div>
+              ${lifecycleItems.length ? `<div class="progress-summary">${completedChecks} of ${lifecycleItems.length} lifecycle checks complete</div>` : ""}
+            </div>
+          </div>
+          ${data.mcpUrl ? `<div class="mcp-row"><div class="mcp-url mono" title="${esc(data.mcpUrl)}">${esc(data.mcpUrl)}</div><button class="primary" data-copy-mcp>Copy MCP URL</button></div>` : ""}`;
+        overall
+          .querySelector("[data-copy-mcp]")
+          ?.addEventListener("click", () =>
+            copyText(data.mcpUrl, "MCP URL copied."),
+          );
+        document.getElementById("last-checked").textContent = data.lastChecked
+          ? `checked ${new Date(data.lastChecked).toLocaleTimeString()}`
+          : "";
+
+        const timeline = document.getElementById("timeline");
+        timeline.innerHTML =
+          lifecycleItems
+            .map(
+              (item) => `
+          <div class="timeline-item">
+            <span class="dot ${esc(item.status)}"></span>
+            <div class="timeline-label">${esc(item.label)}</div>
+            <div>${pill(item.status)}</div>
+            ${item.evidence ? `<div class="evidence">${esc(item.evidence)}</div>` : ""}
+          </div>`,
+            )
+            .join("") || `<div class="empty">No lifecycle data.</div>`;
+
+        const diagnostics = document.getElementById("diagnostics");
+        const rows = data.diagnostics || [];
+        diagnostics.innerHTML = rows.length
+          ? `<table><thead><tr><th>Check</th><th>Status</th><th>Last checked</th><th>Evidence</th><th>Suggested repair</th></tr></thead><tbody>${rows
+              .map(
+                (entry) => `
+          <tr>
+            <td class="mono">${esc(entry.id)}</td>
+            <td>${pill(entry.status)}</td>
+            <td class="mono">${esc(entry.checkedAt ? new Date(entry.checkedAt).toLocaleString() : "-")}</td>
+            <td>${esc(entry.evidence || "-")}</td>
+            <td>${entry.repairAction ? `${esc(entry.repairAction.replaceAll("_", " "))}${entry.autoRepair ? " · automatic" : " · manual"}` : esc(entry.userAction || "-")}</td>
+          </tr>`,
+              )
+              .join("")}</tbody></table>`
+          : `<div class="empty">No diagnostics have run yet.</div>`;
+
+        renderActions(data.actions || []);
+        const configuration = document.getElementById("configuration");
+        configuration.innerHTML = `<dl class="kv">${Object.entries(
+          data.configuration || {},
+        )
+          .map(
+            ([key, value]) =>
+              `<dt>${esc(key)}</dt><dd>${esc(Array.isArray(value) ? value.join(", ") || "-" : (value ?? "-"))}</dd>`,
+          )
+          .join("")}</dl>`;
+      }
+
+      function renderActions(actions) {
+        const el = document.getElementById("actions");
+        if (!actions.length) {
+          el.innerHTML = `<div class="empty">No actions available.</div>`;
+          return;
+        }
+        el.innerHTML = `<div class="actions">${actions.map((action) => `<button class="${action.mode === "automatic" ? "primary" : ""}" data-action="${esc(action.id)}" ${actionRunning ? "disabled" : ""}>${esc(action.label)}</button>`).join("")}${actions.some((action) => action.explanation) ? `<div class="action-note">Automatic repairs never delete Auth0 resources. Runtime restarts show a terminal command so this dashboard cannot terminate itself.</div>` : ""}</div>`;
+        el.querySelectorAll("button[data-action]").forEach((button) =>
+          button.addEventListener("click", () =>
+            performAction(button.dataset.action),
+          ),
+        );
+      }
+
+      async function copyText(value, success) {
+        if (!value) return;
+        try {
+          await navigator.clipboard.writeText(value);
+          toast(success);
+        } catch {
+          toast(`Copy this value manually:\n${value}`, true);
+        }
+      }
+
+      async function performAction(id) {
+        const action = (latestChatGpt?.actions || []).find(
+          (entry) => entry.id === id,
+        );
+        if (!action) return;
+        if (id === "copy_mcp_url")
+          return copyText(latestChatGpt?.mcpUrl, "MCP URL copied.");
+        if (action.mode === "manual" || action.mode === "client") {
+          if (action.command)
+            return copyText(
+              action.command,
+              `Command copied:\n${action.command}`,
+            );
+          return toast(
+            action.explanation ||
+              "This action must be completed outside the dashboard.",
+          );
+        }
+        actionRunning = true;
+        renderActions(latestChatGpt.actions || []);
+        try {
+          const result = await requestJson(
+            `/chatgpt/actions/${encodeURIComponent(id)}`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: "{}",
+            },
+          );
+          toast(
+            result.ok === false
+              ? result.output || "Action requires attention."
+              : `${action.label} completed.`,
+          );
+          await refreshChatGpt();
+        } catch (error) {
+          toast(error.message, true);
+        } finally {
+          actionRunning = false;
+          renderActions(latestChatGpt?.actions || []);
+        }
+      }
+
+      function renderStatus(data) {
         document.getElementById("server-meta").textContent =
-          `${s.server.name} \u00b7 ${s.server.transport} \u00b7 ${s.tools.active}/${s.tools.total} tools`;
-        const ws = s.workspace;
-        document.getElementById("status").innerHTML = `
-          <dl class="kv">
-            <dt>Workspace</dt><dd>${ws.active ? esc(ws.name) : "<span class='empty'>inactive</span>"}</dd>
-            <dt>Root</dt><dd>${esc(ws.projectRoot)}</dd>
-            <dt>Languages</dt><dd>${esc((ws.languageHints || []).join(", ") || "-")}</dd>
-            <dt>Policy mode</dt><dd>${esc(s.policy.mode)}</dd>
-            <dt>Allowed dirs</dt><dd>${(ws.allowedDirectories || []).map(esc).join("<br>")}</dd>
-            <dt>Approval list</dt><dd>${esc((s.policy.requireApproval || []).join(", "))}</dd>
-          </dl>`;
+          `${data.server.name} · ${data.server.transport} · ${data.tools.active}/${data.tools.total} tools`;
+        const workspace = data.workspace;
+        document.getElementById("status").innerHTML = `<dl class="kv">
+          <dt>Workspace</dt><dd>${workspace.active ? esc(workspace.name) : "inactive"}</dd>
+          <dt>Root</dt><dd>${esc(workspace.projectRoot)}</dd>
+          <dt>Languages</dt><dd>${esc((workspace.languageHints || []).join(", ") || "-")}</dd>
+          <dt>Policy mode</dt><dd>${esc(data.policy.mode)}</dd>
+          <dt>Allowed dirs</dt><dd>${(workspace.allowedDirectories || []).map(esc).join("<br>")}</dd>
+        </dl>`;
       }
 
       function renderApprovals(data) {
         const pending = data.pending || [];
-        document.getElementById("approvals-count").textContent = `${pending.length} pending`;
+        document.getElementById("approvals-count").textContent =
+          `${pending.length} pending`;
         const el = document.getElementById("approvals");
-        if (!data.all.length) { el.innerHTML = `<div class="empty">No approval requests.</div>`; return; }
-        el.innerHTML = `<table><thead><tr><th>Tool</th><th>Risk</th><th>State</th><th>Reason</th><th></th></tr></thead><tbody>${
-          data.all.map((a) => `
-            <tr>
-              <td>${esc(a.tool)}</td>
-              <td>${risk(a.risk)}</td>
-              <td>${esc(a.state)}</td>
-              <td>${esc(a.reason)}</td>
-              <td>${a.state === "pending"
-                ? `<button class="approve" data-id="${esc(a.id)}" data-act="approve">Approve</button>
-                   <button class="deny" data-id="${esc(a.id)}" data-act="deny">Deny</button>`
-                : ""}</td>
-            </tr>`).join("")
-        }</tbody></table>`;
-        el.querySelectorAll("button[data-id]").forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            const { id, act } = btn.dataset;
-            const opts = { method: "POST", headers: { "content-type": "application/json" } };
-            if (act === "approve") opts.body = JSON.stringify({ scope: "once" });
-            await fetch(`/approvals/${id}/${act}`, opts);
-            refresh();
-          });
-        });
+        if (!(data.all || []).length) {
+          el.innerHTML = `<div class="empty">No approval requests.</div>`;
+          return;
+        }
+        el.innerHTML = `<table><thead><tr><th>Tool</th><th>Risk</th><th>State</th><th>Action</th></tr></thead><tbody>${data.all.map((item) => `<tr><td>${esc(item.tool)}</td><td>${risk(item.risk)}</td><td>${esc(item.state)}</td><td>${item.state === "pending" ? `<button class="primary" data-id="${esc(item.id)}" data-decision="approve">Approve</button> <button class="danger" data-id="${esc(item.id)}" data-decision="deny">Deny</button>` : "-"}</td></tr>`).join("")}</tbody></table>`;
+        el.querySelectorAll("button[data-id]").forEach((button) =>
+          button.addEventListener("click", async () => {
+            try {
+              const body =
+                button.dataset.decision === "approve"
+                  ? JSON.stringify({ scope: "once" })
+                  : "{}";
+              await requestJson(
+                `/approvals/${encodeURIComponent(button.dataset.id)}/${button.dataset.decision}`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body,
+                },
+              );
+              await refreshControlPlane();
+            } catch (error) {
+              toast(error.message, true);
+            }
+          }),
+        );
       }
 
       function renderProcesses(data) {
-        const el = document.getElementById("processes");
         const list = data.processes || [];
-        if (!list.length) { el.innerHTML = `<div class="empty">No managed processes.</div>`; return; }
-        el.innerHTML = `<table><thead><tr><th>Session</th><th>Status</th><th>PID</th><th>Command</th></tr></thead><tbody>${
-          list.map((p) => `
-            <tr>
-              <td>${esc(p.sessionId)}</td>
-              <td>${esc(p.status)}${p.exitCode != null ? ` (${esc(p.exitCode)})` : ""}</td>
-              <td>${esc(p.pid ?? "-")}</td>
-              <td>${esc(p.command)}</td>
-            </tr>`).join("")
-        }</tbody></table>`;
+        const el = document.getElementById("processes");
+        if (!list.length) {
+          el.innerHTML = `<div class="empty">No managed processes.</div>`;
+          return;
+        }
+        el.innerHTML = `<table><thead><tr><th>Status</th><th>PID</th><th>Command</th></tr></thead><tbody>${list.map((item) => `<tr><td>${esc(item.status)}</td><td class="mono">${esc(item.pid ?? "-")}</td><td class="mono">${esc(item.command)}</td></tr>`).join("")}</tbody></table>`;
       }
 
       function renderAudit(data) {
-        const el = document.getElementById("audit");
         const list = data.entries || [];
-        if (!list.length) { el.innerHTML = `<div class="empty">No audit events yet.</div>`; return; }
-        el.innerHTML = `<table><thead><tr><th>Time</th><th>Type</th><th>Tool</th><th>Risk</th><th>Summary</th></tr></thead><tbody>${
-          list.map((e) => `
-            <tr>
-              <td>${esc((e.ts || "").slice(11, 19))}</td>
-              <td>${esc(e.type)}</td>
-              <td>${esc(e.tool ?? "-")}</td>
-              <td>${e.risk ? risk(e.risk) : "-"}</td>
-              <td>${esc(e.summary ?? "")}</td>
-            </tr>`).join("")
-        }</tbody></table>`;
+        const el = document.getElementById("audit");
+        if (!list.length) {
+          el.innerHTML = `<div class="empty">No audit events yet.</div>`;
+          return;
+        }
+        el.innerHTML = `<table><thead><tr><th>Time</th><th>Type</th><th>Tool</th><th>Risk</th><th>Summary</th></tr></thead><tbody>${list.map((entry) => `<tr><td class="mono">${esc((entry.ts || "").slice(11, 19))}</td><td>${esc(entry.type)}</td><td class="mono">${esc(entry.tool || "-")}</td><td>${entry.risk ? risk(entry.risk) : "-"}</td><td>${esc(entry.summary || "")}</td></tr>`).join("")}</tbody></table>`;
       }
 
-      async function refresh() {
+      async function refreshLogs() {
+        const subsystem = document.getElementById("log-subsystem").value;
+        try {
+          const data = await requestJson(
+            `/chatgpt/logs?subsystem=${encodeURIComponent(subsystem)}&limit=150`,
+          );
+          document.getElementById("logs").textContent =
+            (data.lines || []).join("\n") || "No log entries.";
+        } catch (error) {
+          document.getElementById("logs").textContent = error.message;
+        }
+      }
+
+      async function refreshChatGpt() {
+        try {
+          renderChatGpt(await requestJson("/chatgpt/status"));
+        } catch (error) {
+          toast(`ChatGPT status: ${error.message}`, true);
+        }
+      }
+
+      async function refreshControlPlane() {
         try {
           const [status, approvals, processes, audit] = await Promise.all([
-            getJson("/status"),
-            getJson("/approvals"),
-            getJson("/processes"),
-            getJson("/audit?limit=50"),
+            requestJson("/status"),
+            requestJson("/approvals"),
+            requestJson("/processes"),
+            requestJson("/audit?limit=50"),
           ]);
           renderStatus(status);
           renderApprovals(approvals);
           renderProcesses(processes);
           renderAudit(audit);
-        } catch (err) {
+        } catch (error) {
           document.getElementById("server-meta").textContent = "disconnected";
+          toast(error.message, true);
         }
       }
 
-      refresh();
-      setInterval(refresh, 4000);
+      document
+        .getElementById("refresh-logs")
+        .addEventListener("click", refreshLogs);
+      document
+        .getElementById("log-subsystem")
+        .addEventListener("change", refreshLogs);
+      Promise.all([refreshChatGpt(), refreshControlPlane(), refreshLogs()]);
+      setInterval(() => {
+        if (!actionRunning) {
+          refreshChatGpt();
+          refreshControlPlane();
+        }
+      }, 5000);
     </script>
   </body>
 </html>

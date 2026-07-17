@@ -69,22 +69,22 @@ FolderForge resource server ---- configured issuer ----> External authorization 
 
 ## Threat model and controls
 
-| Threat | Control |
-|---|---|
-| authorization-code interception / PKCE downgrade | external AS must advertise `S256`; startup fails otherwise; FolderForge does not handle codes |
-| redirect URI manipulation / CSRF-state failures / open redirect | external AS responsibility; exact redirect URI and state requirements documented |
-| token replay | TLS required in production, short-lived JWTs expected, every request revalidated; no token persistence/logging |
-| token/issuer confusion | exact configured issuer check and signature verification |
-| audience/resource mismatch | exact configured resource must match `aud` |
-| scope escalation | transport requires read scope; mutating tools require write scope before registry execution |
-| unsigned/wrong-alg JWT | explicit asymmetric algorithm allowlist; `none` and symmetric algorithms rejected |
-| JWKS rotation / stale cache | standards library remote JWKS cache; unknown `kid` refetch; bounded cache/cooldown |
-| discovery/JWKS poisoning or SSRF | issuer is explicit; no redirects; HTTPS required; loopback HTTP only with explicit development override; discovered JWKS must match exact issuer or allowlisted `host[:port]`, or use an explicit URI |
-| DCR abuse / CIMD SSRF | handled by external AS; selected strategy is validated and deployment guidance requires AS-side rate limits and SSRF controls |
-| secret leakage | access tokens, codes, secrets, private keys and PKCE verifiers are never logged or persisted by FolderForge |
-| OAuth fallback bypass | OAuth mode rejects token/API-key config and ignores `X-API-Key`; validation fails closed |
-| admin privilege escalation | OAuth principal role is always `agent`; dashboard auth remains independent |
-| localhost/non-loopback mistakes | production resource and issuer require HTTPS; insecure HTTP is limited to loopback with an explicit unsafe-development flag |
+| Threat                                                          | Control                                                                                                                                                                                               |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| authorization-code interception / PKCE downgrade                | external AS must advertise `S256`; startup fails otherwise; FolderForge does not handle codes                                                                                                         |
+| redirect URI manipulation / CSRF-state failures / open redirect | external AS responsibility; exact redirect URI and state requirements documented                                                                                                                      |
+| token replay                                                    | TLS required in production, short-lived JWTs expected, every request revalidated; no token persistence/logging                                                                                        |
+| token/issuer confusion                                          | exact configured issuer check and signature verification                                                                                                                                              |
+| audience/resource mismatch                                      | exact configured resource must match `aud`                                                                                                                                                            |
+| scope escalation                                                | transport requires read scope; mutating tools require write scope before registry execution                                                                                                           |
+| unsigned/wrong-alg JWT                                          | explicit asymmetric algorithm allowlist; `none` and symmetric algorithms rejected                                                                                                                     |
+| JWKS rotation / stale cache                                     | standards library remote JWKS cache; unknown `kid` refetch; bounded cache/cooldown                                                                                                                    |
+| discovery/JWKS poisoning or SSRF                                | issuer is explicit; no redirects; HTTPS required; loopback HTTP only with explicit development override; discovered JWKS must match exact issuer or allowlisted `host[:port]`, or use an explicit URI |
+| DCR abuse / CIMD SSRF                                           | handled by external AS; selected strategy is validated and deployment guidance requires AS-side rate limits and SSRF controls                                                                         |
+| secret leakage                                                  | access tokens, codes, secrets, private keys and PKCE verifiers are never logged or persisted by FolderForge                                                                                           |
+| OAuth fallback bypass                                           | OAuth mode rejects token/API-key config and ignores `X-API-Key`; validation fails closed                                                                                                              |
+| admin privilege escalation                                      | OAuth principal role is always `agent`; dashboard auth remains independent                                                                                                                            |
+| localhost/non-loopback mistakes                                 | production resource and issuer require HTTPS; insecure HTTP is limited to loopback with an explicit unsafe-development flag                                                                           |
 
 ## CLI/config contract
 
@@ -152,6 +152,43 @@ The connection receipt is evidence, not a credential. Its schema rejects
 secret-shaped keys and JWT-shaped values and never includes Management API tokens,
 access/refresh tokens, authorization codes, client secrets, private keys, PKCE
 verifiers, API keys, passwords or cookies.
+
+## DCR client lifecycle extension
+
+The operator-side orchestrator now continues after OAuth metadata readiness. It
+uses a shared CLI/dashboard state machine and performs the following bounded
+operations:
+
+1. capture the tenant client baseline when the connect session begins;
+2. poll only the selected tenant for a newly created public ChatGPT DCR client;
+3. require exact `https://chatgpt.com/connector/oauth/` callbacks and external DCR
+   metadata;
+4. require an Auth0 authorize log whose `resource` equals the exact FolderForge
+   API identifier and whose redirect URI matches the client;
+5. add only the verified client to explicitly selected login connections;
+6. create or repair one client grant with `subject_type=user`, the exact audience,
+   and the configured FolderForge scopes;
+7. verify `/authorize` with an S256 challenge, the registered callback, scopes,
+   and resource indicator;
+8. wait for a user-owned browser login and mark `CONNECTED` only after an
+   authenticated MCP tool call from the same verified OAuth client.
+
+The Auth0 resource-server policy for this flow is
+`user.require_client_grant` plus `client.deny_all`. FolderForge does not use a
+broad default grant for all third-party clients. Multiple matching DCR clients
+fail closed, and a changed quick-tunnel resource never silently reuses an old
+client.
+
+The dashboard is an adapter over the same lifecycle domain model. Auth0-only
+repairs can run without restarting the dashboard process. Runtime replacements
+are returned as explicit terminal commands to avoid a self-terminating admin
+request.
+
+Receipt schema version 2 records only public identifiers and bounded evidence for
+the client, selected connection, user grant, authorize check, diagnostics, and
+timestamps. Version 1 receipts are migrated on read. Text logs and UI output also
+redact bearer credentials, complete JWTs, token/secret assignments, and
+API-key-shaped values.
 
 ## Consequences
 

@@ -8,14 +8,60 @@ semantic versioning.
 
 ### Added
 
+- Add a shared ChatGPT lifecycle state machine for CLI and dashboard, covering
+  Auth0, the resource server, local runtime, public endpoint, OAuth metadata,
+  DCR client detection, login connections, user grants, authorize readiness,
+  final user login, and authenticated MCP activity.
+- Extend `folderforge connect chatgpt` into a one-command DCR lifecycle: capture a
+  client baseline, wait for the new ChatGPT client, verify exact ChatGPT callback
+  and Auth0 resource-log evidence, enable selected login connections, provision a
+  per-client `subject_type=user` grant, and probe `/authorize` with PKCE S256.
+- Add `--wait`, `--no-wait`, `--wait-timeout`, `--poll-interval`, and repeatable
+  `--login-connection` controls without requiring a copied `tpc_*` client ID in
+  the normal flow.
 - Add persisted ChatGPT runtime profiles and CLI overrides: `--profile`,
   `--full-access`, `--policy`, `--tools-preset`, `--adapters`, dashboard controls,
   offline-access controls, DCR client policy, and `--force-config`.
-- Quick mode now checks and optionally enables the Auth0 DCR tenant flag, configures
-  refresh-token support and DCR client access on the Auth0 API, and fails early on
-  local port conflicts.
-- `chatgpt start` and `repair` preserve generated runtime settings; explicit start
-  overrides rewrite the generated YAML and restart the managed server.
+- Add ChatGPT dashboard overall status, lifecycle timeline, diagnostics, repair
+  actions, project/runtime configuration, and bounded redacted server/tunnel logs.
+- Correlate authenticated MCP audit events with the exact verified OAuth client
+  before reporting the lifecycle as `CONNECTED`.
+- Add receipt schema version 2 with backward-compatible version 1 migration and
+  non-secret lifecycle evidence for clients, connections, grants, authorize
+  checks, diagnostics, and timestamps.
+- Add regression coverage for delayed/new DCR clients, timeout, multiple matching
+  clients, callback/resource mismatch, connection selection and repair, user-grant
+  idempotency, no-connection and unauthorized-client errors, no-restart repair,
+  dashboard consistency, exact-client connection evidence, and textual redaction.
+
+### Changed
+
+- Quick mode now checks and optionally enables the Auth0 DCR tenant flag, enables
+  refresh-token support, and uses `user.require_client_grant` plus
+  `client.deny_all` instead of broad third-party-client access.
+- `chatgpt status` and `doctor` now verify the complete Auth0 and MCP lifecycle,
+  not only process state and public metadata. Status checks show network progress,
+  use bounded latency, distinguish unreachable public/Auth0 endpoints, and avoid
+  duplicate lifecycle output.
+- The ChatGPT dashboard now summarizes completed lifecycle checks, omits empty
+  evidence rows, and uses 44px touch targets on narrow screens.
+- `chatgpt repair --no-start` can repair Auth0 drift and verify an existing public
+  endpoint without restarting the process serving the dashboard.
+- `chatgpt start` and full `repair` preserve generated runtime settings; explicit
+  start overrides rewrite the generated YAML and restart the managed server.
+- A changed Cloudflare quick-tunnel URL no longer silently reuses the old ChatGPT
+  client for a different resource/audience.
+
+### Security
+
+- Automatic Auth0 mutations are limited to a safely matched ChatGPT DCR client:
+  exact name, DCR metadata, public authorization-code behavior, bounded ChatGPT
+  callbacks, connect-session boundary, and an exact Auth0 resource log.
+- Login connections are enabled only for the verified client, and grants are
+  scoped to that client, audience, and required scopes. Multiple matches fail
+  closed; remote Auth0 resources are never deleted automatically.
+- Extend CLI/dashboard redaction to bearer credentials, complete JWTs, common
+  token/secret assignments, and API-key-shaped values.
 
 ## [2.2.2] - 2026-07-16
 
@@ -265,9 +311,10 @@ published to npm, or released as a hosted artifact.
     `game_ui_tabs`, `game_ui_menu`, `game_ui_range`, all MEDIUM).
 
   When no game is running, every tool returns a structured, actionable error.
+
 - **Godot integration Step 3 - runtime bridge + runtime read tier (`game_*`
   tools).** A new RUN channel (`GodotRuntime`, `src/adapters/godot/runtime.ts`)
-  talks to a GDScript runtime-bridge autoload inside the *live game* over a
+  talks to a GDScript runtime-bridge autoload inside the _live game_ over a
   line-delimited JSON TCP protocol (default :9090). Twelve `game_*` tools:
   - `game_runtime_status` (LOW) - probe whether a live game is reachable;
     returns `running: true/false` and never fails when the game is stopped.
@@ -282,6 +329,7 @@ published to npm, or released as a hosted artifact.
   When no game is running, every tool returns a structured, actionable error.
   The surface is risk-classified, added to the frozen schema lock, and covered by
   `tests/integration/game-ops.test.ts` (Step 3 suite drives a fake TCP bridge).
+
 - **Godot integration Step 2 - headless edit tier (`game_*` tools).** Mutating
   `game_*` tools backed by `GodotCli`, working directly on project files with the
   editor closed and project-root-guarded paths:
@@ -298,6 +346,7 @@ published to npm, or released as a hosted artifact.
   CRITICAL tools require an explicit approval (Step 0), even in danger mode. The
   new surface is risk-classified, added to the frozen schema lock, and covered by
   `tests/integration/game-ops.test.ts`.
+
 - **Godot integration Step 1 - headless read tier (`game_*` tools).** A new
   `game` tool group with six LOW-risk, read-only tools backed by `GodotCli`
   (`src/adapters/godot/cli.ts`), the headless-CLI + file-parsing channel:
@@ -318,6 +367,7 @@ published to npm, or released as a hosted artifact.
   added to the frozen schema lock, and registered with `game` in the `full`
   preset plus a new `godot` group preset. Covered by
   `tests/integration/game-ops.test.ts` (8 tests).
+
 - **`approval_approve` / `approval_deny` tools** to resolve a pending approval
   request directly over the MCP tool channel. `approval_approve` takes an `id`
   and an optional `scope` (`once` | `session`); `approval_deny` takes an `id`.

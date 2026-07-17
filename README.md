@@ -19,9 +19,15 @@ globally. Point any MCP client at it:
   "mcpServers": {
     "folderforge": {
       "command": "npx",
-      "args": ["-y", "@musashishao/folderforge", "--stdio", "--project", "/absolute/path/to/your-project"]
-    }
-  }
+      "args": [
+        "-y",
+        "@musashishao/folderforge",
+        "--stdio",
+        "--project",
+        "/absolute/path/to/your-project",
+      ],
+    },
+  },
 }
 ```
 
@@ -51,9 +57,9 @@ Agent config when installed globally:
   "mcpServers": {
     "folderforge": {
       "command": "folderforge",
-      "args": ["--stdio", "--project", "/absolute/path/to/your-project"]
-    }
-  }
+      "args": ["--stdio", "--project", "/absolute/path/to/your-project"],
+    },
+  },
 }
 ```
 
@@ -111,9 +117,17 @@ terminal, process, git, code, build):
   "mcpServers": {
     "folderforge": {
       "command": "npx",
-      "args": ["-y", "@musashishao/folderforge", "--stdio", "--project", "/path/to/project", "--tools-preset", "vibe"]
-    }
-  }
+      "args": [
+        "-y",
+        "@musashishao/folderforge",
+        "--stdio",
+        "--project",
+        "/path/to/project",
+        "--tools-preset",
+        "vibe",
+      ],
+    },
+  },
 }
 ```
 
@@ -154,41 +168,35 @@ tools:
 - Supports file, search, shell, process, git, build, code-intelligence,
   memory, browser, and database workflows
 
-## Status (`2.1.0` prepared for release)
+## Status
 
-npm `latest` currently resolves to stable **`2.0.0`**. The repository now targets
-**`2.1.0`**, adding OAuth 2.1/OIDC resource-server support for ChatGPT, a
-hardened agent/admin authorization boundary, and the Auth0 one-command connector.
-The complete local release gate passes 397 tests across 50 files, both dependency
-audits, build, 102-file packed-tarball installation, OAuth package startup, stdio
-MCP, and authenticated HTTP MCP smoke. The connector changes are verified locally
-but remain uncommitted; no `2.1.0` npm publication, Git tag, or hosted release is
-implied here. The
-audited native registry contains 269 tools; the `vibe`, `vibe-lite`, `readonly`,
-and `full` presets advertise 71, 50, 42, and 269 native tools respectively before
-dynamic child/plugin additions.
+The package metadata currently targets **2.2.2**. Changes under
+`[Unreleased]` add the complete ChatGPT DCR lifecycle, shared CLI/dashboard state,
+per-client Auth0 grants, repair actions, receipt v2 migration, and expanded
+regression coverage.
 
-- **Core and governance** - multi-project activation, path/command/secret policy,
-  exact once/session approvals, rate limits, append-only audit, and governed
-  workflows.
-- **MCP** - stdio and authenticated Streamable HTTP, structured error evidence,
-  progress, cancellation, elicitation, image/resource/resource-link delivery,
-  child facades, and dynamic plugin adapters.
-- **AI/browser runtime** - bounded code context, transactional edits,
-  verification/report tools, and stable responsive browser wrappers.
-- **Release gates** - typecheck, lint, 397 unit/integration tests, build, both
-  dependency audits, `npm pack`, temporary tarball install, CLI/stdio smoke, live
-  authenticated HTTP MCP initialize/list/call smoke, and six-entry cross-platform
-  CI validation for the previously committed base. The new connector has been
-  validated locally on Linux; its cross-platform CI run remains a release action.
-- **Trust boundary** - local plugin packages receive a tamper-detection SHA-256
-  tree digest and environment allowlisting, but permission declarations remain
-  review/audit metadata rather than an OS sandbox. The digest is not publisher
-  identity or signed provenance; untrusted distribution remains disabled.
+Release readiness is established by the repository gates documented in
+`docs/releasing.md`: typecheck, lint, the complete unit/integration suite, build,
+dependency audits, packed-tarball installation, CLI/stdio smoke, and authenticated
+HTTP MCP smoke. A local passing gate does not publish npm, push Git, create a tag,
+or create a hosted release.
 
-See `docs/roadmap.md`, `docs/releasing.md`, `docs/compatibility.md`, and
-`docs/migration-2.0.md` for the release record, gates, compatibility contract,
-and migration notes.
+Core capabilities include:
+
+- **Governance** — multi-project activation, workspace/path/command/secret policy,
+  exact approvals, rate limits, append-only audit, and persisted workflows.
+- **MCP** — stdio and authenticated Streamable HTTP, OAuth resource-server mode,
+  structured errors, progress, cancellation, elicitation, embedded resources,
+  child facades, and dynamic adapters.
+- **ChatGPT** — one-command Auth0/DCR provisioning, exact client detection,
+  connection/grant repair, authorize verification, shared lifecycle dashboard,
+  and credential-safe diagnostics.
+- **Developer runtime** — bounded code context, transactional edits,
+  verification/report tools, browser wrappers, database helpers, and Godot
+  integration.
+
+See `docs/roadmap.md`, `docs/releasing.md`, `docs/compatibility.md`,
+`docs/chatgpt-connect.md`, and `docs/migration-chatgpt-lifecycle-v2.md`.
 
 ### MCP protocol features (1.2)
 
@@ -275,47 +283,47 @@ curl -sS -X POST http://127.0.0.1:17331/mcp \
 
 ### CLI commands
 
-| Command | Description |
-| --- | --- |
-| `folderforge doctor [--json]` | Run read-only installation, configuration, dependency, port, plugin, and state diagnostics |
-| `folderforge setup browser [--with-deps]` | Explicitly install package-compatible Playwright Chromium; may access the network |
-| `folderforge setup browser --dry-run --json` | Resolve the exact package-local setup command without downloading anything |
-| `folderforge connect chatgpt [--quick\|--secure]` | Provision/reuse Auth0 OAuth resources, start MCP connectivity, verify metadata, and print the ChatGPT URL |
-| `folderforge chatgpt status\|doctor\|repair\|start\|stop\|disconnect` | Manage and diagnose the generated ChatGPT connection |
+| Command                                                               | Description                                                                                                        |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `folderforge doctor [--json]`                                         | Run read-only installation, configuration, dependency, port, plugin, and state diagnostics                         |
+| `folderforge setup browser [--with-deps]`                             | Explicitly install package-compatible Playwright Chromium; may access the network                                  |
+| `folderforge setup browser --dry-run --json`                          | Resolve the exact package-local setup command without downloading anything                                         |
+| `folderforge connect chatgpt [--quick\|--secure]`                     | Provision/repair Auth0, start connectivity, verify OAuth, wait for the ChatGPT DCR client, and prepare login       |
+| `folderforge chatgpt status\|doctor\|repair\|start\|stop\|disconnect` | Inspect and repair the shared ChatGPT lifecycle, runtime, Auth0 client, connection, grant, and authorize readiness |
 
 ### All CLI options
 
-| Flag | Description |
-| --- | --- |
-| `-p, --project <dir>` | Project root to activate (default: cwd) |
-| `-c, --config <file>` | Path to a YAML config file |
-| `--http` | Serve MCP over Streamable HTTP |
-| `--port <n>` | HTTP MCP port (default 7331) |
-| `--host <addr>` | Bind address (default 127.0.0.1) |
-| `--token <secret>` | Primary credential for the HTTP endpoint |
-| `--api-key <csv>` | Extra API keys (repeatable / comma-separated) |
-| `--require-auth` | Enforce auth even on a loopback bind |
-| `--auth <mode>` | HTTP auth mode: `none`, `token`, or `oauth` |
-| `--oauth-resource <url>` | Canonical public MCP resource URL (normally the public `/mcp` URL) |
-| `--oauth-issuer <url>` | External OAuth authorization-server issuer |
-| `--oauth-scopes <csv>` | Scopes advertised by protected-resource metadata |
-| `--oauth-read-scope <scope>` | Scope required for MCP read access |
-| `--oauth-write-scope <scope>` | Additional scope required by mutating tools |
-| `--oauth-client-registration <mode>` | `cimd`, `dcr`, or `predefined` |
-| `--oauth-jwks-uri <url>` | Explicit trusted JWKS URI override |
-| `--oauth-trusted-jwks-hosts <csv>` | Exact trusted JWKS `host[:port]` values |
-| `--oauth-algorithms <csv>` | Allowed asymmetric JWT algorithms |
-| `--oauth-resource-documentation <url>` | Public documentation URL included in protected-resource metadata |
-| `--unsafe-oauth-http` | Development only: permit loopback HTTP issuer/resource URLs |
-| `--dashboard-port <n>` | Dashboard port (default 7332) |
-| `--no-dashboard` | Disable the local dashboard |
-| `--tools-preset <id>` | `vibe` \| `vibe-lite` \| `readonly` \| `full` |
-| `--tools-groups <csv>` | Limit advertised tools to these groups |
-| `--tools-enable <csv>` | Always-keep tool names |
-| `--tools-disable <csv>` | Drop these tool names |
-| `--policy <mode>` | Policy mode at startup: `readonly` \| `safe` \| `dev` \| `danger` (CLI wins over config) |
-| `-v, --version` | Print version and exit |
-| `-h, --help` | Show help |
+| Flag                                   | Description                                                                              |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `-p, --project <dir>`                  | Project root to activate (default: cwd)                                                  |
+| `-c, --config <file>`                  | Path to a YAML config file                                                               |
+| `--http`                               | Serve MCP over Streamable HTTP                                                           |
+| `--port <n>`                           | HTTP MCP port (default 7331)                                                             |
+| `--host <addr>`                        | Bind address (default 127.0.0.1)                                                         |
+| `--token <secret>`                     | Primary credential for the HTTP endpoint                                                 |
+| `--api-key <csv>`                      | Extra API keys (repeatable / comma-separated)                                            |
+| `--require-auth`                       | Enforce auth even on a loopback bind                                                     |
+| `--auth <mode>`                        | HTTP auth mode: `none`, `token`, or `oauth`                                              |
+| `--oauth-resource <url>`               | Canonical public MCP resource URL (normally the public `/mcp` URL)                       |
+| `--oauth-issuer <url>`                 | External OAuth authorization-server issuer                                               |
+| `--oauth-scopes <csv>`                 | Scopes advertised by protected-resource metadata                                         |
+| `--oauth-read-scope <scope>`           | Scope required for MCP read access                                                       |
+| `--oauth-write-scope <scope>`          | Additional scope required by mutating tools                                              |
+| `--oauth-client-registration <mode>`   | `cimd`, `dcr`, or `predefined`                                                           |
+| `--oauth-jwks-uri <url>`               | Explicit trusted JWKS URI override                                                       |
+| `--oauth-trusted-jwks-hosts <csv>`     | Exact trusted JWKS `host[:port]` values                                                  |
+| `--oauth-algorithms <csv>`             | Allowed asymmetric JWT algorithms                                                        |
+| `--oauth-resource-documentation <url>` | Public documentation URL included in protected-resource metadata                         |
+| `--unsafe-oauth-http`                  | Development only: permit loopback HTTP issuer/resource URLs                              |
+| `--dashboard-port <n>`                 | Dashboard port (default 7332)                                                            |
+| `--no-dashboard`                       | Disable the local dashboard                                                              |
+| `--tools-preset <id>`                  | `vibe` \| `vibe-lite` \| `readonly` \| `full`                                            |
+| `--tools-groups <csv>`                 | Limit advertised tools to these groups                                                   |
+| `--tools-enable <csv>`                 | Always-keep tool names                                                                   |
+| `--tools-disable <csv>`                | Drop these tool names                                                                    |
+| `--policy <mode>`                      | Policy mode at startup: `readonly` \| `safe` \| `dev` \| `danger` (CLI wins over config) |
+| `-v, --version`                        | Print version and exit                                                                   |
+| `-h, --help`                           | Show help                                                                                |
 
 ## Zero-config first run (new in 1.4.0)
 
@@ -335,8 +343,8 @@ The generated `folderforge.yaml` is **batteries-included**:
 - `tools.preset: vibe-lite` (folder-scoped coding set + the full `browser` group)
 - **`adapters.playwright.enabled: true`** - so the `browser_*` tools (navigate,
   viewport resize, click, type, snapshot, console, network, screenshot, eval)
-  actually run for FE / UI-UX testing instead of returning *"Playwright adapter
-  is disabled"*. Generated adapter args include `--isolated` so concurrent
+  actually run for FE / UI-UX testing instead of returning _"Playwright adapter
+  is disabled"_. Generated adapter args include `--isolated` so concurrent
   FolderForge instances do not lock the same browser profile.
 
 Rules:
@@ -365,16 +373,15 @@ FolderForge dependency graph; it does not invoke a mutable `npx` package. Run
 `folderforge doctor` to check whether Chromium is available. Non-browser tools
 continue to work when Chromium is intentionally absent.
 
-
 ## Authentication
 
 FolderForge has three HTTP authentication modes. Stdio remains protected by the
 local process boundary and does not use the HTTP OAuth flow.
 
-| Mode | Intended use | Behavior |
-| --- | --- | --- |
-| `none` | loopback-only local development | rejected on non-loopback binds |
-| `token` | scripts and trusted fixed clients | static Bearer or `X-API-Key`; legacy omitted-mode inference remains supported |
+| Mode    | Intended use                             | Behavior                                                                           |
+| ------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| `none`  | loopback-only local development          | rejected on non-loopback binds                                                     |
+| `token` | scripts and trusted fixed clients        | static Bearer or `X-API-Key`; legacy omitted-mode inference remains supported      |
 | `oauth` | ChatGPT and user-delegated remote access | external OAuth 2.1 authorization server; JWT/JWKS verification and per-tool scopes |
 
 When `server.http.auth.mode` is omitted, existing behavior is preserved: a
@@ -396,55 +403,111 @@ never falls back to `X-API-Key`.
 
 ### OAuth mode for ChatGPT
 
-FolderForge acts as an OAuth **resource server only**. An established external
-identity provider owns login, consent, exact redirect-URI validation,
-Authorization Code + PKCE S256, client identification/registration, refresh
-and revocation. FolderForge publishes RFC 9728 metadata, validates the access
-JWT cryptographically, enforces issuer/audience/expiry/not-before/algorithm, and
-requires `folderforge:read` before MCP access plus `folderforge:write` before a
-mutating tool executes.
+FolderForge acts as an OAuth **resource server only**. Auth0 owns login,
+consent, exact redirect validation, Authorization Code + PKCE S256, token
+issuance, refresh, and revocation. FolderForge publishes RFC 9728 metadata,
+validates access JWTs, binds the exact issuer and audience, and requires
+`folderforge:read` for MCP access plus `folderforge:write` for mutations.
 
-For Auth0, the guided path is:
+The primary path is one command:
 
 ```bash
-# Personal testing: Auth0 DCR + a temporary Cloudflare quick tunnel.
-folderforge connect chatgpt --quick
-
-# One-command full local coding profile; CLI options persist to generated YAML.
-folderforge connect chatgpt --quick --full-access --port 7443
-
-# Team/production: stable HTTPS URL + predefined OAuth client.
-folderforge connect chatgpt --secure \
-  --public-url https://mcp.example.com/mcp
+folderforge connect chatgpt
 ```
 
-The wizard discovers the active Auth0 tenant and issuer, verifies discovery,
-PKCE S256 and JWKS, automatically enables DCR in quick mode when allowed, creates
-or reuses the API/scopes with refresh-token and DCR-client access configured, writes a
-secret-free receipt, starts the local server/tunnel, and verifies OAuth metadata
-plus the `401 WWW-Authenticate` challenge. It never stores Auth0 Management API
-tokens, OAuth tokens, authorization codes, client secrets, private keys, PKCE
-verifiers, API keys, passwords, or cookies.
+FolderForge provisions or repairs the Auth0 resource server, starts the local
+server and public endpoint, verifies metadata and the unauthenticated `401`
+challenge, prints the MCP URL, and waits for ChatGPT:
 
-Runtime options such as `--profile`, `--policy`, `--tools-preset`, `--adapters`,
-`--dashboard`, `--port`, and `--force-config` are written into
-`.folderforge/chatgpt-config.yaml`; CLI values override prior generated values.
+```text
+Waiting for ChatGPT to register an OAuth client...
+```
 
-Lifecycle commands:
+Create the connector in ChatGPT with that URL and click Connect. FolderForge then
+safely detects the new DCR client, enables the intended login connection, creates
+or repairs its per-client `subject_type=user` grant, and verifies `/authorize`
+with the exact callback, PKCE S256, scopes, and resource indicator. The normal
+flow does not require copying a `tpc_*` client ID or running Auth0 API commands.
+
+When the CLI reports:
+
+```text
+OAuth is ready. Return to ChatGPT and complete sign-in.
+```
+
+finish Auth0 login or consent in ChatGPT. FolderForge reports `CONNECTED` only
+after an authenticated MCP tool call is recorded from the exact verified OAuth
+client.
+
+The shared CLI/dashboard lifecycle is:
+
+```text
+UNCONFIGURED
+→ AUTH0_READY
+→ RESOURCE_SERVER_READY
+→ LOCAL_SERVER_READY
+→ PUBLIC_ENDPOINT_READY
+→ OAUTH_METADATA_READY
+→ WAITING_FOR_CHATGPT_CLIENT
+→ CHATGPT_CLIENT_DETECTED
+→ LOGIN_CONNECTIONS_READY
+→ USER_GRANT_READY
+→ AUTHORIZE_READY
+→ READY_TO_COMPLETE_LOGIN
+→ CONNECTED
+```
+
+Auth0 quick mode uses `user.require_client_grant` and `client.deny_all`; FolderForge
+creates the required user grant only for the verified client. Matching requires
+exact ChatGPT DCR metadata, bounded ChatGPT callbacks, the connect-session
+boundary, and an Auth0 log proving the exact FolderForge resource. Multiple
+matches fail closed.
+
+Useful lifecycle commands:
 
 ```bash
+folderforge connect chatgpt --wait
 folderforge chatgpt status
 folderforge chatgpt doctor
 folderforge chatgpt repair
+folderforge chatgpt repair --no-start
 folderforge chatgpt start
 folderforge chatgpt stop
 folderforge chatgpt disconnect
 ```
 
-Quick mode is development-only because a restarted temporary tunnel can change
-the resource URL and JWT audience. Secure mode requires a stable HTTPS URL; the
-exact ChatGPT redirect URI and final Auth0 client registration remain a minimal
-external UI step.
+A stable public endpoint can keep the automatic DCR lifecycle:
+
+```bash
+folderforge connect chatgpt --quick \
+  --public-url https://mcp.example.com/mcp \
+  --tunnel none
+```
+
+A temporary Cloudflare quick tunnel is development-only. When its hostname
+changes, the OAuth resource/audience changes; FolderForge does not silently grant
+the old ChatGPT client access to the new resource.
+
+Use predefined-client mode only when deployment policy forbids DCR:
+
+```bash
+folderforge connect chatgpt --secure \
+  --public-url https://mcp.example.com/mcp
+```
+
+Enable the local lifecycle dashboard with `--dashboard`. It uses the same state
+model as the CLI and shows overall status, timeline, diagnostics, repair actions,
+configuration, and bounded redacted logs.
+
+FolderForge never stores or displays Auth0 Management tokens, access/refresh/ID
+tokens, authorization codes, client secrets, private keys, PKCE verifiers,
+passwords, cookies, browser sessions, or complete JWTs. OAuth scope remains only
+one layer: every tool call still passes workspace, policy, approval, rate-limit,
+and audit controls.
+
+Receipt version 1 is migrated to version 2 on read/write. See
+[the one-command guide](docs/chatgpt-connect.md) and
+[the migration notes](docs/migration-chatgpt-lifecycle-v2.md).
 
 Manual/external-IdP configuration remains available:
 
@@ -489,6 +552,7 @@ Environment equivalents include `FOLDERFORGE_HTTP_AUTH`,
 `FOLDERFORGE_OAUTH_JWKS_URI`, `FOLDERFORGE_OAUTH_TRUSTED_JWKS_HOSTS`,
 `FOLDERFORGE_OAUTH_ALGORITHMS`, and
 `FOLDERFORGE_OAUTH_ALLOW_INSECURE_HTTP`. Precedence is CLI > environment > YAML
+
 > built-in/legacy behavior.
 
 See [the one-command Auth0/ChatGPT guide](docs/chatgpt-connect.md),

@@ -2,14 +2,14 @@
  * Core type definitions shared across FolderForge.
  */
 
-export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
-export type PolicyMode = 'readonly' | 'safe' | 'dev' | 'danger';
+export type PolicyMode = "readonly" | "safe" | "dev" | "danger";
 
-export type ToolAudience = 'agent' | 'admin';
+export type ToolAudience = "agent" | "admin";
 
-export type HttpAuthMode = 'none' | 'token' | 'oauth';
-export type OAuthClientRegistrationStrategy = 'cimd' | 'dcr' | 'predefined';
+export type HttpAuthMode = "none" | "token" | "oauth";
+export type OAuthClientRegistrationStrategy = "cimd" | "dcr" | "predefined";
 
 export interface OAuthHttpAuthConfig {
   /** Canonical public MCP resource URI, normally the public `/mcp` URL. */
@@ -54,10 +54,12 @@ export interface HttpAuthConfig {
 
 export interface ToolPrincipal {
   id: string;
-  role: 'agent' | 'admin' | 'system';
-  authMode?: HttpAuthMode | 'stdio';
+  role: "agent" | "admin" | "system";
+  authMode?: HttpAuthMode | "stdio";
   /** OAuth scopes only; static token principals intentionally remain unscoped. */
   scopes?: string[];
+  /** OAuth client identifier used for lifecycle correlation; never a client secret. */
+  oauthClientId?: string;
   /** Challenge context used for tool-level OAuth step-up responses. */
   resourceMetadataUrl?: string;
   readScope?: string;
@@ -66,7 +68,7 @@ export interface ToolPrincipal {
 
 export interface ServerConfig {
   name: string;
-  transport: 'stdio' | 'http';
+  transport: "stdio" | "http";
   http: {
     host: string;
     port: number;
@@ -130,12 +132,12 @@ export interface TerminalConfig {
   shell: string;
   defaultTimeoutMs: number;
   maxOutputBytes: number;
-  envPolicy: 'redact' | 'passthrough';
+  envPolicy: "redact" | "passthrough";
 }
 
 export interface GitConfig {
-  allowCommit: 'approval' | 'allow' | 'deny';
-  allowPush: 'approval' | 'allow' | 'deny';
+  allowCommit: "approval" | "allow" | "deny";
+  allowPush: "approval" | "allow" | "deny";
   allowResetHard: boolean;
 }
 
@@ -298,7 +300,7 @@ export interface ToolDefinition {
 
 export type ToolHandler = (
   args: Record<string, unknown>,
-  ctx: ToolContext
+  ctx: ToolContext,
 ) => Promise<ToolResult>;
 
 /**
@@ -314,7 +316,7 @@ export interface ElicitRequestParams {
 }
 
 export interface ElicitResult {
-  action: 'accept' | 'decline' | 'cancel';
+  action: "accept" | "decline" | "cancel";
   content?: Record<string, unknown>;
 }
 
@@ -339,7 +341,7 @@ export interface ToolCallControl {
   reportProgress?: (
     progress: number,
     total?: number,
-    message?: string
+    message?: string,
   ) => Promise<void>;
   /** Request structured input from the client mid-call. */
   elicitInput?: (params: ElicitRequestParams) => Promise<ElicitResult>;
@@ -353,16 +355,16 @@ export interface ToolCallControl {
  * these onto MCP content blocks in `toCallToolResult`.
  */
 export type ToolContentBlock =
-  | { kind: 'text'; text: string }
+  | { kind: "text"; text: string }
   | {
       /** Base64-encoded image content rendered directly by vision-capable clients. */
-      kind: 'image';
+      kind: "image";
       data: string;
       mimeType: string;
     }
   | {
       /** Inline resource the client renders in place (diff, file preview, log). */
-      kind: 'resource';
+      kind: "resource";
       uri: string;
       title?: string;
       mimeType?: string;
@@ -370,7 +372,7 @@ export type ToolContentBlock =
     }
   | {
       /** A link the client can open (e.g. a file, a localhost URL, a tab). */
-      kind: 'resource_link';
+      kind: "resource_link";
       uri: string;
       name?: string;
       title?: string;

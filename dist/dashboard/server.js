@@ -1,15 +1,17 @@
-import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
-import { timingSafeEqual } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { adminPrincipalFromCredential } from '../core/principal.js';
-import { ApprovalResolutionError } from '../policy/approvals.js';
-import { logger } from '../core/logger.js';
+import { createServer, } from "node:http";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve, sep } from "node:path";
+import { executeChatGptCli, readConnectionReceipt, refreshChatGptLifecycle, } from "../chatgpt/cli.js";
+import { deriveChatGptLifecycle, redactSensitive, redactSensitiveText, } from "../chatgpt/lifecycle.js";
+import { adminPrincipalFromCredential } from "../core/principal.js";
+import { ApprovalResolutionError } from "../policy/approvals.js";
+import { logger } from "../core/logger.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /** True when the bind host is loopback-only and therefore safe without a token. */
 export function isLoopbackHost(host) {
-    return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+    return host === "127.0.0.1" || host === "::1" || host === "localhost";
 }
 /**
  * Local control-plane dashboard. Read-only views plus approval actions.
@@ -29,26 +31,30 @@ export function startDashboard(container, registry, opts) {
     // is treated as trusted (same machine), matching the default 127.0.0.1.
     const requireAuth = !isLoopbackHost(opts.host);
     if (requireAuth && !opts.token) {
-        throw new Error('Dashboard bound to a non-loopback host requires a token');
+        throw new Error("Dashboard bound to a non-loopback host requires a token");
     }
     const server = createServer((req, res) => {
         const credential = extractDashboardCredential(req);
-        if (requireAuth && (!credential || !timingSafeEqualStr(credential, opts.token))) {
+        if (requireAuth &&
+            (!credential || !timingSafeEqualStr(credential, opts.token))) {
             res.writeHead(401, {
-                'content-type': 'application/json; charset=utf-8',
-                'www-authenticate': 'Bearer realm="folderforge-dashboard"',
+                "content-type": "application/json; charset=utf-8",
+                "www-authenticate": 'Bearer realm="folderforge-dashboard"',
             });
-            res.end(JSON.stringify({ error: 'unauthorized', message: 'Valid bearer token required.' }));
+            res.end(JSON.stringify({
+                error: "unauthorized",
+                message: "Valid bearer token required.",
+            }));
             return;
         }
         const principal = adminPrincipalFromCredential(requireAuth ? credential : undefined);
         handle(req, res, container, registry, principal).catch((err) => {
-            logger.error({ err: String(err) }, 'Dashboard request failed');
-            sendJson(res, 500, { error: 'internal_error', message: String(err) });
+            logger.error({ err: String(err) }, "Dashboard request failed");
+            sendJson(res, 500, { error: "internal_error", message: String(err) });
         });
     });
     server.listen(opts.port, opts.host, () => {
-        logger.info({ host: opts.host, port: opts.port, authRequired: requireAuth }, 'Dashboard listening');
+        logger.info({ host: opts.host, port: opts.port, authRequired: requireAuth }, "Dashboard listening");
     });
     return server;
 }
@@ -58,14 +64,14 @@ export function startDashboard(container, registry, opts) {
  * constant-time to avoid leaking the token length/prefix via timing.
  */
 function extractDashboardCredential(req) {
-    const header = req.headers['authorization'];
-    if (typeof header === 'string' && header.startsWith('Bearer ')) {
-        const credential = header.slice('Bearer '.length).trim();
+    const header = req.headers["authorization"];
+    if (typeof header === "string" && header.startsWith("Bearer ")) {
+        const credential = header.slice("Bearer ".length).trim();
         if (credential)
             return credential;
     }
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    return url.searchParams.get('token') ?? undefined;
+    const url = new URL(req.url ?? "/", "http://localhost");
+    return url.searchParams.get("token") ?? undefined;
 }
 function timingSafeEqualStr(a, b) {
     const ab = Buffer.from(a);
@@ -74,14 +80,277 @@ function timingSafeEqualStr(a, b) {
         return false;
     return timingSafeEqual(ab, bb);
 }
+function processAlive(pid) {
+    if (!pid || !Number.isInteger(pid) || pid <= 0)
+        return false;
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+function quoteCliPath(path) {
+    return JSON.stringify(path);
+}
+function actionDescriptor(action, projectRoot) {
+    const project = quoteCliPath(projectRoot);
+    const definitions = {
+        start_server: {
+            id: "start_server",
+            label: "Start server",
+            mode: "manual",
+            command: `folderforge chatgpt start --project ${project}`,
+            explanation: "Starting or replacing the process that serves this dashboard must be done from a terminal.",
+        },
+        restart_server: {
+            id: "restart_server",
+            label: "Restart server",
+            mode: "manual",
+            command: `folderforge chatgpt start --project ${project}`,
+            explanation: "Restarting this process from its own dashboard would interrupt the response.",
+        },
+        restart_tunnel: {
+            id: "restart_tunnel",
+            label: "Restart tunnel",
+            mode: "manual",
+            command: `folderforge chatgpt repair --project ${project}`,
+            explanation: "A temporary tunnel restart can change the MCP resource URL and requires a new ChatGPT DCR client.",
+        },
+        repair_auth0: {
+            id: "repair_auth0",
+            label: "Repair Auth0",
+            mode: "automatic",
+        },
+        enable_login_connection: {
+            id: "enable_login_connection",
+            label: "Enable login connection",
+            mode: "automatic",
+        },
+        repair_user_grant: {
+            id: "repair_user_grant",
+            label: "Repair user grant",
+            mode: "automatic",
+        },
+        wait_for_dcr_client: {
+            id: "wait_for_dcr_client",
+            label: "Wait for DCR client",
+            mode: "automatic",
+            explanation: "Click Connect in ChatGPT while this action is running.",
+        },
+        rerun_verification: {
+            id: "rerun_verification",
+            label: "Re-run verification",
+            mode: "automatic",
+        },
+        copy_mcp_url: {
+            id: "copy_mcp_url",
+            label: "Copy MCP URL",
+            mode: "client",
+        },
+    };
+    return (definitions[action] ?? {
+        id: action,
+        label: action.replace(/_/g, " "),
+        mode: "manual",
+    });
+}
+function lifecycleSummary(snapshot) {
+    if (snapshot.overall === "connected")
+        return "ChatGPT is authenticated and MCP is ready.";
+    if (snapshot.state === "READY_TO_COMPLETE_LOGIN") {
+        return "OAuth is ready. Return to ChatGPT and complete sign-in.";
+    }
+    if (snapshot.state === "WAITING_FOR_CHATGPT_CLIENT") {
+        return "Waiting for ChatGPT to register an OAuth client.";
+    }
+    if (snapshot.overall === "stopped")
+        return "The local server or public tunnel is stopped.";
+    return "The ChatGPT connection needs attention. Review diagnostics and run the suggested repair.";
+}
+function unconfiguredChatGptStatus(container) {
+    const snapshot = deriveChatGptLifecycle({
+        receiptExists: false,
+        serverAlive: false,
+        tunnelRequired: false,
+        tunnelAlive: false,
+        checks: {},
+    });
+    return {
+        configured: false,
+        status: "unconfigured",
+        state: snapshot.state,
+        summary: "ChatGPT is not configured. Run `folderforge connect chatgpt`.",
+        timeline: snapshot.timeline,
+        diagnostics: snapshot.diagnostics,
+        actions: [
+            {
+                id: "connect_chatgpt",
+                label: "Connect ChatGPT",
+                mode: "manual",
+                command: `folderforge connect chatgpt --project ${quoteCliPath(container.projectRoot())}`,
+            },
+        ],
+        configuration: {
+            projectRoot: container.projectRoot(),
+            policyMode: container.policy.getMode(),
+            enabledAdapters: Object.entries(container.config.adapters)
+                .filter(([, value]) => Boolean(value?.enabled))
+                .map(([name]) => name),
+        },
+        lastChecked: new Date().toISOString(),
+    };
+}
+function chatGptStatus(container) {
+    const receiptPath = join(container.projectRoot(), ".folderforge", "chatgpt-connection.json");
+    if (!existsSync(receiptPath))
+        return unconfiguredChatGptStatus(container);
+    const receipt = readConnectionReceipt(receiptPath);
+    const serverAlive = processAlive(receipt.processes.serverPid);
+    const tunnelAlive = receipt.connectivity.kind !== "cloudflared-quick" ||
+        processAlive(receipt.processes.tunnelPid);
+    const snapshot = refreshChatGptLifecycle(receipt, serverAlive, tunnelAlive);
+    const actionIds = new Set(snapshot.actions);
+    actionIds.add("copy_mcp_url");
+    if (serverAlive)
+        actionIds.add("restart_server");
+    const localPort = (() => {
+        try {
+            return Number(new URL(receipt.connectivity.localUrl).port) || null;
+        }
+        catch {
+            return null;
+        }
+    })();
+    return redactSensitive({
+        configured: true,
+        status: snapshot.overall,
+        state: snapshot.state,
+        summary: lifecycleSummary(snapshot),
+        mcpUrl: receipt.mcpUrl,
+        timeline: snapshot.timeline,
+        diagnostics: snapshot.diagnostics,
+        actions: [...actionIds].map((action) => actionDescriptor(action, receipt.projectRoot)),
+        configuration: {
+            projectRoot: receipt.projectRoot,
+            port: localPort,
+            publicUrl: receipt.connectivity.publicUrl,
+            tenant: receipt.tenant,
+            profile: receipt.runtime?.profile ?? null,
+            policyMode: receipt.runtime?.policyMode ?? container.policy.getMode(),
+            resourcePolicy: receipt.runtime?.dcrClientPolicy ?? null,
+            toolPreset: receipt.runtime?.toolsPreset ?? null,
+            enabledAdapters: receipt.runtime?.adapters ?? [],
+            loginConnections: receipt.runtime?.loginConnections ?? [],
+            registration: receipt.registration,
+            connectivity: receipt.connectivity.kind,
+        },
+        lastChecked: snapshot.updatedAt,
+    });
+}
+function boundedLogTail(path, projectRoot, limit) {
+    const root = resolve(projectRoot);
+    const target = resolve(path);
+    if (target !== root && !target.startsWith(`${root}${sep}`)) {
+        throw new Error("Log path is outside the active project boundary.");
+    }
+    if (!existsSync(target))
+        return [];
+    const size = statSync(target).size;
+    const bytesToRead = Math.min(size, 256 * 1024);
+    const buffer = Buffer.alloc(bytesToRead);
+    const fd = openSync(target, "r");
+    try {
+        readSync(fd, buffer, 0, bytesToRead, Math.max(0, size - bytesToRead));
+    }
+    finally {
+        closeSync(fd);
+    }
+    return buffer
+        .toString("utf8")
+        .split("\n")
+        .slice(size > bytesToRead ? 1 : 0)
+        .filter(Boolean)
+        .slice(-limit)
+        .map(redactSensitiveText);
+}
+async function runChatGptDashboardAction(action, container) {
+    const root = container.projectRoot();
+    if (action === "start_server" ||
+        action === "restart_server" ||
+        action === "restart_tunnel") {
+        const descriptor = actionDescriptor(action, root);
+        return {
+            status: 202,
+            body: {
+                accepted: false,
+                requiresTerminal: true,
+                action: descriptor,
+            },
+        };
+    }
+    const commandArgs = {
+        rerun_verification: ["status", "--project", root, "--json"],
+        repair_auth0: [
+            "repair",
+            "--project",
+            root,
+            "--no-start",
+            "--no-wait",
+            "--json",
+        ],
+        enable_login_connection: [
+            "repair",
+            "--project",
+            root,
+            "--no-start",
+            "--no-wait",
+            "--json",
+        ],
+        repair_user_grant: [
+            "repair",
+            "--project",
+            root,
+            "--no-start",
+            "--no-wait",
+            "--json",
+        ],
+        wait_for_dcr_client: [
+            "repair",
+            "--project",
+            root,
+            "--no-start",
+            "--wait",
+            "--wait-timeout",
+            "60",
+            "--poll-interval",
+            "2",
+            "--json",
+        ],
+    };
+    const args = commandArgs[action];
+    if (!args) {
+        return { status: 404, body: { error: "unknown_chatgpt_action", action } };
+    }
+    const result = await executeChatGptCli(args, { cwd: root });
+    return {
+        status: result.exitCode === 0 ? 200 : 409,
+        body: redactSensitive({
+            ok: result.exitCode === 0,
+            output: result.output,
+            status: result.receipt?.lifecycleSnapshot ?? null,
+        }),
+    };
+}
 async function handle(req, res, container, registry, principal) {
-    const method = req.method ?? 'GET';
-    const url = new URL(req.url ?? '/', 'http://localhost');
+    const method = req.method ?? "GET";
+    const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
-    if (method === 'GET' && (path === '/' || path === '/index.html')) {
+    if (method === "GET" && (path === "/" || path === "/index.html")) {
         return sendStatic(res);
     }
-    if (method === 'GET' && path === '/status') {
+    if (method === "GET" && path === "/status") {
         const active = container.workspace.getActive();
         return sendJson(res, 200, {
             server: {
@@ -102,14 +371,48 @@ async function handle(req, res, container, registry, principal) {
             },
         });
     }
-    if (method === 'GET' && path === '/audit') {
-        const limit = clampInt(url.searchParams.get('limit'), 50, 1, 500);
-        return sendJson(res, 200, { entries: container.audit.recent(limit) });
+    if (method === "GET" && path === "/chatgpt/status") {
+        return sendJson(res, 200, chatGptStatus(container));
     }
-    if (method === 'GET' && path === '/processes') {
+    if (method === "GET" && path === "/chatgpt/logs") {
+        const receiptPath = join(container.projectRoot(), ".folderforge", "chatgpt-connection.json");
+        if (!existsSync(receiptPath)) {
+            return sendJson(res, 404, { error: "chatgpt_not_configured" });
+        }
+        const subsystem = url.searchParams.get("subsystem") ?? "server";
+        if (subsystem !== "server" && subsystem !== "tunnel") {
+            return sendJson(res, 400, { error: "invalid_log_subsystem", subsystem });
+        }
+        const receipt = readConnectionReceipt(receiptPath);
+        const logPath = subsystem === "server"
+            ? receipt.processes.serverLog
+            : receipt.processes.tunnelLog;
+        const limit = clampInt(url.searchParams.get("limit"), 120, 1, 500);
+        const lines = logPath
+            ? boundedLogTail(logPath, receipt.projectRoot, limit)
+            : [];
+        return sendJson(res, 200, { subsystem, lines });
+    }
+    const chatGptActionMatch = /^\/chatgpt\/actions\/([^/]+)$/.exec(path);
+    if (method === "POST" && chatGptActionMatch) {
+        const action = decodeURIComponent(chatGptActionMatch[1]);
+        const result = await runChatGptDashboardAction(action, container);
+        container.audit.record({
+            type: "process_event",
+            summary: `chatgpt_dashboard_action:${action}`,
+            ok: result.status < 400,
+            detail: { actorId: principal.id, action, status: result.status },
+        });
+        return sendJson(res, result.status, result.body);
+    }
+    if (method === "GET" && path === "/audit") {
+        const limit = clampInt(url.searchParams.get("limit"), 50, 1, 500);
+        return sendJson(res, 200, redactSensitive({ entries: container.audit.recent(limit) }));
+    }
+    if (method === "GET" && path === "/processes") {
         return sendJson(res, 200, { processes: container.processes.list() });
     }
-    if (method === 'GET' && path === '/approvals') {
+    if (method === "GET" && path === "/approvals") {
         return sendJson(res, 200, {
             pending: container.policy.approvals.pending(),
             all: container.policy.approvals.all(),
@@ -117,14 +420,14 @@ async function handle(req, res, container, registry, principal) {
     }
     // POST /approvals/:id/approve | /approvals/:id/deny
     const approvalMatch = /^\/approvals\/([^/]+)\/(approve|deny)$/.exec(path);
-    if (method === 'POST' && approvalMatch) {
+    if (method === "POST" && approvalMatch) {
         const id = approvalMatch[1];
         const action = approvalMatch[2];
         const body = await readJsonBody(req);
         let result;
         try {
-            if (action === 'approve') {
-                const scope = body?.scope === 'session' ? 'session' : 'once';
+            if (action === "approve") {
+                const scope = body?.scope === "session" ? "session" : "once";
                 result = container.policy.approvals.approve(id, scope, principal.id);
             }
             else {
@@ -133,15 +436,19 @@ async function handle(req, res, container, registry, principal) {
         }
         catch (error) {
             if (error instanceof ApprovalResolutionError) {
-                return sendJson(res, 409, { error: error.code, message: error.message, id });
+                return sendJson(res, 409, {
+                    error: error.code,
+                    message: error.message,
+                    id,
+                });
             }
             throw error;
         }
         if (!result) {
-            return sendJson(res, 404, { error: 'approval_not_found', id });
+            return sendJson(res, 404, { error: "approval_not_found", id });
         }
         container.audit.record({
-            type: 'approval_resolved',
+            type: "approval_resolved",
             tool: result.tool,
             risk: result.risk,
             summary: `${action} (${result.state})`,
@@ -149,51 +456,51 @@ async function handle(req, res, container, registry, principal) {
         });
         return sendJson(res, 200, { approval: result });
     }
-    if (method === 'POST' && path === '/policy/mode') {
+    if (method === "POST" && path === "/policy/mode") {
         const body = await readJsonBody(req);
-        const mode = String(body?.mode ?? '');
-        if (!['readonly', 'safe', 'dev', 'danger'].includes(mode)) {
-            return sendJson(res, 400, { error: 'invalid_policy_mode', mode });
+        const mode = String(body?.mode ?? "");
+        if (!["readonly", "safe", "dev", "danger"].includes(mode)) {
+            return sendJson(res, 400, { error: "invalid_policy_mode", mode });
         }
         container.policy.setMode(mode);
         container.audit.record({
-            type: 'policy_change',
+            type: "policy_change",
             summary: `mode=${mode}`,
             detail: { actorId: principal.id, mode },
         });
         return sendJson(res, 200, { mode });
     }
-    sendJson(res, 404, { error: 'not_found', path });
+    sendJson(res, 404, { error: "not_found", path });
 }
 function sendStatic(res) {
     const candidates = [
-        join(__dirname, 'static', 'index.html'),
-        join(process.cwd(), 'src', 'dashboard', 'static', 'index.html'),
+        join(__dirname, "static", "index.html"),
+        join(process.cwd(), "src", "dashboard", "static", "index.html"),
     ];
     for (const file of candidates) {
         if (existsSync(file)) {
-            const html = readFileSync(file, 'utf8');
-            res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+            const html = readFileSync(file, "utf8");
+            res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
             res.end(html);
             return;
         }
     }
-    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('Dashboard static asset not found');
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Dashboard static asset not found");
 }
 function sendJson(res, status, body) {
-    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+    res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
     res.end(JSON.stringify(body, null, 2));
 }
 async function readJsonBody(req) {
     return new Promise((resolveBody) => {
-        let raw = '';
-        req.on('data', (chunk) => {
+        let raw = "";
+        req.on("data", (chunk) => {
             raw += chunk;
             if (raw.length > 1_000_000)
                 req.destroy();
         });
-        req.on('end', () => {
+        req.on("end", () => {
             if (!raw.trim())
                 return resolveBody(null);
             try {
@@ -203,7 +510,7 @@ async function readJsonBody(req) {
                 resolveBody(null);
             }
         });
-        req.on('error', () => resolveBody(null));
+        req.on("error", () => resolveBody(null));
     });
 }
 function clampInt(value, fallback, min, max) {

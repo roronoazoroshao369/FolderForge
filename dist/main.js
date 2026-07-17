@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-import { loadConfig, ensureConfigFile, applyHttpAuthDefaults, validateConfig, } from './core/config.js';
-import { Container } from './core/container.js';
-import { buildRegistry, registerAdapterTools, resolveActiveTools } from './tools/index.js';
-import { createMcpServer } from './server/mcp-server.js';
-import { startStdioTransport } from './server/transports/stdio.js';
-import { startHttpTransport } from './server/transports/http.js';
-import { startDashboard, isLoopbackHost } from './dashboard/server.js';
-import { logger } from './core/logger.js';
-import { readFolderForgeVersion } from './core/version.js';
-import { executeDoctorCli } from './doctor/index.js';
-import { executeBrowserSetupCli } from './setup/browser.js';
-import { executeChatGptCli } from './chatgpt/cli.js';
-import { STDIO_AGENT_PRINCIPAL } from './core/principal.js';
+import { loadConfig, ensureConfigFile, applyHttpAuthDefaults, validateConfig, } from "./core/config.js";
+import { Container } from "./core/container.js";
+import { buildRegistry, registerAdapterTools, resolveActiveTools, } from "./tools/index.js";
+import { createMcpServer } from "./server/mcp-server.js";
+import { startStdioTransport } from "./server/transports/stdio.js";
+import { startHttpTransport } from "./server/transports/http.js";
+import { startDashboard, isLoopbackHost } from "./dashboard/server.js";
+import { logger } from "./core/logger.js";
+import { readFolderForgeVersion } from "./core/version.js";
+import { executeDoctorCli } from "./doctor/index.js";
+import { executeBrowserSetupCli } from "./setup/browser.js";
+import { executeChatGptCli } from "./chatgpt/cli.js";
+import { STDIO_AGENT_PRINCIPAL } from "./core/principal.js";
 const VERSION = readFolderForgeVersion();
 function parseArgs(argv) {
     const args = { stdio: false, http: false, dashboard: true };
@@ -19,171 +19,192 @@ function parseArgs(argv) {
         const a = argv[i];
         const next = () => argv[++i];
         switch (a) {
-            case '--project':
-            case '-p': {
+            case "--project":
+            case "-p": {
                 const v = next();
                 if (v !== undefined)
                     args.project = v;
                 break;
             }
-            case '--config':
-            case '-c': {
+            case "--config":
+            case "-c": {
                 const v = next();
                 if (v !== undefined)
                     args.config = v;
                 break;
             }
-            case '--stdio':
+            case "--stdio":
                 args.stdio = true;
                 break;
-            case '--http':
+            case "--http":
                 args.http = true;
                 break;
-            case '--port':
+            case "--port":
                 args.port = Number(next());
                 break;
-            case '--host': {
+            case "--host": {
                 const v = next();
                 if (v !== undefined)
                     args.host = v;
                 break;
             }
-            case '--dashboard-port':
+            case "--dashboard-port":
                 args.dashboardPort = Number(next());
                 break;
-            case '--no-dashboard':
+            case "--no-dashboard":
                 args.dashboard = false;
                 break;
-            case '--tools-preset': {
+            case "--tools-preset": {
                 const v = next();
                 if (v !== undefined)
                     args.toolsPreset = v;
                 break;
             }
-            case '--tools-groups': {
+            case "--tools-groups": {
                 const v = next();
                 if (v !== undefined)
-                    args.toolsGroups = v.split(',').map((s) => s.trim()).filter(Boolean);
+                    args.toolsGroups = v
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
                 break;
             }
-            case '--tools-enable': {
+            case "--tools-enable": {
                 const v = next();
                 if (v !== undefined)
-                    args.toolsEnable = v.split(',').map((s) => s.trim()).filter(Boolean);
+                    args.toolsEnable = v
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
                 break;
             }
-            case '--tools-disable': {
+            case "--tools-disable": {
                 const v = next();
                 if (v !== undefined)
-                    args.toolsDisable = v.split(',').map((s) => s.trim()).filter(Boolean);
+                    args.toolsDisable = v
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
                 break;
             }
-            case '--policy':
-            case '--policy-mode': {
+            case "--policy":
+            case "--policy-mode": {
                 const v = next();
                 if (v !== undefined)
                     args.policyMode = v;
                 break;
             }
-            case '--token': {
+            case "--token": {
                 const v = next();
                 if (v !== undefined)
                     args.token = v;
                 break;
             }
-            case '--api-key': {
+            case "--api-key": {
                 const v = next();
                 if (v !== undefined) {
-                    (args.apiKeys ??= []).push(...v.split(',').map((s) => s.trim()).filter(Boolean));
+                    (args.apiKeys ??= []).push(...v
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean));
                 }
                 break;
             }
-            case '--require-auth':
+            case "--require-auth":
                 args.requireAuth = true;
                 break;
-            case '--auth': {
+            case "--auth": {
                 const v = next();
                 if (v !== undefined)
                     args.authMode = v;
                 break;
             }
-            case '--oauth-resource': {
+            case "--oauth-resource": {
                 const v = next();
                 if (v !== undefined)
                     args.oauthResource = v;
                 break;
             }
-            case '--oauth-issuer': {
+            case "--oauth-issuer": {
                 const v = next();
                 if (v !== undefined)
                     args.oauthIssuer = v;
                 break;
             }
-            case '--oauth-scopes': {
+            case "--oauth-scopes": {
                 const v = next();
                 if (v !== undefined)
-                    args.oauthScopes = v.split(',').map((item) => item.trim()).filter(Boolean);
+                    args.oauthScopes = v
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean);
                 break;
             }
-            case '--oauth-read-scope': {
+            case "--oauth-read-scope": {
                 const v = next();
                 if (v !== undefined)
                     args.oauthReadScope = v;
                 break;
             }
-            case '--oauth-write-scope': {
+            case "--oauth-write-scope": {
                 const v = next();
                 if (v !== undefined)
                     args.oauthWriteScope = v;
                 break;
             }
-            case '--oauth-client-registration': {
+            case "--oauth-client-registration": {
                 const v = next();
                 if (v !== undefined) {
                     args.oauthClientRegistration = v;
                 }
                 break;
             }
-            case '--oauth-jwks-uri': {
+            case "--oauth-jwks-uri": {
                 const v = next();
                 if (v !== undefined)
                     args.oauthJwksUri = v;
                 break;
             }
-            case '--oauth-trusted-jwks-hosts': {
+            case "--oauth-trusted-jwks-hosts": {
                 const v = next();
                 if (v !== undefined)
-                    args.oauthTrustedJwksHosts = v.split(',').map((item) => item.trim()).filter(Boolean);
+                    args.oauthTrustedJwksHosts = v
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean);
                 break;
             }
-            case '--oauth-algorithms': {
+            case "--oauth-algorithms": {
                 const v = next();
                 if (v !== undefined)
-                    args.oauthAlgorithms = v.split(',').map((item) => item.trim()).filter(Boolean);
+                    args.oauthAlgorithms = v
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean);
                 break;
             }
-            case '--oauth-resource-documentation': {
+            case "--oauth-resource-documentation": {
                 const v = next();
                 if (v !== undefined)
                     args.oauthResourceDocumentation = v;
                 break;
             }
-            case '--unsafe-oauth-http':
+            case "--unsafe-oauth-http":
                 args.unsafeOauthHttp = true;
                 break;
-            case '--version':
-            case '-v':
+            case "--version":
+            case "-v":
                 process.stdout.write(`folderforge ${VERSION}\n`);
                 process.exit(0);
                 break;
-            case '--help':
-            case '-h':
+            case "--help":
+            case "-h":
                 printHelp();
                 process.exit(0);
                 break;
             default:
-                if (a && a.startsWith('-')) {
-                    logger.warn({ arg: a }, 'Unknown argument ignored');
+                if (a && a.startsWith("-")) {
+                    logger.warn({ arg: a }, "Unknown argument ignored");
                 }
         }
     }
@@ -191,73 +212,99 @@ function parseArgs(argv) {
 }
 function printHelp() {
     process.stdout.write([
-        'FolderForge - local development control plane for AI coding agents',
-        '',
-        'Usage: folderforge [command] [options]',
-        '',
-        'Commands:',
-        '  doctor                 Run read-only installation and workspace diagnostics',
-        '  setup browser          Install package-compatible Playwright Chromium (explicit opt-in)',
-        '  connect chatgpt        Configure Auth0 OAuth and connect FolderForge to ChatGPT',
-        '  chatgpt <command>      status|doctor|repair|start|stop|disconnect',
-        '',
-        'Options:',
-        '  -p, --project <dir>      Project root to activate (default: cwd)',
-        '  -c, --config <file>      Path to a YAML config file',
-        '      --stdio              Serve MCP over stdio (default for agent clients)',
-        '      --http               Serve MCP over Streamable HTTP',
-        '      --port <n>           HTTP MCP port (default 7331)',
-        '      --host <addr>        Bind address (default 127.0.0.1)',
-        '      --dashboard-port <n> Dashboard port (default 7332)',
-        '      --no-dashboard       Disable the local dashboard',
-        '      --token <secret>     Bearer/API token required on the HTTP MCP endpoint',
-        '      --api-key <csv>      Additional accepted API keys (repeatable / comma-separated)',
-        '      --require-auth       Enforce auth even on a loopback (localhost) bind',
-        '      --auth <mode>        HTTP auth mode (none|token|oauth)',
-        '      --oauth-resource <url> Canonical public MCP resource URL',
-        '      --oauth-issuer <url> External authorization-server issuer',
-        '      --oauth-scopes <csv> OAuth scopes advertised by FolderForge',
-        '      --oauth-read-scope <s> Scope required for read-only MCP access',
-        '      --oauth-write-scope <s> Scope required for mutating tools',
-        '      --oauth-client-registration <mode> cimd|dcr|predefined (default cimd)',
-        '      --oauth-jwks-uri <url> Trusted JWKS URI override',
-        '      --oauth-trusted-jwks-hosts <csv> Exact allowlisted JWKS host[:port] values',
-        '      --oauth-algorithms <csv> Accepted asymmetric JWT algorithms',
-        '      --oauth-resource-documentation <url> Public OAuth resource documentation URL',
-        '      --unsafe-oauth-http Development only: allow loopback HTTP issuer/resource',
-        '      --tools-preset <id>  Limit advertised tools to a preset (vibe|vibe-lite|readonly|full)',
-        '      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)',
-        '      --tools-enable <csv> Always-keep tool names (added back on top of the filter)',
-        '      --tools-disable <csv> Drop these tool names from the advertised list',
-        '      --policy <mode>      Policy mode at startup (readonly|safe|dev|danger)',
-        '  -v, --version            Print version and exit',
-        '  -h, --help               Show this help',
-        '',
-    ].join('\n'));
+        "FolderForge - local development control plane for AI coding agents",
+        "",
+        "Usage: folderforge [command] [options]",
+        "",
+        "Commands:",
+        "  doctor                 Run read-only installation and workspace diagnostics",
+        "  setup browser          Install package-compatible Playwright Chromium (explicit opt-in)",
+        "  connect chatgpt        Configure Auth0 OAuth and connect FolderForge to ChatGPT",
+        "  chatgpt <command>      status|doctor|repair|start|stop|disconnect",
+        "",
+        "Options:",
+        "  -p, --project <dir>      Project root to activate (default: cwd)",
+        "  -c, --config <file>      Path to a YAML config file",
+        "      --stdio              Serve MCP over stdio (default for agent clients)",
+        "      --http               Serve MCP over Streamable HTTP",
+        "      --port <n>           HTTP MCP port (default 7331)",
+        "      --host <addr>        Bind address (default 127.0.0.1)",
+        "      --dashboard-port <n> Dashboard port (default 7332)",
+        "      --no-dashboard       Disable the local dashboard",
+        "      --token <secret>     Bearer/API token required on the HTTP MCP endpoint",
+        "      --api-key <csv>      Additional accepted API keys (repeatable / comma-separated)",
+        "      --require-auth       Enforce auth even on a loopback (localhost) bind",
+        "      --auth <mode>        HTTP auth mode (none|token|oauth)",
+        "      --oauth-resource <url> Canonical public MCP resource URL",
+        "      --oauth-issuer <url> External authorization-server issuer",
+        "      --oauth-scopes <csv> OAuth scopes advertised by FolderForge",
+        "      --oauth-read-scope <s> Scope required for read-only MCP access",
+        "      --oauth-write-scope <s> Scope required for mutating tools",
+        "      --oauth-client-registration <mode> cimd|dcr|predefined (default cimd)",
+        "      --oauth-jwks-uri <url> Trusted JWKS URI override",
+        "      --oauth-trusted-jwks-hosts <csv> Exact allowlisted JWKS host[:port] values",
+        "      --oauth-algorithms <csv> Accepted asymmetric JWT algorithms",
+        "      --oauth-resource-documentation <url> Public OAuth resource documentation URL",
+        "      --unsafe-oauth-http Development only: allow loopback HTTP issuer/resource",
+        "      --tools-preset <id>  Limit advertised tools to a preset (vibe|vibe-lite|readonly|full)",
+        "      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)",
+        "      --tools-enable <csv> Always-keep tool names (added back on top of the filter)",
+        "      --tools-disable <csv> Drop these tool names from the advertised list",
+        "      --policy <mode>      Policy mode at startup (readonly|safe|dev|danger)",
+        "  -v, --version            Print version and exit",
+        "  -h, --help               Show this help",
+        "",
+    ].join("\n"));
 }
 async function main() {
     const argv = process.argv.slice(2);
-    if (argv[0] === 'doctor') {
+    if (argv[0] === "doctor") {
         const result = await executeDoctorCli(argv.slice(1));
         process.stdout.write(result.output);
         process.exitCode = result.exitCode;
         return;
     }
-    if (argv[0] === 'setup') {
+    if (argv[0] === "setup") {
         const result = executeBrowserSetupCli(argv.slice(1));
         process.stdout.write(result.output);
         process.exitCode = result.exitCode;
         return;
     }
-    if (argv[0] === 'connect' && argv[1] === 'chatgpt') {
-        const result = await executeChatGptCli(['connect', ...argv.slice(2)]);
-        process.stdout.write(result.output);
+    if (argv[0] === "connect" && argv[1] === "chatgpt") {
+        const chatGptArgv = ["connect", ...argv.slice(2)];
+        const json = chatGptArgv.includes("--json");
+        let streamed = false;
+        const result = await executeChatGptCli(chatGptArgv, {
+            ...(json
+                ? {}
+                : {
+                    onLine: (line) => {
+                        streamed = true;
+                        process.stdout.write(`${line}\n`);
+                    },
+                }),
+        });
+        if (json || !streamed)
+            process.stdout.write(result.output);
         process.exitCode = result.exitCode;
         return;
     }
-    if (argv[0] === 'chatgpt') {
-        const result = await executeChatGptCli(argv.slice(1));
-        process.stdout.write(result.output);
+    if (argv[0] === "chatgpt") {
+        const chatGptArgv = argv.slice(1);
+        const json = chatGptArgv.includes("--json");
+        let streamed = false;
+        const result = await executeChatGptCli(chatGptArgv, {
+            ...(json
+                ? {}
+                : {
+                    onLine: (line) => {
+                        streamed = true;
+                        process.stdout.write(`${line}\n`);
+                    },
+                }),
+        });
+        if (json || !streamed)
+            process.stdout.write(result.output);
         process.exitCode = result.exitCode;
         return;
     }
@@ -275,9 +322,9 @@ async function main() {
     });
     // CLI overrides for transport/ports.
     if (args.http)
-        config.server.transport = 'http';
+        config.server.transport = "http";
     if (args.stdio)
-        config.server.transport = 'stdio';
+        config.server.transport = "stdio";
     if (args.host !== undefined)
         config.server.http.host = args.host;
     if (args.port !== undefined)
@@ -286,19 +333,23 @@ async function main() {
         config.server.dashboard.port = args.dashboardPort;
     // CLI override for the policy mode (CLI wins over the config file).
     if (args.policyMode !== undefined) {
-        const validModes = ['readonly', 'safe', 'dev', 'danger'];
+        const validModes = ["readonly", "safe", "dev", "danger"];
         if (validModes.includes(args.policyMode)) {
-            config.policy.defaultMode = args.policyMode;
+            config.policy.defaultMode =
+                args.policyMode;
         }
         else {
-            logger.warn({ policyMode: args.policyMode, validModes }, 'Invalid --policy value ignored; using configured policy mode');
+            logger.warn({ policyMode: args.policyMode, validModes }, "Invalid --policy value ignored; using configured policy mode");
         }
     }
     // CLI auth overrides for the HTTP transport. CLI wins over env/YAML.
     if (args.token !== undefined)
         config.server.http.token = args.token;
     if (args.apiKeys && args.apiKeys.length > 0) {
-        config.server.http.apiKeys = [...(config.server.http.apiKeys ?? []), ...args.apiKeys];
+        config.server.http.apiKeys = [
+            ...(config.server.http.apiKeys ?? []),
+            ...args.apiKeys,
+        ];
     }
     if (args.requireAuth)
         config.server.http.requireAuth = true;
@@ -322,26 +373,38 @@ async function main() {
     if (hasOauthCli) {
         const existing = config.server.http.auth?.oauth;
         config.server.http.auth = {
-            mode: args.authMode ?? config.server.http.auth?.mode ?? 'oauth',
+            mode: args.authMode ?? config.server.http.auth?.mode ?? "oauth",
             oauth: {
                 ...(existing ?? {}),
-                ...(args.oauthResource !== undefined ? { resource: args.oauthResource } : {}),
+                ...(args.oauthResource !== undefined
+                    ? { resource: args.oauthResource }
+                    : {}),
                 ...(args.oauthIssuer !== undefined ? { issuer: args.oauthIssuer } : {}),
                 ...(args.oauthScopes !== undefined ? { scopes: args.oauthScopes } : {}),
-                ...(args.oauthReadScope !== undefined ? { readScope: args.oauthReadScope } : {}),
-                ...(args.oauthWriteScope !== undefined ? { writeScope: args.oauthWriteScope } : {}),
+                ...(args.oauthReadScope !== undefined
+                    ? { readScope: args.oauthReadScope }
+                    : {}),
+                ...(args.oauthWriteScope !== undefined
+                    ? { writeScope: args.oauthWriteScope }
+                    : {}),
                 ...(args.oauthClientRegistration !== undefined
                     ? { clientRegistration: args.oauthClientRegistration }
                     : {}),
-                ...(args.oauthJwksUri !== undefined ? { jwksUri: args.oauthJwksUri } : {}),
+                ...(args.oauthJwksUri !== undefined
+                    ? { jwksUri: args.oauthJwksUri }
+                    : {}),
                 ...(args.oauthTrustedJwksHosts !== undefined
                     ? { trustedJwksHosts: args.oauthTrustedJwksHosts }
                     : {}),
-                ...(args.oauthAlgorithms !== undefined ? { algorithms: args.oauthAlgorithms } : {}),
+                ...(args.oauthAlgorithms !== undefined
+                    ? { algorithms: args.oauthAlgorithms }
+                    : {}),
                 ...(args.oauthResourceDocumentation !== undefined
                     ? { resourceDocumentation: args.oauthResourceDocumentation }
                     : {}),
-                ...(args.unsafeOauthHttp ? { allowInsecureHttpForDevelopment: true } : {}),
+                ...(args.unsafeOauthHttp
+                    ? { allowInsecureHttpForDevelopment: true }
+                    : {}),
             },
         };
     }
@@ -362,17 +425,17 @@ async function main() {
     });
     if (active) {
         registry.setActive(active);
-        logger.info({ advertised: active.length, total: registry.listAll().length }, 'Tool surface filtered');
+        logger.info({ advertised: active.length, total: registry.listAll().length }, "Tool surface filtered");
     }
     // Wire enabled child MCP adapters (Serena, Playwright, ...). Each child tool is
     // exposed namespaced (e.g. serena__find_symbol). Discovery never blocks startup.
     try {
-        const added = await registerAdapterTools(container, registry, active === null || effectivePreset === 'full');
+        const added = await registerAdapterTools(container, registry, active === null || effectivePreset === "full");
         if (added > 0)
-            logger.info({ added }, 'Registered child MCP adapter tools');
+            logger.info({ added }, "Registered child MCP adapter tools");
     }
     catch (err) {
-        logger.warn({ err: String(err) }, 'Adapter tool registration failed; continuing without adapters');
+        logger.warn({ err: String(err) }, "Adapter tool registration failed; continuing without adapters");
     }
     const makeServer = (principal = STDIO_AGENT_PRINCIPAL) => createMcpServer(registry, {
         name: config.server.name,
@@ -385,7 +448,7 @@ async function main() {
     // server can only connect to one transport at a time).
     const server = makeServer();
     container.audit.record({
-        type: 'server_start',
+        type: "server_start",
         summary: `transport=${config.server.transport} tools=${registry.listAll().length}`,
         detail: { version: VERSION, projectRoot: container.projectRoot() },
     });
@@ -396,7 +459,7 @@ async function main() {
         // token-protected. Use the configured token or mint one and log it once.
         const token = config.server.dashboard.token;
         if (!isLoopbackHost(dashHost) && !token) {
-            throw new Error('Dashboard non-loopback bind requires server.dashboard.token; FolderForge will not print generated credentials to logs');
+            throw new Error("Dashboard non-loopback bind requires server.dashboard.token; FolderForge will not print generated credentials to logs");
         }
         startDashboard(container, registry, {
             host: dashHost,
@@ -404,26 +467,36 @@ async function main() {
             ...(token ? { token } : {}),
         });
     }
-    if (config.server.transport === 'http') {
+    if (config.server.transport === "http") {
         const httpHost = config.server.http.host;
         const forceAuth = Boolean(config.server.http.requireAuth);
-        const hasCredential = Boolean(config.server.http.token) || (config.server.http.apiKeys?.length ?? 0) > 0;
+        const hasCredential = Boolean(config.server.http.token) ||
+            (config.server.http.apiKeys?.length ?? 0) > 0;
         const configuredMode = config.server.http.auth?.mode;
-        const effectiveMode = configuredMode ?? (hasCredential || forceAuth || !isLoopbackHost(httpHost) ? 'token' : 'none');
-        if (effectiveMode === 'token' && !hasCredential) {
-            throw new Error('HTTP token authentication requires a configured credential. Set server.http.token, ' +
-                'server.http.apiKeys, FOLDERFORGE_HTTP_TOKEN, or pass --token. ' +
-                'FolderForge no longer prints generated bearer credentials to logs.');
+        const effectiveMode = configuredMode ??
+            (hasCredential || forceAuth || !isLoopbackHost(httpHost)
+                ? "token"
+                : "none");
+        if (effectiveMode === "token" && !hasCredential) {
+            throw new Error("HTTP token authentication requires a configured credential. Set server.http.token, " +
+                "server.http.apiKeys, FOLDERFORGE_HTTP_TOKEN, or pass --token. " +
+                "FolderForge no longer prints generated bearer credentials to logs.");
         }
         await startHttpTransport(makeServer, {
             host: httpHost,
             port: config.server.http.port,
             authMode: effectiveMode,
-            ...(config.server.http.auth?.oauth ? { oauth: config.server.http.auth.oauth } : {}),
+            ...(config.server.http.auth?.oauth
+                ? { oauth: config.server.http.auth.oauth }
+                : {}),
             ...(config.server.http.token ? { token: config.server.http.token } : {}),
-            ...(config.server.http.apiKeys ? { apiKeys: config.server.http.apiKeys } : {}),
+            ...(config.server.http.apiKeys
+                ? { apiKeys: config.server.http.apiKeys }
+                : {}),
             ...(forceAuth ? { requireAuth: true } : {}),
-            ...(config.server.http.corsOrigins ? { corsOrigins: config.server.http.corsOrigins } : {}),
+            ...(config.server.http.corsOrigins
+                ? { corsOrigins: config.server.http.corsOrigins }
+                : {}),
             ...(config.server.http.sessionTtlMs !== undefined
                 ? { sessionTtlMs: config.server.http.sessionTtlMs }
                 : {}),
@@ -433,7 +506,7 @@ async function main() {
         await startStdioTransport(server);
     }
     const shutdown = async (signal) => {
-        logger.info({ signal }, 'Shutting down FolderForge');
+        logger.info({ signal }, "Shutting down FolderForge");
         try {
             container.adapters.stopAll();
         }
@@ -448,10 +521,10 @@ async function main() {
         }
         process.exit(0);
     };
-    process.on('SIGINT', () => void shutdown('SIGINT'));
-    process.on('SIGTERM', () => void shutdown('SIGTERM'));
+    process.on("SIGINT", () => void shutdown("SIGINT"));
+    process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 main().catch((err) => {
-    logger.error({ err: err instanceof Error ? err.stack : String(err) }, 'Fatal startup error');
+    logger.error({ err: err instanceof Error ? err.stack : String(err) }, "Fatal startup error");
     process.exit(1);
 });
