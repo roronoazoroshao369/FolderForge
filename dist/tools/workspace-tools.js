@@ -17,6 +17,7 @@ export function workspaceTools() {
             },
             handler: async (args, ctx) => {
                 const info = ctx.container.workspace.activate(String(args.path));
+                ctx.container.workspaceStartupError = null;
                 ctx.container.audit.record({ type: 'workspace_activate', summary: info.projectRoot });
                 return { ok: true, data: info };
             },
@@ -46,6 +47,7 @@ export function workspaceTools() {
             handler: async (args, ctx) => {
                 try {
                     const info = ctx.container.workspace.setCurrent(String(args.path));
+                    ctx.container.workspaceStartupError = null;
                     ctx.container.audit.record({ type: 'workspace_activate', summary: `switch ${info.projectRoot}` });
                     return { ok: true, data: info };
                 }
@@ -84,6 +86,7 @@ export function workspaceTools() {
                     data: {
                         active: Boolean(active),
                         project: active,
+                        startupError: ctx.container.workspaceStartupError,
                         mode: ctx.container.policy.getMode(),
                         allowedDirectories: ctx.config.workspace.allowedDirectories,
                         adapters: ctx.container.adapters.status(),

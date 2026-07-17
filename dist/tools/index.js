@@ -121,11 +121,10 @@ export const GROUP_PRESETS = {
     // Same groups as `vibe`, but hard-capped to fit clients that reject more than
     // 50 tools. The cap is applied by PRESET_TOOL_CAP below; group order here also
     // sets keep-priority so the most useful groups survive the trim.
-    // Pure folder-scoped coding set + UI testing via the browser group. No
-    // workspace_* tools (the agent is pinned to a single folder via config, so
-    // activate/switch/route are noise). Docker is covered by shell_exec, so no
-    // dedicated docker group is needed. Listed in PRESET_NO_FORCE_WORKSPACE so the
-    // always-keep-workspace rule is skipped for this preset only.
+    // Pure folder-scoped coding set + UI testing via the browser group. The full
+    // workspace group is not forced, but workspace_status and workspace_activate
+    // remain pinned as minimal diagnosis/recovery controls. Docker is covered by
+    // shell_exec, so no dedicated docker group is needed.
     //
     // Group order = keep-priority when the cap trims. Lower-level and infrequent tools dropped by
     // default to land at exactly 50 are declared in PRESET_DEFAULT_DISABLED:
@@ -200,22 +199,26 @@ export const PRESET_DEFAULT_DISABLED = {
         'git_reset',
         'code_insert_before_symbol',
         'code_insert_after_symbol',
+        'code_find_implementations',
+        'code_rename_symbol',
     ],
 };
 /**
- * Presets that opt OUT of the "always keep the workspace group" rule. For these,
- * resolveActiveTools will not force-add the workspace group, and the cap logic
- * will not pin workspace tools. Use for fully folder-scoped setups where the
- * agent never needs workspace_activate/switch/route.
+ * Presets that opt OUT of forcing the complete workspace group. A preset may
+ * still retain a bounded recovery subset through PRESET_RECOVERY_TOOLS.
  */
 export const PRESET_NO_FORCE_WORKSPACE = new Set(['vibe-lite']);
+/** Minimal workspace controls kept even in folder-scoped presets for diagnosis and recovery. */
+export const PRESET_RECOVERY_TOOLS = {
+    'vibe-lite': ['workspace_status', 'workspace_activate'],
+};
 /**
  * Compute the set of tool names to advertise, given the full registry and a
  * filter spec. Returns null to mean "expose everything" (no filtering).
  *
- * Resolution order: enabledGroups (or preset's groups) -> add `enabled` extras
- * -> remove `disabled`. `workspace` is always kept so the agent can orient and
- * call workspace_route.
+ * Resolution order: enabledGroups (or preset's groups) -> add recovery/`enabled`
+ * extras -> remove `disabled`. Most presets keep the complete workspace group;
+ * bounded presets may retain only explicit recovery controls.
  */
 export function resolveActiveTools(registry, opts) {
     const all = registry.listAll();
@@ -233,6 +236,9 @@ export function resolveActiveTools(registry, opts) {
         ...(forceWorkspace ? ['workspace'] : []),
     ]);
     const keep = new Set(all.filter((t) => keepGroups.has(t.group)).map((t) => t.name));
+    const recoveryTools = opts.preset ? PRESET_RECOVERY_TOOLS[opts.preset] ?? [] : [];
+    for (const name of recoveryTools)
+        keep.add(name);
     for (const name of opts.enabled ?? [])
         keep.add(name);
     // Preset-level default removals first, then any explicit user `disabled` list.
@@ -253,6 +259,7 @@ export function resolveActiveTools(registry, opts) {
         const pinnedGroups = new Set(opts.preset ? PRESET_PINNED_GROUPS[opts.preset] ?? [] : []);
         const pinned = new Set([
             ...(forceWorkspace ? ['workspace'] : []),
+            ...recoveryTools,
             ...all.filter((t) => pinnedGroups.has(t.group)).map((t) => t.name),
             ...(opts.enabled ?? []),
         ]);

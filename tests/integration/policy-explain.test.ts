@@ -51,6 +51,13 @@ describe('policy_explain tool', () => {
     expect(out.factors.join(' ')).toMatch(/requireApproval/);
   });
 
+  it('matches runtime danger-mode bypass for non-CRITICAL approval gates', async () => {
+    const { registry } = setup('danger');
+    const out = explain(await registry.call('policy_explain', { tool: 'file_delete' }));
+    expect(out.risk).toBe('HIGH');
+    expect(out.decision).toBe('allow');
+  });
+
   it('classifies shell_exec risk from the command', async () => {
     const { registry } = setup('dev');
     const dangerous = explain(

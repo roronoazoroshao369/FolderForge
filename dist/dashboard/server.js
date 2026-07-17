@@ -362,6 +362,7 @@ async function handle(req, res, container, registry, principal) {
                 projectRoot: container.projectRoot(),
                 name: active?.name ?? null,
                 languageHints: active?.languageHints ?? [],
+                startupError: container.workspaceStartupError,
                 allowedDirectories: container.config.workspace.allowedDirectories,
             },
             policy: container.policy.describe(),

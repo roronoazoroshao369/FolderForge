@@ -55,6 +55,7 @@ export class PolicyEngine {
   describe() {
     return {
       mode: this.mode,
+      allowCriticalInDanger: this.config.policy.allowCriticalInDanger,
       requireApproval: [...this.requireApproval],
       blockedCommands: this.config.policy.blockedCommands,
       allowedDirectories: this.config.workspace.allowedDirectories,
@@ -76,10 +77,15 @@ export class PolicyEngine {
     args: Record<string, unknown>,
     requesterId = 'agent:unknown'
   ): Decision {
-    // CRITICAL is denied in every mode except an explicit danger-mode approval.
+    // CRITICAL is denied in every mode except danger. In danger it normally
+    // still requires explicit approval, unless the operator enabled the
+    // autonomous-agent escape hatch for an isolated environment.
     if (risk === 'CRITICAL') {
       if (this.mode !== 'danger') {
         return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
+      }
+      if (this.config.policy.allowCriticalInDanger) {
+        return { kind: 'allow', risk };
       }
       // An admin-approved allowance is bound to the requesting principal.
       if (
@@ -172,6 +178,10 @@ export class PolicyEngine {
       if (this.mode !== 'danger') {
         decision = 'deny';
         reason = `CRITICAL action blocked in ${this.mode} mode.`;
+      } else if (this.config.policy.allowCriticalInDanger) {
+        decision = 'allow';
+        reason = 'CRITICAL action is allowed by the danger-mode autonomous-agent escape hatch.';
+        factors.push('mode is danger and allowCriticalInDanger is enabled');
       } else {
         decision = 'approval';
         reason = 'CRITICAL action requires explicit approval.';
@@ -188,7 +198,11 @@ export class PolicyEngine {
       if (highRisk) factors.push(`risk is ${risk} (>= HIGH)`);
 
       if (onApprovalList || highRisk) {
-        if (this.approvals.isSessionAllowed(toolName)) {
+        if (this.mode === 'danger') {
+          factors.push('mode is danger, so non-CRITICAL approval gates are bypassed');
+          decision = 'allow';
+          reason = `${toolName} (${risk}) is allowed in danger mode.`;
+        } else if (this.approvals.isSessionAllowed(toolName)) {
           factors.push('a session-scoped approval is already active for this tool');
           decision = 'allow';
           reason = `${toolName} is allowed for this session.`;

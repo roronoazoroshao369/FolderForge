@@ -68,11 +68,25 @@ describe('policy pipeline: approval gating', () => {
     expect(res.approvalId).toBeUndefined();
   });
 
-  it('CRITICAL tool is gated by approval in danger mode', async () => {
+  it('CRITICAL tool is gated by approval in danger mode by default', async () => {
     const { registry } = setup('danger');
     const res = await registry.call('shell_exec', { command: 'git push --force origin main' });
     expect(res.ok).toBe(false);
     expect(res.approvalId).toBeDefined();
+  });
+
+  it('allows CRITICAL actions with the explicit autonomous danger escape hatch', async () => {
+    const { container } = setup('danger');
+    container.config.policy.allowCriticalInDanger = true;
+    const decision = container.policy.evaluate(
+      'shell_exec',
+      'CRITICAL',
+      true,
+      { command: 'git push --force origin main' },
+      'agent:test'
+    );
+    expect(decision.kind).toBe('allow');
+    expect(container.policy.explain('shell_exec', 'CRITICAL', true).decision).toBe('allow');
   });
 
   it('a session-scoped approval lets the same tool through next time', async () => {

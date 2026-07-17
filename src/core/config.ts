@@ -171,6 +171,7 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
     policy: {
       defaultMode: 'safe',
       approvalTtlMs: 15 * 60 * 1000,
+      allowCriticalInDanger: false,
       requireApproval: [
         'git_push',
         'git_commit',

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { detectProject } from './project-detector.js';
 import { MemoryStore } from './memory-store.js';
 import { logger } from '../core/logger.js';
@@ -20,7 +20,10 @@ export class WorkspaceManager {
         this.allowedDirectories = allowedDirectories;
     }
     assertAllowed(abs) {
-        const allowed = this.allowedDirectories.some((d) => abs === resolve(d) || abs.startsWith(resolve(d)));
+        const allowed = this.allowedDirectories.some((directory) => {
+            const root = resolve(directory);
+            return abs === root || abs.startsWith(`${root}${sep}`);
+        });
         if (!allowed) {
             throw new Error(`Project path is not within allowed directories: ${abs}`);
         }

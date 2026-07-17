@@ -126,6 +126,8 @@ export interface PolicyConfig {
   blockedCommands: string[];
   /** Lifetime of a pending approval before it expires. */
   approvalTtlMs: number;
+  /** Explicit autonomous-agent escape hatch for isolated environments. */
+  allowCriticalInDanger: boolean;
 }
 
 export interface TerminalConfig {

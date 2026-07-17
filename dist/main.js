@@ -192,6 +192,9 @@ function parseArgs(argv) {
             case "--unsafe-oauth-http":
                 args.unsafeOauthHttp = true;
                 break;
+            case "--dangerously-allow-critical":
+                args.allowCriticalInDanger = true;
+                break;
             case "--version":
             case "-v":
                 process.stdout.write(`folderforge ${VERSION}\n`);
@@ -251,6 +254,7 @@ function printHelp() {
         "      --tools-enable <csv> Always-keep tool names (added back on top of the filter)",
         "      --tools-disable <csv> Drop these tool names from the advertised list",
         "      --policy <mode>      Policy mode at startup (readonly|safe|dev|danger)",
+        "      --dangerously-allow-critical  Allow CRITICAL actions without approval in danger mode",
         "  -v, --version            Print version and exit",
         "  -h, --help               Show this help",
         "",
@@ -341,6 +345,15 @@ async function main() {
         else {
             logger.warn({ policyMode: args.policyMode, validModes }, "Invalid --policy value ignored; using configured policy mode");
         }
+    }
+    if (args.allowCriticalInDanger) {
+        config.policy.allowCriticalInDanger = true;
+    }
+    if (config.policy.allowCriticalInDanger && config.policy.defaultMode !== "danger") {
+        throw new Error("--dangerously-allow-critical requires --policy danger (or policy.defaultMode=danger)");
+    }
+    if (!args.dashboard && config.policy.defaultMode !== "readonly" && !config.policy.allowCriticalInDanger) {
+        logger.warn({ mode: config.policy.defaultMode }, "Dashboard disabled: approval-gated actions cannot be resolved. Enable the dashboard or use --policy danger --dangerously-allow-critical in an isolated environment.");
     }
     // CLI auth overrides for the HTTP transport. CLI wins over env/YAML.
     if (args.token !== undefined)

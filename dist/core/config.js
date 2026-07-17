@@ -161,6 +161,7 @@ export function defaultConfig(projectRoot) {
         policy: {
             defaultMode: 'safe',
             approvalTtlMs: 15 * 60 * 1000,
+            allowCriticalInDanger: false,
             requireApproval: [
                 'git_push',
                 'git_commit',

@@ -474,6 +474,7 @@ async function handle(
         projectRoot: container.projectRoot(),
         name: active?.name ?? null,
         languageHints: active?.languageHints ?? [],
+        startupError: container.workspaceStartupError,
         allowedDirectories: container.config.workspace.allowedDirectories,
       },
       policy: container.policy.describe(),

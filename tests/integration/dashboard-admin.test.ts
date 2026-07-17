@@ -55,6 +55,26 @@ describe('dashboard admin authorization plane', () => {
     }
   });
 
+  it('serves the local control plane and exposes workspace startup diagnostics', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    harness.container.workspaceStartupError = 'simulated activation failure';
+
+    const page = await fetch(`${harness.baseUrl}/`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain('id="approvals-panel"');
+    expect(html).toContain('Approval queue');
+    expect(html).toContain('id="policy-mode"');
+
+    const status = await fetch(`${harness.baseUrl}/status`);
+    expect(status.status).toBe(200);
+    const body = (await status.json()) as {
+      workspace: { startupError: string | null };
+    };
+    expect(body.workspace.startupError).toBe('simulated activation failure');
+  });
+
   it('resolves a distinct requester but rejects self-approval', async () => {
     const harness = await startHarness();
     harnesses.push(harness);

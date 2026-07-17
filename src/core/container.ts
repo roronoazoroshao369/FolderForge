@@ -30,6 +30,7 @@ export class Container {
   readonly patchTransactions: PatchTransactionManager;
   readonly plugins: PluginManager;
   readonly workflows: WorkflowManager;
+  workspaceStartupError: string | null = null;
   /**
    * The tool registry. Assigned by `buildRegistry` right after construction so
    * that routing tools (e.g. `workspace_route`) can adjust the active tool set.
@@ -65,8 +66,16 @@ export class Container {
     if (config.workspace.defaultProject) {
       try {
         this.workspace.activate(config.workspace.defaultProject);
-      } catch {
-        // Not fatal; the client can call workspace_activate later.
+      } catch (error) {
+        this.workspaceStartupError =
+          error instanceof Error ? error.message : String(error);
+        logger.warn(
+          {
+            projectRoot: config.workspace.defaultProject,
+            error: this.workspaceStartupError,
+          },
+          'Default workspace activation failed'
+        );
       }
     }
   }

@@ -1,6 +1,6 @@
 {
   "name": "@musashishao/folderforge",
-  "version": "2.2.3",
+  "version": "2.3.0",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "keywords": [
     "mcp",
@@ -43,7 +43,7 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build": "tsc -p tsconfig.json && node scripts/ensure-bin-mode.mjs",
+    "build": "tsc -p tsconfig.json && node scripts/copy-static-assets.mjs && node scripts/ensure-bin-mode.mjs",
     "clean": "node scripts/clean.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

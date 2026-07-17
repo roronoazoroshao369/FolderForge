@@ -13,6 +13,7 @@ const npmExecPath = process.env.npm_execpath;
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const temp = mkdtempSync(join(tmpdir(), 'folderforge pack ünicode-'));
 let tarballPath;
+let dashboardChild;
 let oauthChild;
 let oauthAuthorizationServer;
 
@@ -129,6 +130,7 @@ try {
     'README.md',
     'LICENSE',
     'dist/main.js',
+    'dist/dashboard/static/index.html',
     'dist/server/auth/oauth.js',
     'dist/chatgpt/cli.js',
     'docs/oauth.md',
@@ -245,6 +247,32 @@ try {
   if (!temp.includes(' ') || !temp.includes('ü')) {
     throw new Error(`Package smoke path did not preserve spaces and Unicode: ${temp}`);
   }
+
+  let dashboardLogs = '';
+  dashboardChild = spawn(process.execPath, [
+    installedCli,
+    '--project', temp,
+    '--http',
+    '--host', '127.0.0.1',
+    '--port', String(httpPort),
+    '--dashboard-port', String(dashboardPort),
+    '--tools-preset', 'readonly',
+  ], { cwd: temp, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const collectDashboardLog = (chunk) => {
+    dashboardLogs = `${dashboardLogs}${chunk.toString()}`.slice(-65536);
+  };
+  dashboardChild.stdout.on('data', collectDashboardLog);
+  dashboardChild.stderr.on('data', collectDashboardLog);
+  await waitForHealth(`http://127.0.0.1:${httpPort}/healthz`, dashboardChild, () => dashboardLogs);
+  const dashboardResponse = await fetch(`http://127.0.0.1:${dashboardPort}/`);
+  const dashboardHtml = await dashboardResponse.text();
+  if (!dashboardResponse.ok || !dashboardHtml.includes('id="approvals"')) {
+    throw new Error(
+      `Packed dashboard asset was not served: ${dashboardResponse.status}\n${dashboardHtml.slice(0, 500)}\n${dashboardLogs}`
+    );
+  }
+  await stopChild(dashboardChild);
+  dashboardChild = undefined;
 
   // Start the CLI from the installed tarball in OAuth mode against a deterministic local AS.
   const { privateKey, publicKey } = await generateKeyPair('RS256', { extractable: true });
@@ -366,6 +394,7 @@ try {
     )
   );
 } finally {
+  await stopChild(dashboardChild);
   await stopChild(oauthChild);
   if (oauthAuthorizationServer) {
     await new Promise((resolve) => oauthAuthorizationServer.close(resolve));

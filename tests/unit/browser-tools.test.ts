@@ -53,8 +53,18 @@ describe('browser tool surface', () => {
       expect(active, `${tool.name} missing from vibe-lite`).toContain(tool.name);
     }
     expect(active).toEqual(
-      expect.arrayContaining(['process_start', 'process_read', 'process_tail', 'process_stop', 'process_list'])
+      expect.arrayContaining([
+        'workspace_status',
+        'workspace_activate',
+        'process_start',
+        'process_read',
+        'process_tail',
+        'process_stop',
+        'process_list',
+      ])
     );
+    expect(active).not.toContain('code_find_implementations');
+    expect(active).not.toContain('code_rename_symbol');
 
     // Re-enable one default-disabled tool to force the cap path. The pinned
     // browser group must still survive intact while the explicit tool is kept.
