@@ -31,8 +31,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Verify tag, package version, changelog, and exact commit
-        run: node scripts/verify-release-ref.mjs --tag "${RELEASE_TAG}"
+      - name: Verify tag, clean tree, package version, changelog, and exact commit
+        run: node scripts/verify-release-ref.mjs --tag "${RELEASE_TAG}" --notes-file "${RUNNER_TEMP}/release-notes.md"
 
       - name: Create GitHub release for verified tag
         env:
@@ -52,5 +52,5 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --title "FolderForge ${version}" \
-            --generate-notes \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
             --latest

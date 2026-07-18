@@ -9,8 +9,9 @@ build alone is not release evidence.
 
 - `package.json` is the package and CLI version source.
 - `package-lock.json` must match the root package version.
-- `CHANGELOG.md` must contain a heading for that version; `[Unreleased]` contains
-  only changes not yet published.
+- `CHANGELOG.md` must contain a non-empty heading for that version; its exact
+  section body is the canonical hosted-release note source. `[Unreleased]`
+  contains only changes not yet published.
 - Git tags, GitHub Releases, and npm dist-tags are public distribution state and
   must be checked independently. None is inferred from another.
 
@@ -59,13 +60,18 @@ workflow run IDs as evidence for a newer commit.
 1. Review the working tree and classify every change.
 2. Update version metadata and move published changes out of `[Unreleased]`.
 3. Run the local gate and inspect the tarball manifest.
-4. Commit and push the intended release tree.
-5. Wait for the exact commit's required CI matrix to pass.
-6. Obtain explicit authorization for public tag, npm publication, and hosted
+4. Commit the intended release tree and confirm `git status --porcelain` is empty.
+5. Create the intended local annotated tag, then run
+   `node scripts/verify-release-ref.mjs --tag "v${VERSION}" --notes-file RELEASE_NOTES.md`.
+   The verifier requires a clean tree, exact tag/HEAD/package alignment, and a
+   non-empty versioned changelog section before writing the notes file.
+6. Push the intended release commit and wait for that exact commit's required CI
+   matrix to pass.
+7. Obtain explicit authorization for public tag, npm publication, and hosted
    release actions.
-7. Create an annotated tag, publish npm, and create a GitHub Release from verified
-   changelog content.
-8. Recheck npm dist-tags, tag target, release target, CLI version, and package
+8. Push the verified tag, publish npm, and create a GitHub Release from the
+   verifier-produced changelog notes.
+9. Recheck npm dist-tags, tag target, release target, CLI version, and package
    contents from the registry.
 
 Example operator commands, after authorization and after replacing `VERSION` and
@@ -73,6 +79,7 @@ Example operator commands, after authorization and after replacing `VERSION` and
 
 ```bash
 git tag -a "v${VERSION}" "${COMMIT}" -m "FolderForge ${VERSION}"
+node scripts/verify-release-ref.mjs --tag "v${VERSION}" --notes-file RELEASE_NOTES.md
 git push origin "v${VERSION}"
 npm publish --access public
 gh release create "v${VERSION}" --verify-tag --title "FolderForge ${VERSION}" --notes-file RELEASE_NOTES.md

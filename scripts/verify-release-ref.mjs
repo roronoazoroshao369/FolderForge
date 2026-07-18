@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,7 @@ const scriptRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 function parseArgs(argv) {
   let root = scriptRoot;
   let tag = '';
+  let notesFileRaw = '';
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--root') {
@@ -16,12 +17,16 @@ function parseArgs(argv) {
     } else if (arg === '--tag') {
       tag = argv[index + 1] ?? '';
       index += 1;
+    } else if (arg === '--notes-file') {
+      notesFileRaw = argv[index + 1] ?? '';
+      index += 1;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
   if (!tag) throw new Error('Missing required --tag vX.Y.Z argument.');
-  return { root, tag };
+  if (!notesFileRaw) throw new Error('Missing required --notes-file path.');
+  return { root, tag, notesFile: resolve(root, notesFileRaw) };
 }
 
 function git(root, args) {
@@ -41,7 +46,22 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function verify({ root, tag }) {
+function extractReleaseNotes(changelog, version) {
+  const heading = new RegExp(`^## \\[${escapeRegExp(version)}\\](?:\\s.*)?$`, 'm');
+  const match = heading.exec(changelog);
+  if (!match) return null;
+
+  let bodyStart = match.index + match[0].length;
+  if (changelog.startsWith('\r\n', bodyStart)) bodyStart += 2;
+  else if (changelog.startsWith('\n', bodyStart)) bodyStart += 1;
+
+  const remainder = changelog.slice(bodyStart);
+  const nextHeading = /^## \[/m.exec(remainder);
+  const body = remainder.slice(0, nextHeading?.index ?? remainder.length).trim();
+  return body;
+}
+
+function verify({ root, tag, notesFile }) {
   const semanticTag = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
   if (!semanticTag.test(tag)) {
     throw new Error(`Release tag must be a semantic version prefixed with v: ${tag}`);
@@ -57,9 +77,16 @@ function verify({ root, tag }) {
   }
 
   const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
-  const heading = new RegExp(`^## \\[${escapeRegExp(version)}\\](?:\\s|$)`, 'm');
-  if (!heading.test(changelog)) {
+  const releaseNotes = extractReleaseNotes(changelog, version);
+  if (releaseNotes === null) {
     errors.push(`CHANGELOG.md is missing a heading for ${version}`);
+  } else if (releaseNotes.length === 0) {
+    errors.push(`CHANGELOG.md section for ${version} is empty`);
+  }
+
+  const worktree = git(root, ['status', '--porcelain', '--untracked-files=all']);
+  if (worktree) {
+    errors.push(`working tree is not clean:\n${worktree}`);
   }
 
   const headCommit = git(root, ['rev-parse', 'HEAD']);
@@ -72,7 +99,9 @@ function verify({ root, tag }) {
     throw new Error(`Release verification failed:\n- ${errors.join('\n- ')}`);
   }
 
+  writeFileSync(notesFile, `${releaseNotes}\n`, 'utf8');
   console.log(`Release ref verified: ${tag} -> ${headCommit}`);
+  console.log(`Canonical release notes written: ${notesFile}`);
 }
 
 try {
