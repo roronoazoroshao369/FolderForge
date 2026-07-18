@@ -109,9 +109,12 @@ export function createMcpServer(registry, info) {
             ...(elicit !== undefined ? { elicitInput: elicit } : {}),
         };
         const tool = registry.get(name);
+        const callArgs = (args ?? {});
+        const classification = registry.classifyCall(name, callArgs);
         const principal = info.principal;
         if (tool && principal?.authMode === 'oauth') {
-            const requiredScopes = tool.mutates
+            const effectiveMutates = classification?.mutates ?? tool.mutates;
+            const requiredScopes = effectiveMutates
                 ? [principal.readScope, principal.writeScope].filter((scope) => Boolean(scope))
                 : [principal.readScope].filter((scope) => Boolean(scope));
             const hasScopes = requiredScopes.every((scope) => (principal.scopes ?? []).includes(scope));
@@ -134,7 +137,7 @@ export function createMcpServer(registry, info) {
                 };
             }
         }
-        const result = await registry.callAgent(name, (args ?? {}), control);
+        const result = await registry.callAgent(name, callArgs, control);
         return toCallToolResult(result, Boolean(tool?.outputSchema));
     });
     server.onerror = (err) => {

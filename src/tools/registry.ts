@@ -6,6 +6,7 @@ import type {
   ToolAnnotations,
   ToolAudience,
   ToolPrincipal,
+  ToolCallClassification,
 } from "../core/types.js";
 import type { Container } from "../core/container.js";
 import { TOOL_RISK, RISK_ORDER } from "../policy/risk.js";
@@ -62,6 +63,8 @@ export function defineTool(def: {
   outputSchema?: Record<string, unknown>;
   /** Per-tool annotation overrides (e.g. openWorldHint for web tools). */
   annotations?: Partial<ToolAnnotations>;
+  /** Optional dynamic classification resolved before OAuth and governance. */
+  classifyCall?: ToolDefinition["classifyCall"];
   handler: ToolDefinition["handler"];
 }): ToolDefinition {
   const risk = def.risk ?? TOOL_RISK[def.name] ?? "MEDIUM";
@@ -82,6 +85,9 @@ export function defineTool(def: {
       risk,
       def.annotations,
     ),
+    ...(def.classifyCall !== undefined
+      ? { classifyCall: def.classifyCall }
+      : {}),
     handler: def.handler,
   };
 }
@@ -160,7 +166,55 @@ export class ToolRegistry {
     return this.call(name, rawArgs, { ...control, principal });
   }
 
-  /** Execute a tool through the policy + audit pipeline. */
+  /** Resolve the effective identity/risk/mutation contract for one invocation. */
+  classifyCall(
+    name: string,
+    rawArgs: Record<string, unknown>,
+  ): ToolCallClassification | undefined {
+    const tool = this.tools.get(name);
+    if (!tool) return undefined;
+    const args = rawArgs ?? {};
+
+    let classification: ToolCallClassification = {
+      name,
+      risk: tool.risk,
+      mutates: tool.mutates,
+      governanceArgs: args,
+    };
+
+    if (name === "shell_exec" && typeof args.command === "string") {
+      classification.risk = this.container.policy.command.classify(
+        args.command,
+      ).risk;
+    } else if (name === "patch_transaction") {
+      const action = String(args.action ?? "preview");
+      classification =
+        action === "preview" || action === "status"
+          ? { name, risk: "LOW", mutates: false, governanceArgs: args }
+          : {
+              name,
+              risk: args.force === true ? "HIGH" : "MEDIUM",
+              mutates: true,
+              governanceArgs: args,
+            };
+    } else if (name === "project_verify") {
+      classification =
+        args.dryRun === true
+          ? { name, risk: "LOW", mutates: false, governanceArgs: args }
+          : { name, risk: "MEDIUM", mutates: true, governanceArgs: args };
+    }
+
+    if (tool.classifyCall) {
+      const dynamic = tool.classifyCall(args);
+      classification = {
+        ...dynamic,
+        governanceArgs: dynamic.governanceArgs ?? args,
+      };
+    }
+    return classification;
+  }
+
+  /** Execute a tool through one policy + audit pipeline. */
   async call(
     name: string,
     rawArgs: Record<string, unknown>,
@@ -173,9 +227,12 @@ export class ToolRegistry {
     if (tool.audience === "admin" && control?.principal?.role !== "admin") {
       return { ok: false, error: `Admin-only tool: ${name}` };
     }
+
+    const args = rawArgs ?? {};
+    const classification = this.classifyCall(name, args)!;
     const principal = control?.principal;
     if (principal?.authMode === "oauth") {
-      const requiredScopes = tool.mutates
+      const requiredScopes = classification.mutates
         ? [principal.readScope, principal.writeScope]
         : [principal.readScope];
       const presentScopes = requiredScopes.filter((scope): scope is string =>
@@ -197,55 +254,28 @@ export class ToolRegistry {
         };
       }
     }
-    const args = rawArgs ?? {};
-
-    // Determine per-call risk (shell can be re-classified by the handler later,
-    // but we evaluate the base risk here too).
-    let risk = tool.risk;
-    let mutates = tool.mutates;
-    if (name === "shell_exec" && typeof args.command === "string") {
-      const cls = this.container.policy.command.classify(args.command);
-      risk = cls.risk;
-    } else if (name === "patch_transaction") {
-      const action = String(args.action ?? "preview");
-      if (action === "preview" || action === "status") {
-        risk = "LOW";
-        mutates = false;
-      } else {
-        risk = args.force === true ? "HIGH" : "MEDIUM";
-        mutates = true;
-      }
-    } else if (name === "project_verify") {
-      if (args.dryRun === true) {
-        risk = "LOW";
-        mutates = false;
-      } else {
-        // Test/lint/typecheck scripts are executable project code even when no
-        // build step is requested. Keep all real verification runs governed as
-        // MEDIUM; only a non-executing dry run is safe in readonly mode.
-        risk = "MEDIUM";
-        mutates = true;
-      }
-    }
 
     return this.runPipeline(
-      { name, risk, mutates, handler: tool.handler },
-      args,
+      {
+        name: classification.name,
+        risk: classification.risk,
+        mutates: classification.mutates,
+        handler: tool.handler,
+      },
+      classification.governanceArgs ?? args,
       control,
+      args,
     );
   }
 
   /**
-   * Run an ad-hoc tool through the identical governance pipeline as {@link call},
+   * Run an ad-hoc operation through the same governance pipeline as {@link call},
    * keyed on a caller-supplied identity/risk/mutation classification.
    *
-   * This is the governance re-entry point for facade sub-ops (see
-   * docs/mcp-facade.md, Step 5). A facade `<adapter>__call_tool` handler must NOT
-   * forward straight to the child; instead it resolves the sub-op's own
-   * risk/mutates and calls this method with a synthetic name
-   * (`<adapter>__call_tool:<subtool>`) so policy mode, approval/elicitation,
-   * rate-limit, and audit all fire per sub-op and the audit trail records the
-   * real sub-tool - never a single bland dispatcher line.
+   * Dispatcher tools should normally prefer `ToolDefinition.classifyCall`, which
+   * resolves their effective contract before OAuth and avoids a nested pipeline.
+   * This lower-level entry point remains available for internal operations that
+   * are not represented by a registered public tool.
    */
   async callDynamic(
     descriptor: {
@@ -262,9 +292,9 @@ export class ToolRegistry {
 
   /**
    * The shared governance pipeline: cancellation check -> audit -> policy
-   * evaluate -> approval/elicitation -> rate-limit -> handler -> audit result.
-   * Both native `call` and facade `callDynamic` funnel through here so there is
-   * exactly one governance path and a facade can never bypass it.
+   * evaluate -> approval -> rate-limit -> handler -> audit result. Registered
+   * tools, dynamically classified dispatchers, and internal ad-hoc operations
+   * all converge here exactly once per logical operation.
    */
   private async runPipeline(
     descriptor: {
@@ -273,8 +303,9 @@ export class ToolRegistry {
       mutates: boolean;
       handler: ToolDefinition["handler"];
     },
-    args: Record<string, unknown>,
+    governanceArgs: Record<string, unknown>,
     control?: ToolCallControl,
+    handlerArgs: Record<string, unknown> = governanceArgs,
   ): Promise<ToolResult> {
     const { name, risk, mutates } = descriptor;
     const started = Date.now();
@@ -291,7 +322,7 @@ export class ToolRegistry {
       type: "tool_call",
       tool: name,
       risk,
-      summary: summarizeArgs(name, args, (value) =>
+      summary: summarizeArgs(name, governanceArgs, (value) =>
         this.container.policy.secret.redactValue(value),
       ),
       detail: {
@@ -306,7 +337,7 @@ export class ToolRegistry {
       name,
       risk,
       mutates,
-      args,
+      governanceArgs,
       requesterId,
     );
     if (decision.kind === "deny") {
@@ -358,7 +389,7 @@ export class ToolRegistry {
     }
 
     try {
-      const result = await descriptor.handler(args, {
+      const result = await descriptor.handler(handlerArgs, {
         config: this.container.config,
         projectRoot: this.container.projectRoot(),
         ...(control !== undefined ? { control } : {}),

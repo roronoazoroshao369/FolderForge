@@ -203,14 +203,35 @@ function createRegistryFixture(): {
   registry: ToolRegistry;
   calls: Array<{ name: string; principal?: ToolPrincipal }>;
 } {
+  const dispatch = tool('dispatch_test', true);
+  dispatch.classifyCall = (args) => {
+    const readOnly = args.operation === 'read';
+    return {
+      name: `dispatch_test:${String(args.operation ?? 'unknown')}`,
+      risk: readOnly ? 'LOW' : 'HIGH',
+      mutates: !readOnly,
+      governanceArgs: args,
+    };
+  };
   const tools = new Map([
     ['read_test', tool('read_test', false)],
     ['write_test', tool('write_test', true)],
+    ['dispatch_test', dispatch],
   ]);
   const calls: Array<{ name: string; principal?: ToolPrincipal }> = [];
   const registry = {
     listAgentActive: () => [...tools.values()],
     get: (name: string) => tools.get(name),
+    classifyCall: (name: string, args: Record<string, unknown>) => {
+      const selected = tools.get(name);
+      if (!selected) return undefined;
+      return selected.classifyCall?.(args) ?? {
+        name,
+        risk: selected.risk,
+        mutates: selected.mutates,
+        governanceArgs: args,
+      };
+    },
     callAgent: async (
       name: string,
       _args: Record<string, unknown>,
@@ -362,6 +383,43 @@ describe('OAuth HTTP MCP protocol', () => {
     );
     expect((allowed.message.result as { isError?: boolean }).isError).not.toBe(true);
     expect(fixture.calls.map((call) => call.name)).toEqual(['read_test', 'write_test']);
+  });
+
+  it('uses dynamic call classification for OAuth step-up before dispatch', async () => {
+    const fixture = await startOAuthMcp();
+    const readToken = await signToken({
+      key: fixture.key,
+      issuer: fixture.auth.issuer,
+      audience: fixture.resource,
+      scopes: ['folderforge:read'],
+    });
+
+    const readDispatch = await rpc(
+      `${fixture.base}/mcp`,
+      readToken,
+      'tools/call',
+      { name: 'dispatch_test', arguments: { operation: 'read' } },
+      6
+    );
+    expect((readDispatch.message.result as { isError?: boolean }).isError).not.toBe(true);
+    expect(fixture.calls.map((call) => call.name)).toEqual(['dispatch_test']);
+
+    const writeDispatch = await rpc(
+      `${fixture.base}/mcp`,
+      readToken,
+      'tools/call',
+      { name: 'dispatch_test', arguments: { operation: 'write' } },
+      7
+    );
+    const denied = writeDispatch.message.result as {
+      isError?: boolean;
+      _meta?: Record<string, unknown>;
+    };
+    expect(denied.isError).toBe(true);
+    expect(denied._meta?.['mcp/www_authenticate']).toEqual([
+      expect.stringContaining('scope="folderforge:read folderforge:write"'),
+    ]);
+    expect(fixture.calls.map((call) => call.name)).toEqual(['dispatch_test']);
   });
 
   it('fails closed for malformed, expired, not-yet-valid, issuer, audience, and signature failures', async () => {

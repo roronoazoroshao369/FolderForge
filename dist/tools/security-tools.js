@@ -32,14 +32,22 @@ export function securityTools() {
                 if (!def) {
                     return { ok: false, error: `Unknown tool: ${toolName}` };
                 }
-                // Mirror the per-call risk reclassification done in ToolRegistry.call:
-                // shell_exec risk depends on the actual command.
-                let risk = def.risk;
-                if (toolName === 'shell_exec' && typeof callArgs.command === 'string') {
-                    risk = ctx.container.policy.command.classify(callArgs.command).risk;
+                // Use the registry's exact pre-execution classification so explain stays
+                // truthful for shell commands, dry-run agent tools, and facade sub-ops.
+                const classification = registry.classifyCall(toolName, callArgs);
+                if (!classification) {
+                    return { ok: false, error: `Unable to classify tool: ${toolName}` };
                 }
-                const explanation = ctx.container.policy.explain(toolName, risk, def.mutates, callArgs);
-                return { ok: true, data: { tool: toolName, ...explanation } };
+                const governanceArgs = classification.governanceArgs ?? callArgs;
+                const explanation = ctx.container.policy.explain(classification.name, classification.risk, classification.mutates, governanceArgs);
+                return {
+                    ok: true,
+                    data: {
+                        tool: toolName,
+                        effectiveTool: classification.name,
+                        ...explanation,
+                    },
+                };
             },
         }),
         defineTool({

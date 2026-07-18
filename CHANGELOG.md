@@ -20,6 +20,9 @@ No changes have been recorded since 2.3.1.
 - Keep workflow approval/resume integration coverage deterministic on loaded
   Windows runners by using a lightweight governed read step instead of unrelated
   project-analysis subprocess work.
+- Classify facade sub-tools before OAuth and policy so each logical operation uses
+  one governance pipeline with its real readonly/mutation contract, approval
+  fingerprint, quota key, `policy_explain` result, and audit identity.
 
 ## [2.3.0] - 2026-07-18
 

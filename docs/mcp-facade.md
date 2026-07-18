@@ -6,7 +6,7 @@ opt-in `facade: true` adapter flag; see `docs/adapters.md` for usage and
 retained as the design record (problem, options, decisions, delivery plan).
 
 **Implementation note (Step 6 deviation).** The facade's `<adapter>__list_tools`
-/ `<adapter>__call_tool` names are *per-adapter and discovered at wiring time*,
+/ `<adapter>__call_tool` names are _per-adapter and discovered at wiring time_,
 so - like every other `<adapter>__<tool>` name - they contain `__` and are
 excluded from `FROZEN_TOOLS` by the existing "adapter tools are dynamic, not
 frozen" rule (`tests/unit/schema-lock.test.ts` filters `name.includes('__')`).
@@ -15,6 +15,16 @@ deliberately avoids. Their contract is instead pinned in code: `list_tools` is
 `LOW`/`mutates:false`, `call_tool` is the `MEDIUM`/`mutates:true` envelope, and
 the effective sub-op risk is resolved per call via
 `src/adapters/child-mcp/risk-map.ts`.
+
+**Current execution contract.** `call_tool` uses `ToolDefinition.classifyCall` to
+resolve the selected sub-tool's synthetic identity, risk, mutation flag, and
+approval arguments before OAuth and policy evaluation. The logical sub-tool then
+passes through one governance pipeline only. This prevents the facade envelope
+from blocking LOW reads in `readonly`, avoids consuming wrapper quota before a
+sub-tool denial/approval, and keeps one audit/rate-limit identity per operation.
+The public `call_tool` schema remains a conservative mutating envelope because MCP
+annotations and listed OAuth schemes cannot vary by arguments; request-time
+enforcement uses the narrower concrete classification.
 
 ## Problem
 
@@ -42,11 +52,11 @@ The chosen shape (confirmed with the maintainer):
   fixed tool pair; the agent pulls per-sub-tool schemas on demand.
 - **Per-sub-op governance is non-negotiable.** Every underlying operation is
   still risk-classified and approval-gated individually; the dispatcher must not
-  become a governance bypass, and the audit trail must record the *real*
+  become a governance bypass, and the audit trail must record the _real_
   sub-tool, not just the dispatcher name.
-- **Schema-lock:** the facade's fixed tool pair is native → added to
-  `FROZEN_TOOLS`. The sub-tools it fronts stay dynamic and outside the lock,
-  exactly like today's namespaced adapter tools.
+- **Schema-lock:** facade tools are generated per adapter and remain dynamic,
+  outside `FROZEN_TOOLS`, exactly like other namespaced adapter tools. Their
+  envelope contract is pinned in the facade builder and regression tests.
 
 ## Background: how routing works today
 
@@ -58,7 +68,7 @@ The chosen shape (confirmed with the maintainer):
   `mutates:true` default), routed through `ToolRegistry.call`.
 - `src/tools/registry.ts` — `ToolRegistry.call` runs the **whole governance
   pipeline per call**: audit record → `policy.evaluate(name, risk, mutates,
-  args)` → approval (dashboard or elicitation) → rate limit → handler → audit
+args)` → approval (dashboard or elicitation) → rate limit → handler → audit
   result. This is the pipeline we must keep hitting once per sub-op.
 - `src/server/mcp-server.ts` — `tools/list` returns `registry.listActive()`;
   `tools/call` delegates to `registry.call(name, args, control)`. `control`
@@ -92,7 +102,7 @@ call         ->  godot__dispatch({ tool:"run_project", args:{...} })
   With 149 similarly-named ops (`get_status` vs `query_status`) misfires are
   likely — this is the documented failure mode of tool overload.
 - **Governance:** doable but requires care — the dispatcher handler must
-  re-enter the governance pipeline keyed on the *sub-tool* (not on
+  re-enter the governance pipeline keyed on the _sub-tool_ (not on
   `godot__dispatch`), or approvals/risk collapse to one bland MEDIUM gate.
 - **Schema-lock:** trivial — 1 frozen tool.
 - **Verdict:** smallest surface, weakest usability. Good only if the agent has
@@ -123,14 +133,14 @@ step 2        ->  godot__call_tool({ tool:"open_scene", args:{ path:"..." } })
   native tools (no first-class autocomplete in the client's tool picker, and it
   costs an extra `list_tools` round-trip), but the schema is authoritative and
   never drifts because it's read live from the child.
-- **Governance:** clean. `godot__call_tool`'s handler looks up the sub-tool's
-  risk/mutates and **re-enters `registry.call` (or the policy pipeline directly)
-  keyed on a synthetic per-sub-op identity** (e.g. `godot__call_tool:open_scene`)
-  so policy mode, approval, elicitation, rate-limit, and audit all fire per
-  sub-op. `list_tools` is LOW/read-only. The dispatcher cannot lie about risk
-  because risk is derived from the sub-tool's own classification, not from args.
-- **Schema-lock:** two frozen native tools (`godot__list_tools`,
-  `godot__call_tool`); the 149 sub-tools stay dynamic/out-of-lock.
+- **Governance:** clean. Before the handler runs, `classifyCall` looks up the
+  sub-tool's risk/mutation contract and supplies a synthetic per-sub-op identity
+  (for example `godot__call_tool:open_scene`). Policy mode, OAuth step-up,
+  approval, rate-limit, handler execution, and audit then run once for that
+  logical sub-op. `list_tools` is LOW/read-only. The dispatcher cannot downgrade
+  risk because classification comes from the adapter risk map, not caller args.
+- **Schema-lock:** the generated facade pair and child catalog are dynamic adapter
+  tools and remain outside the native frozen surface.
 - **Verdict:** best balance of slot cost (2), discoverability, and governance.
 
 ### Option C — Hybrid: one dispatcher per family
@@ -170,24 +180,25 @@ the model the exact schema on demand immediately before the call; A does not.
 Recommend `list_tools` responses include `risk` and a one-line `description` per
 sub-tool so the model can self-select and anticipate approval prompts.
 
-**Policy / approval / risk.** Hard requirement: **each sub-op re-enters the
-governance pipeline individually.** The `call_tool` handler must NOT call
-`client.callTool()` directly. Instead it resolves the sub-tool's
-`risk`/`mutates` (from a per-adapter risk map — for Godot, the 149-tool bands in
-`docs/godot-mcp.md`; default `MEDIUM`/`mutates:true` otherwise) and drives the
-same `PolicyEngine.evaluate` → approval/elicitation → rate-limit → audit path
-that native tools use, keyed on a stable per-sub-op name. Consequences:
+**Policy / approval / risk.** Hard requirement: **each logical sub-op crosses one
+governance pipeline under its own classification.** Before the `call_tool`
+handler runs, `ToolDefinition.classifyCall` resolves the sub-tool's `risk` and
+`mutates` values (from a per-adapter risk map — for Godot, the 149-tool bands in
+`docs/godot-mcp.md`; default `MEDIUM`/`mutates:true` otherwise), its synthetic
+identity, and its approval arguments. OAuth → `PolicyEngine.evaluate` → approval
+→ rate-limit → handler → audit then runs once under that effective contract.
+Consequences:
+
 - `game_eval` (CRITICAL) still requires `danger` mode + approval even via facade.
 - Audit records the **real sub-tool** (`summary`/`detail` carry
   `godot:open_scene`), so the trail is not blurred to one dispatcher line.
 - Rate limits count per sub-op, not per dispatcher.
 
-**Schema-lock & frozen surface.** The fixed facade tools are native and frozen
-in `FROZEN_TOOLS` (`godot__list_tools`: `mutates:false`/`LOW`;
-`godot__call_tool`: `mutates:true`/`MEDIUM` as the *envelope* default — the
-effective risk is the per-sub-op risk resolved at call time, mirroring how
-`shell_exec` is re-classified per command). The 149 sub-tools remain dynamic and
-outside the lock, consistent with today's "adapter tools are not frozen" rule.
+**Schema-lock & dynamic surface.** Facade tools are generated per adapter and
+are therefore excluded from `FROZEN_TOOLS`, like every other namespaced adapter
+tool. The builder and tests pin the envelope contract (`list_tools` LOW/read-only;
+`call_tool` MEDIUM/mutating), while request-time classification supplies the
+selected sub-tool's effective contract. The child catalog also remains dynamic.
 
 ## Ecosystem survey
 
@@ -205,7 +216,7 @@ The "too many tools" problem is well-trodden; recurring patterns:
 
 **MCP spec support to exploit.** The protocol has
 `notifications/tools/list_changed`: a server can tell the client its tool list
-changed and the client re-pulls `tools/list`. This enables an *alternative*
+changed and the client re-pulls `tools/list`. This enables an _alternative_
 "dynamic surfacing" approach (equip/unequip a family, then notify) as used by
 hypertool. We note it as a **future option** but do not depend on it now: the
 current server declares `capabilities: { tools: {} }` (no `listChanged`), and not
@@ -258,15 +269,14 @@ Steps are sequenced so each is independently reviewable and CI-green.
   `MEDIUM`/`mutates:true`); wire the Godot bands from `docs/godot-mcp.md`.
 - **[x] Step 4 — Facade tool builder.** In `adapter-tools.ts`, when `facade:true`,
   emit `<adapter>__list_tools` + `<adapter>__call_tool` instead of N tools.
-  `list_tools` handler = filtered/paginated catalog read (LOW). `call_tool`
-  handler = resolve sub-op risk, then **re-enter the governance pipeline** keyed
-  per sub-op before forwarding to `client.callTool`.
-- **[x] Step 5 — Governance re-entry.** Factor the risk-resolve + policy/approval/
-  rate-limit/audit invocation so `call_tool` uses the identical path as
-  `ToolRegistry.call`, keyed on the sub-op identity (decision #1). Add audit
-  detail carrying the real sub-tool name.
-- **[x] Step 6 (see deviation note above) — Schema-lock.** Add the two facade tools to `FROZEN_TOOLS`; update
-  `tests/unit/schema-lock.test.ts` expectations and `docs/tools.md`.
+  `list_tools` is a filtered/paginated LOW catalog read; `call_tool` dispatches
+  only after pre-pipeline dynamic classification.
+- **[x] Step 5 — Single-pass governance.** Add `ToolDefinition.classifyCall` and
+  resolve the sub-op identity/risk/mutation/approval args before OAuth and policy.
+  Registry, policy, approval, quota, handler, and audit execute once per sub-op.
+- **[x] Step 6 (see deviation note above) — Dynamic schema contract.** Keep
+  generated adapter facade names outside `FROZEN_TOOLS`; pin their envelope and
+  per-call behavior through builder code, integration tests, and docs.
 - **[x] Step 7 — Tests.** Extend the fake-stdio-MCP integration test (0.2) with a
   100+-tool child: assert only 2 tools advertised, `list_tools` filters, and a
   CRITICAL sub-op is approval-gated (governance not bypassed).

@@ -61,6 +61,29 @@ Large servers can set `facade: true`. FolderForge advertises two tools instead o
 hundreds: a searchable catalog and a governed dispatcher. Risk and audit identity
 are resolved per sub-tool, not at the generic dispatcher level.
 
+The dispatcher is classified before OAuth, policy, approval, rate limiting, and
+audit. The selected sub-tool therefore crosses exactly one governance pipeline.
+A LOW read-only sub-tool remains usable in `readonly`; a mutating or HIGH/CRITICAL
+sub-tool keeps its own restrictions, approval fingerprint, quota key, and audit
+identity.
+
+## Hybrid exposure policy
+
+FolderForge deliberately does not force every integration into one shape:
+
+- Keep core, frequently used capabilities as direct native tools.
+- Add stable native wrappers for common integration workflows whose public
+  contract FolderForge is prepared to maintain, such as `browser_*`.
+- Use flat namespaced tools for small, stable child catalogs that fit comfortably
+  in the client's tool budget.
+- Use the two-tool facade for large, dynamic, plugin-owned, or long-tail catalogs.
+
+As a maintainer guideline rather than a protocol guarantee, catalogs around
+1-20 operations normally stay flat, 21-40 require a deliberate usability/tool-
+budget review, and catalogs above roughly 40 or with dynamic membership normally
+use a facade. The default client-facing presets remain curated and capped; the
+`full` preset is explicit opt-in.
+
 ## Result contract
 
 Child MCP results are normalized by `src/adapters/child-mcp/result.ts`.
@@ -90,10 +113,10 @@ The current stable contract is carried by each `ToolDefinition`:
 - mutation flag
 - MCP annotations
 
-A future package/plugin manifest may add installable package metadata, declared
-permissions, compatibility ranges, and lifecycle hooks. It must compile into the
-same `ToolDefinition` and child-adapter contracts rather than creating a second
-execution path.
+The implemented local plugin manifest adds package metadata, declared
+permissions, compatibility ranges, lifecycle state, and per-operation risk. It
+compiles into the same `ToolDefinition` and child-adapter contracts rather than
+creating a second execution or governance path.
 
 ## Tool-cap guarantees
 
@@ -133,9 +156,8 @@ Milestone 1.9 adds a local package registry and hot lifecycle. Validated prepare
 
 ## Next architecture slices
 
-1. Add an installable plugin manifest and compatibility validation.
-2. Add resource/blob storage for very large artifacts that should not be inline.
-3. Add plugin health, restart, and capability-change notifications.
-4. Add signed/verified plugin distribution and permission review.
-5. Add workflow composition for planner, coder, browser tester, and reviewer
-   agents without weakening the single governance pipeline.
+1. Add resource/blob storage for very large artifacts that should not be inline.
+2. Add MCP capability-change notifications where supported by clients.
+3. Add signed/verified plugin distribution and publisher provenance.
+4. Add enforceable filesystem/network/process isolation for untrusted plugins.
+5. Add benchmark and context-budget gates for flat, wrapper, and facade exposure.

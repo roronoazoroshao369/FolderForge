@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
  * Fake "large" MCP server over stdio for FolderForge facade integration tests.
- * Advertises 122 sub-tools so a flat adapter would blow the client tool cap,
+ * Advertises 124 sub-tools so a flat adapter would blow the client tool cap,
  * exercising the two-tool facade (`<adapter>__list_tools` + `__call_tool`).
  *
  * Tools:
  *   - op_000 .. op_119   generic ops; op_N returns { echoed: <args> }
  *   - danger_eval        a deliberately dangerous op used to assert governance
  *   - compile_shader     a distinctively-named op used to assert query ranking
+ *   - inspect_state      a LOW/read-only op for readonly/OAuth regression coverage
+ *   - sensitive_write   a HIGH op for exact approval/quota regression coverage
  *
  * Run: node fake-large-mcp-server.mjs   (communicates on stdin/stdout)
  */
@@ -43,6 +45,20 @@ TOOLS.push({
   inputSchema: {
     type: 'object',
     properties: { source: { type: 'string' } },
+  },
+});
+TOOLS.push({
+  name: 'inspect_state',
+  description: 'Inspect child state without changing it.',
+  inputSchema: { type: 'object', properties: {} },
+});
+TOOLS.push({
+  name: 'sensitive_write',
+  description: 'Apply a sensitive child mutation that requires approval.',
+  inputSchema: {
+    type: 'object',
+    properties: { value: { type: 'string' } },
+    required: ['value'],
   },
 });
 

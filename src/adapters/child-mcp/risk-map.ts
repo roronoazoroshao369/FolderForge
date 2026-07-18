@@ -35,11 +35,12 @@ export const DEFAULT_SUBOP_RISK: SubOpRisk = { risk: 'MEDIUM', mutates: true };
  * Empty adapters simply fall back to DEFAULT_SUBOP_RISK for every sub-op.
  */
 export const ADAPTER_RISK_MAPS: Record<string, Record<string, SubOpRisk>> = {
-  // Test/example adapter override. A facade adapter running behind the `serena`
-  // slot classifies its `danger_eval` sub-op as CRITICAL so it is approval-gated
-  // even through the dispatcher (see tests/integration/facade.test.ts). Real
-  // adapters (e.g. a Godot child) drop their own bands table here.
+  // Test/example adapter overrides cover LOW/read-only, HIGH/approval, and
+  // CRITICAL/deny paths through the facade regression suite. Real adapters (for
+  // example a Godot child) register or ship their own complete risk bands.
   serena: {
+    inspect_state: { risk: 'LOW', mutates: false },
+    sensitive_write: { risk: 'HIGH', mutates: true },
     danger_eval: { risk: 'CRITICAL', mutates: true },
   },
 };

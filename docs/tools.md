@@ -145,6 +145,14 @@ The `workflow` group provides create/run/resume/status/list/cancel/report operat
 
 The `plugin` group provides `plugin_list`, `plugin_inspect`, `plugin_install`, `plugin_update`, `plugin_enable`, `plugin_disable`, `plugin_uninstall`, and `plugin_health`. Installed plugins default to a two-tool facade and declare per-sub-tool risk in their manifest. See [`plugin-system.md`](./plugin-system.md).
 
+Facade dispatch uses dynamic per-call classification before OAuth and policy. A
+selected sub-tool contributes its own identity, risk, mutation flag, approval
+arguments, quota key, and audit identity to one governance pipeline; the generic
+`call_tool` envelope is not evaluated as a second operation. Core/common tools and
+stable wrappers remain direct tools, while facade mode is reserved for large,
+dynamic, plugin-owned, or long-tail catalogs. See
+[`mcp-plugin-architecture.md`](./mcp-plugin-architecture.md).
+
 ### Browser & DB
 The stable native browser wrappers are `browser_open`, `browser_snapshot`,
 `browser_click`, `browser_type`, `browser_console`, `browser_network`,

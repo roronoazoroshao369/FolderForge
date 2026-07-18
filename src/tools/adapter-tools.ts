@@ -1,5 +1,5 @@
 import type { Container } from '../core/container.js';
-import type { ToolDefinition, ToolResult, RiskLevel } from '../core/types.js';
+import type { ToolDefinition, ToolResult } from '../core/types.js';
 import type { AdapterName, SubToolDescriptor } from '../adapters/child-mcp/registry.js';
 import { resolveSubOpRisk } from '../adapters/child-mcp/risk-map.js';
 import { bm25Rank } from '../adapters/child-mcp/rank.js';
@@ -27,8 +27,8 @@ export function namespacedName(adapter: AdapterName, childTool: string): string 
 
 /**
  * The synthetic governance identity for a facade sub-op, e.g.
- * `godot__call_tool:open_scene`. This is what {@link ToolRegistry.callDynamic}
- * is keyed on and what the audit trail records, so it never collides with the
+ * `godot__call_tool:open_scene`. Dynamic call classification adopts this identity
+ * before policy/audit, so it never collides with the
  * flat `<adapter>__<tool>` namespace used by non-facade adapters.
  */
 export function subOpIdentity(adapter: AdapterName, childTool: string): string {
@@ -43,8 +43,8 @@ export function subOpIdentity(adapter: AdapterName, childTool: string): string {
  *    (`serena__find_symbol`), routed through the normal policy + audit pipeline.
  *  - Facade adapters (`facade: true`) instead emit a fixed two-tool pair
  *    (`<adapter>__list_tools` + `<adapter>__call_tool`) so a huge child (100+
- *    tools) consumes ~2 slots instead of N. Sub-ops are governed individually
- *    via {@link ToolRegistry.callDynamic}. See docs/mcp-facade.md.
+ *    tools) consumes ~2 slots instead of N. Each call is classified to the real
+ *    sub-op before the single governance pipeline. See docs/mcp-facade.md.
  *
  * Discovery failures for one adapter never block the others.
  */
@@ -119,8 +119,8 @@ export async function buildAdapterToolsFor(
 /**
  * Build the fixed `<adapter>__list_tools` + `<adapter>__call_tool` pair for a
  * facade adapter. `list_tools` is a LOW read over the cached catalog;
- * `call_tool` resolves each sub-op's own risk/mutation and re-enters the
- * governance pipeline via `registry.callDynamic` before forwarding to the child.
+ * `call_tool` classifies the selected sub-op before OAuth/policy and then
+ * forwards to the child after one governance pipeline.
  */
 function buildFacadeTools(container: Container, name: AdapterName): ToolDefinition[] {
   const listName = `${name}${NS_SEP}${LIST_TOOLS_SUFFIX}`;
@@ -244,49 +244,41 @@ function buildFacadeTools(container: Container, name: AdapterName): ToolDefiniti
       },
       required: ['tool'],
     },
-    // Envelope defaults: the *effective* risk is the per-sub-op risk resolved at
-    // call time (mirroring how shell_exec is re-classified per command).
+    // The public envelope is conservatively MEDIUM/mutating, but every concrete
+    // call is reclassified before OAuth and governance. This keeps one pipeline:
+    // readonly, approval, rate limit, and audit all use the real sub-op contract.
     group: `adapter:${name}`,
     mutates: true,
     risk: 'MEDIUM',
-    handler: async (args, ctx): Promise<ToolResult> => {
+    classifyCall: (args) => {
+      const subTool = typeof args.tool === 'string' ? args.tool : '';
+      if (!subTool) {
+        return { name: callName, risk: 'MEDIUM', mutates: true, governanceArgs: {} };
+      }
+      const subArgs =
+        args.args && typeof args.args === 'object' ? (args.args as Record<string, unknown>) : {};
+      const cls = resolveSubOpRisk(name, subTool);
+      return {
+        name: subOpIdentity(name, subTool),
+        risk: cls.risk,
+        mutates: cls.mutates,
+        governanceArgs: subArgs,
+      };
+    },
+    handler: async (args): Promise<ToolResult> => {
       const subTool = typeof args.tool === 'string' ? args.tool : '';
       if (!subTool) {
         return { ok: false, error: `${callName}: "tool" is required (the sub-tool name).` };
       }
       const subArgs =
         args.args && typeof args.args === 'object' ? (args.args as Record<string, unknown>) : {};
-
-      // Resolve the sub-op's OWN risk/mutation from the per-adapter risk map
-      // (default MEDIUM/mutates:true). This is what governance keys on - the
-      // dispatcher can never downgrade a CRITICAL sub-op.
-      const cls = resolveSubOpRisk(name, subTool);
-      const registry = container.registry as {
-        callDynamic: (
-          d: { name: string; risk: RiskLevel; mutates: boolean; handler: ToolDefinition['handler'] },
-          a: Record<string, unknown>,
-          control?: unknown
-        ) => Promise<ToolResult>;
-      };
-
-      return registry.callDynamic(
-        {
-          name: subOpIdentity(name, subTool),
-          risk: cls.risk,
-          mutates: cls.mutates,
-          handler: async (innerArgs): Promise<ToolResult> => {
-            try {
-              const client = await container.adapters.ensure(name);
-              const raw = await client.callTool(subTool, innerArgs);
-              return childCallToToolResult(raw, subOpIdentity(name, subTool));
-            } catch (err) {
-              return { ok: false, error: `${name}:${subTool} failed: ${String(err)}` };
-            }
-          },
-        },
-        subArgs,
-        ctx.control
-      );
+      try {
+        const client = await container.adapters.ensure(name);
+        const raw = await client.callTool(subTool, subArgs);
+        return childCallToToolResult(raw, subOpIdentity(name, subTool));
+      } catch (err) {
+        return { ok: false, error: `${name}:${subTool} failed: ${String(err)}` };
+      }
     },
   });
 

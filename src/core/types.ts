@@ -279,6 +279,21 @@ export interface ToolAnnotations {
   openWorldHint?: boolean;
 }
 
+export interface ToolCallClassification {
+  /** Effective policy/audit/rate-limit identity for this invocation. */
+  name: string;
+  /** Effective risk after inspecting the concrete call arguments. */
+  risk: RiskLevel;
+  /** Effective mutation flag after inspecting the concrete call arguments. */
+  mutates: boolean;
+  /**
+   * Arguments bound to approvals and shown in bounded audit summaries. Defaults
+   * to the public tool arguments. Dispatchers may narrow this to the selected
+   * sub-tool's arguments while their handler still receives the full envelope.
+   */
+  governanceArgs?: Record<string, unknown>;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -297,6 +312,13 @@ export interface ToolDefinition {
   audience: ToolAudience;
   /** Whether the tool mutates state; used by readonly mode. */
   mutates: boolean;
+  /**
+   * Optional per-call classifier for dispatcher-style tools. It runs before
+   * OAuth scope checks and before the governance pipeline, allowing one public
+   * tool to adopt the selected operation's real identity, risk, mutation flag,
+   * and approval arguments without nesting a second pipeline.
+   */
+  classifyCall?: (args: Record<string, unknown>) => ToolCallClassification;
   handler: ToolHandler;
 }
 
