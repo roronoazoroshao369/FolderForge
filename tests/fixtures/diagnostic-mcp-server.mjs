@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const mode = process.argv[2] ?? 'success';
-const pidFile = process.argv[3];
-if (pidFile) writeFileSync(pidFile, String(process.pid), 'utf8');
+const auxiliaryFile = process.argv[3];
+if (auxiliaryFile && mode === 'initialize-timeout') {
+  writeFileSync(auxiliaryFile, String(process.pid), 'utf8');
+}
 
 let catalogRevision = 1;
 let listCount = 0;
+let pingAnswered = false;
+const cancelledIds = new Set();
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -42,6 +46,21 @@ function tool(name) {
   };
 }
 
+function callResult(id, text) {
+  send({
+    jsonrpc: '2.0',
+    id,
+    result: { content: [{ type: 'text', text: String(text) }] },
+  });
+}
+
+function recordCancellation(requestId) {
+  cancelledIds.add(requestId);
+  if (auxiliaryFile && mode === 'cancel-call') {
+    writeFileSync(auxiliaryFile, JSON.stringify([...cancelledIds]), 'utf8');
+  }
+}
+
 if (mode === 'exit-before-init') {
   process.stderr.write('Playwright adapter boot failed: invalid adapter arguments\n');
   process.exit(1);
@@ -66,18 +85,55 @@ lines.on('line', (line) => {
     return;
   }
 
+  if (message.method === 'notifications/cancelled') {
+    recordCancellation(message.params?.requestId);
+    return;
+  }
+
+  if (message.id === 'server-ping-1' && message.method === undefined) {
+    pingAnswered = Boolean(message.result && typeof message.result === 'object');
+    return;
+  }
+
   if (message.method === 'initialize') {
     if (mode === 'initialize-timeout') return;
     initialize(message.id, message.params);
     return;
   }
 
-  if (message.method === 'notifications/initialized') return;
+  if (message.method === 'notifications/initialized') {
+    if (mode === 'server-ping') {
+      send({ jsonrpc: '2.0', id: 'server-ping-1', method: 'ping', params: {} });
+    }
+    if (mode === 'malformed-notification') {
+      send({ jsonrpc: '2.0', method: 'notifications/unknown', params: 'invalid-but-ignorable' });
+    }
+    return;
+  }
 
   if (message.method === 'tools/list') {
     if (mode === 'tools-list-timeout') return;
     if (mode === 'invalid-tools-list') {
       send({ jsonrpc: '2.0', id: message.id, result: {} });
+      return;
+    }
+    if (mode === 'invalid-jsonrpc-response') {
+      send({ jsonrpc: '1.0', id: message.id, result: { tools: [tool('bad-version')] } });
+      return;
+    }
+    if (mode === 'server-ping') {
+      const replyWhenReady = (remaining) => {
+        if (pingAnswered || remaining <= 0) {
+          send({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: { tools: [tool(pingAnswered ? 'ping-ok' : 'ping-missed')] },
+          });
+          return;
+        }
+        setTimeout(() => replyWhenReady(remaining - 1), 5);
+      };
+      replyWhenReady(20);
       return;
     }
     if (mode === 'paginated-tools') {
@@ -125,14 +181,54 @@ lines.on('line', (line) => {
   }
 
   if (message.method === 'tools/call') {
+    const name = String(message.params?.name ?? '');
+    const args = message.params?.arguments ?? {};
+
     if (mode === 'crash-after-ready') {
       process.stderr.write('runtime browser crash\n');
       process.exit(7);
     }
-    send({
-      jsonrpc: '2.0',
-      id: message.id,
-      result: { content: [{ type: 'text', text: String(message.params?.arguments?.text ?? '') }] },
-    });
+    if (mode === 'crash-once' && auxiliaryFile && !existsSync(auxiliaryFile)) {
+      writeFileSync(auxiliaryFile, 'crashed', 'utf8');
+      process.stderr.write('runtime one-shot crash\n');
+      process.exit(7);
+    }
+    if (mode === 'concurrent-calls') {
+      const delayMs = Number(args.delayMs ?? 0);
+      setTimeout(() => {
+        if (name === 'fail') {
+          send({
+            jsonrpc: '2.0',
+            id: message.id,
+            error: {
+              code: -32001,
+              message: 'deliberate request failure',
+              data: { tool: name },
+            },
+          });
+          return;
+        }
+        callResult(message.id, args.text ?? name);
+      }, delayMs);
+      return;
+    }
+    if (mode === 'cancel-call') {
+      if (name === 'cancel_status') {
+        callResult(message.id, JSON.stringify([...cancelledIds]));
+        return;
+      }
+      if (name === 'slow') {
+        setTimeout(() => callResult(message.id, args.text ?? 'late-response'), 120);
+        return;
+      }
+      callResult(message.id, args.text ?? name);
+      return;
+    }
+    if (mode === 'delayed-call') {
+      setTimeout(() => callResult(message.id, args.text ?? name), 150);
+      return;
+    }
+
+    callResult(message.id, args.text ?? '');
   }
 });

@@ -13,6 +13,22 @@ interface PendingRequest {
   phase: ChildFailurePhase;
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
+  cleanup: () => void;
+}
+
+interface ChildJsonRpcMessage {
+  jsonrpc?: unknown;
+  id?: unknown;
+  method?: unknown;
+  params?: unknown;
+  result?: unknown;
+  error?: unknown;
+}
+
+interface ChildJsonRpcError {
+  code: number;
+  message: string;
+  data?: unknown;
 }
 
 interface ChildInitializeResult {
@@ -40,6 +56,8 @@ export type ChildFailureKind =
   | 'tools_list_timeout'
   | 'tools_list_limit_exceeded'
   | 'tools_list_pagination_cycle'
+  | 'request_timeout'
+  | 'json_rpc_error'
   | 'malformed_json_rpc'
   | 'missing_chromium'
   | 'browser_launch_failure'
@@ -75,6 +93,23 @@ export class ChildMcpError extends Error {
     super(message);
     this.name = 'ChildMcpError';
   }
+}
+
+export class ChildMcpRequestError extends ChildMcpError {
+  constructor(
+    message: string,
+    diagnostic: ChildMcpDiagnostic,
+    readonly code?: number,
+    readonly data?: unknown
+  ) {
+    super(message, diagnostic);
+    this.name = 'ChildMcpRequestError';
+  }
+}
+
+export interface ChildMcpRequestOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface StdioChildClientOptions {
@@ -132,6 +167,7 @@ export function classifyChildFailure(
   if (input.code === 'ENOENT') return 'executable_not_found';
   if (input.timedOut && phase === 'initialize') return 'initialize_timeout';
   if (input.timedOut && phase === 'tools/list') return 'tools_list_timeout';
+  if (input.timedOut) return 'request_timeout';
   if (/malformed|invalid json|json-rpc/.test(text)) return 'malformed_json_rpc';
   if (/could not determine executable|npm err|package.*not found|e404|enotcached/.test(text)) {
     return 'npm_package_resolution_failure';
@@ -185,11 +221,43 @@ function remediationFor(kind: ChildFailureKind): string {
     case 'tools_list_limit_exceeded':
     case 'tools_list_pagination_cycle':
       return 'Review the child MCP catalog pagination. FolderForge stopped discovery to avoid an unbounded or cyclic tools/list response.';
+    case 'request_timeout':
+      return 'Retry the operation. FolderForge cancelled the timed-out child request without tearing down unrelated in-flight work.';
+    case 'json_rpc_error':
+      return 'Review the child MCP error message and arguments; the connection remained available for unrelated requests.';
     case 'malformed_json_rpc':
       return 'The child wrote invalid data to its MCP stdout channel. Verify package integrity and adapter compatibility.';
     default:
       return 'Run `folderforge doctor` and inspect the adapter readiness finding and stderr tail.';
   }
+}
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isRequestId(value: unknown): value is string | number {
+  return typeof value === 'string' || (typeof value === 'number' && Number.isSafeInteger(value));
+}
+
+function isJsonRpcError(value: unknown): value is ChildJsonRpcError {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      Number.isInteger((value as ChildJsonRpcError).code) &&
+      typeof (value as ChildJsonRpcError).message === 'string'
+  );
+}
+
+function abortError(reason: unknown, fallback: string): Error {
+  const message = reason instanceof Error
+    ? reason.message
+    : typeof reason === 'string' && reason.length > 0
+      ? reason
+      : fallback;
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
 }
 
 /** Minimal JSON-RPC client over a child MCP server's stdio. */
@@ -199,7 +267,6 @@ export class StdioChildClient {
   private nextId = 1;
   private buffer = '';
   private initialized = false;
-  private currentPhase: ChildFailurePhase = 'spawn';
   private stderrTail = '';
   private stderrRawTail = '';
   private stopping = false;
@@ -235,7 +302,7 @@ export class StdioChildClient {
     this.buffer = '';
     this.negotiatedProtocol = null;
     this.serverToolsListChanged = false;
-    this.currentPhase = 'spawn';
+    this.nextId = 1;
 
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -248,11 +315,13 @@ export class StdioChildClient {
         windowsHide: true,
       }) as ChildProcessWithoutNullStreams;
       this.child = child;
-      child.stdout.on('data', (chunk: Buffer) => this.onData(chunk));
-      child.stderr.on('data', (chunk: Buffer) => this.onStderr(chunk));
-      child.on('exit', (code, signal) => this.onExit(code, signal));
+      child.stdout.on('data', (chunk: Buffer) => this.onData(child, chunk));
+      child.stderr.on('data', (chunk: Buffer) => this.onStderr(child, chunk));
+      child.on('exit', (code, signal) => this.onExit(child, code, signal));
       child.stdin.on('error', (error) => {
-        if (!this.stopping) this.fail(this.currentPhase, error.message, { spawnError: error });
+        if (this.child === child && !this.stopping) {
+          this.failConnection(this.connectionPhase(), error.message, { spawnError: error });
+        }
       });
       await new Promise<void>((resolveSpawn, rejectSpawn) => {
         const onSpawn = (): void => {
@@ -261,14 +330,14 @@ export class StdioChildClient {
         };
         const onError = (error: NodeJS.ErrnoException): void => {
           child.off('spawn', onSpawn);
-          rejectSpawn(this.fail('spawn', error.message, { spawnError: error }));
+          rejectSpawn(this.failConnection('spawn', error.message, { spawnError: error }));
         };
         child.once('spawn', onSpawn);
         child.once('error', onError);
       });
     } catch (error) {
       if (error instanceof ChildMcpError) throw error;
-      throw this.fail(
+      throw this.failConnection(
         'spawn',
         error instanceof Error ? error.message : String(error),
         error instanceof Error ? { spawnError: error } : {}
@@ -276,7 +345,6 @@ export class StdioChildClient {
     }
 
     try {
-      this.currentPhase = 'initialize';
       const initialized = (await this.request(
         'initialize',
         {
@@ -292,7 +360,7 @@ export class StdioChildClient {
         typeof negotiated !== 'string' ||
         !SUPPORTED_PROTOCOL_VERSIONS.some((version) => version === negotiated)
       ) {
-        throw this.fail(
+        throw this.failConnection(
           'initialize',
           `child selected unsupported protocol version: ${String(negotiated)}`,
           { kind: 'unsupported_protocol_version' }
@@ -310,7 +378,6 @@ export class StdioChildClient {
       this.serverToolsListChanged = toolsCapability.listChanged === true;
       this.notify('notifications/initialized', {});
       this.initialized = true;
-      this.currentPhase = 'runtime';
       this.lastFailure = null;
     } catch (error) {
       this.stop();
@@ -318,7 +385,13 @@ export class StdioChildClient {
     }
   }
 
-  private onStderr(chunk: Buffer): void {
+  private connectionPhase(): ChildFailurePhase {
+    if (this.stopping) return 'shutdown';
+    return this.initialized ? 'runtime' : 'initialize';
+  }
+
+  private onStderr(child: ChildProcessWithoutNullStreams, chunk: Buffer): void {
+    if (this.child !== child) return;
     const rawLimit = this.stderrLimit + 4096;
     this.stderrRawTail = `${this.stderrRawTail}${chunk.toString('utf8')}`.slice(-rawLimit);
     this.stderrTail = this.redact(this.stderrRawTail).slice(-this.stderrLimit);
@@ -333,111 +406,246 @@ export class StdioChildClient {
     );
   }
 
-  private onExit(code: number | null, signal: NodeJS.Signals | null): void {
-    const phase = this.currentPhase;
+  private onExit(
+    child: ChildProcessWithoutNullStreams,
+    code: number | null,
+    signal: NodeJS.Signals | null
+  ): void {
+    if (this.child !== child) return;
+    const phase = this.initialized ? 'runtime' : 'initialize';
     const wasStopping = this.stopping;
     this.child = null;
     this.initialized = false;
     this.negotiatedProtocol = null;
     this.serverToolsListChanged = false;
     if (wasStopping) return;
-    const error = this.fail(phase, `child process exited${code === null ? '' : ` with code ${code}`}`, {
-      exitCode: code,
-      signal,
-      terminate: false,
-    });
+    const error = this.failConnection(
+      phase,
+      `child process exited${code === null ? '' : ` with code ${code}`}`,
+      { exitCode: code, signal, terminate: false }
+    );
     logger.warn({ diagnostic: error.diagnostic }, 'child MCP adapter failed');
   }
 
-  private onData(chunk: Buffer): void {
+  private onData(child: ChildProcessWithoutNullStreams, chunk: Buffer): void {
+    if (this.child !== child) return;
     this.buffer += chunk.toString('utf8');
     let idx: number;
     while ((idx = this.buffer.indexOf('\n')) >= 0) {
       const line = this.buffer.slice(0, idx).trim();
       this.buffer = this.buffer.slice(idx + 1);
       if (!line) continue;
-      let msg: {
-        id?: number;
-        method?: string;
-        result?: unknown;
-        error?: { message?: string };
-      };
+
+      let decoded: unknown;
       try {
-        msg = JSON.parse(line) as typeof msg;
+        decoded = JSON.parse(line);
       } catch {
-        this.fail(this.currentPhase, 'Malformed JSON-RPC received from child stdout.', {
+        this.failConnection(this.connectionPhase(), 'Malformed JSON-RPC received from child stdout.', {
           kind: 'malformed_json_rpc',
         });
         return;
       }
-      if (msg.id === undefined && msg.method === 'notifications/tools/list_changed') {
-        if (this.serverToolsListChanged) this.options.onToolsListChanged?.();
+      if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
+        this.failConnection(this.connectionPhase(), 'Child stdout contained a non-object JSON-RPC message.', {
+          kind: 'malformed_json_rpc',
+        });
+        return;
+      }
+      const msg = decoded as ChildJsonRpcMessage;
+      const messagePhase =
+        typeof msg.id === 'number'
+          ? this.pending.get(msg.id)?.phase ?? this.connectionPhase()
+          : this.connectionPhase();
+      if (msg.jsonrpc !== '2.0') {
+        this.failConnection(messagePhase, 'Child sent a JSON-RPC message without jsonrpc="2.0".', {
+          kind: 'malformed_json_rpc',
+        });
+        return;
+      }
+
+      const hasId = hasOwn(msg, 'id');
+      if (typeof msg.method === 'string') {
+        if (hasId) {
+          if (!isRequestId(msg.id)) {
+            this.failConnection(this.connectionPhase(), 'Child sent a request with an invalid id.', {
+              kind: 'malformed_json_rpc',
+            });
+            return;
+          }
+          if (msg.method === 'ping') {
+            this.sendMessage(child, { jsonrpc: '2.0', id: msg.id, result: {} }, this.connectionPhase());
+          } else {
+            this.sendMessage(
+              child,
+              {
+                jsonrpc: '2.0',
+                id: msg.id,
+                error: { code: -32601, message: `Method not found: ${msg.method}` },
+              },
+              this.connectionPhase()
+            );
+          }
+          continue;
+        }
+
+        if (msg.method === 'notifications/tools/list_changed') {
+          const validParams =
+            msg.params === undefined ||
+            (msg.params !== null && typeof msg.params === 'object' && !Array.isArray(msg.params));
+          if (validParams && this.serverToolsListChanged) this.options.onToolsListChanged?.();
+        }
         continue;
       }
-      if (
-        msg.method !== undefined ||
-        typeof msg.id !== 'number' ||
-        !this.pending.has(msg.id)
-      ) {
-        continue;
+
+      if (!hasId || !isRequestId(msg.id)) {
+        this.failConnection(this.connectionPhase(), 'Child sent a response with an invalid id.', {
+          kind: 'malformed_json_rpc',
+        });
+        return;
       }
+      if (typeof msg.id !== 'number' || !this.pending.has(msg.id)) continue;
+
       const pending = this.pending.get(msg.id)!;
+      const hasResult = hasOwn(msg, 'result');
+      const hasError = hasOwn(msg, 'error');
+      if (hasResult === hasError || (hasError && !isJsonRpcError(msg.error))) {
+        this.failConnection(pending.phase, `Child sent an invalid response for ${pending.method}.`, {
+          kind: 'malformed_json_rpc',
+        });
+        return;
+      }
+
       this.pending.delete(msg.id);
-      if (msg.error) pending.reject(
-        this.fail(pending.phase, msg.error.message ?? `Child MCP ${pending.method} failed.`, {
-          terminate: pending.phase !== 'runtime',
-        })
-      );
-      else pending.resolve(msg.result);
+      pending.cleanup();
+      if (hasError) {
+        const rpcError = msg.error as ChildJsonRpcError;
+        pending.reject(this.requestFailure(
+          pending.phase,
+          `Child MCP ${pending.method} failed: ${rpcError.message}`,
+          { kind: 'json_rpc_error', code: rpcError.code, data: rpcError.data }
+        ));
+      } else {
+        pending.resolve(msg.result);
+      }
     }
   }
 
-  private notify(method: string, params: unknown): void {
-    if (!this.child) return;
-    this.child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+  private sendMessage(
+    child: ChildProcessWithoutNullStreams,
+    message: Record<string, unknown>,
+    phase: ChildFailurePhase
+  ): boolean {
+    if (this.child !== child || child.stdin.destroyed || child.stdin.writableEnded) return false;
+    try {
+      child.stdin.write(`${JSON.stringify(message)}\n`);
+      return true;
+    } catch (error) {
+      this.failConnection(phase, error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+
+  private notify(method: string, params: unknown): boolean {
+    const child = this.child;
+    if (!child) return false;
+    return this.sendMessage(child, { jsonrpc: '2.0', method, params }, this.connectionPhase());
   }
 
   request(
     method: string,
     params: unknown,
     timeoutMs = this.requestTimeoutMs,
-    phase: ChildFailurePhase = 'runtime'
+    phase: ChildFailurePhase = 'runtime',
+    signal?: AbortSignal
   ): Promise<unknown> {
-    if (!this.child) {
-      return Promise.reject(this.fail(phase, 'child not started', { terminate: false }));
+    const child = this.child;
+    if (!child) {
+      return Promise.reject(this.requestFailure(phase, 'child not started'));
     }
-    this.currentPhase = phase;
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 1) {
+      return Promise.reject(new RangeError('timeoutMs must be a positive finite number.'));
+    }
+    if (signal?.aborted) {
+      return Promise.reject(abortError(signal.reason, `Child MCP ${method} cancelled.`));
+    }
+
     const id = this.nextId++;
-    const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
     return new Promise((resolveRequest, rejectRequest) => {
-      const timer = setTimeout(() => {
+      let timer: NodeJS.Timeout | null = null;
+      const cleanup = (): void => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        signal?.removeEventListener('abort', onAbort);
+      };
+      const cancelPending = (error: Error, reason: string): void => {
+        if (!this.pending.has(id)) return;
         this.pending.delete(id);
-        rejectRequest(this.fail(phase, `child request timed out: ${method}`, { timedOut: true }));
-      }, timeoutMs);
+        cleanup();
+        if (phase !== 'initialize') {
+          this.notify('notifications/cancelled', { requestId: id, reason });
+        }
+        rejectRequest(error);
+      };
+      const onAbort = (): void => {
+        if (phase === 'initialize') {
+          this.failConnection('initialize', 'initialize request aborted by caller', {
+            kind: 'shutdown_failure',
+          });
+          return;
+        }
+        cancelPending(
+          abortError(signal?.reason, `Child MCP ${method} cancelled.`),
+          signal?.reason instanceof Error ? signal.reason.message : 'Caller cancelled the request.'
+        );
+      };
+
       this.pending.set(id, {
         method,
         phase,
+        cleanup,
         resolve: (value) => {
-          clearTimeout(timer);
-          if (phase !== 'initialize') this.currentPhase = 'runtime';
+          cleanup();
           resolveRequest(value);
         },
         reject: (error) => {
-          clearTimeout(timer);
+          cleanup();
           rejectRequest(error);
         },
       });
-      try {
-        this.child!.stdin.write(payload);
-      } catch (error) {
-        clearTimeout(timer);
+
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+
+      timer = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        if (phase === 'initialize') {
+          this.failConnection(phase, `child request timed out: ${method}`, { timedOut: true });
+          return;
+        }
+        cancelPending(
+          this.requestFailure(phase, `child request timed out: ${method}`, { timedOut: true }),
+          `Request timed out after ${timeoutMs}ms.`
+        );
+      }, timeoutMs);
+
+      if (!this.sendMessage(child, { jsonrpc: '2.0', id, method, params }, phase) && this.pending.has(id)) {
         this.pending.delete(id);
-        rejectRequest(this.fail(phase, error instanceof Error ? error.message : String(error)));
+        cleanup();
+        rejectRequest(this.requestFailure(phase, 'child transport is not writable'));
       }
     });
   }
 
-  async listTools(timeoutMs = this.requestTimeoutMs): Promise<ChildToolDescriptor[]> {
+  async listTools(
+    timeoutOrOptions: number | ChildMcpRequestOptions = this.requestTimeoutMs
+  ): Promise<ChildToolDescriptor[]> {
+    const options = typeof timeoutOrOptions === 'number'
+      ? { timeoutMs: timeoutOrOptions }
+      : timeoutOrOptions;
+    const timeoutMs = options.timeoutMs ?? this.requestTimeoutMs;
     const tools: ChildToolDescriptor[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | undefined;
@@ -447,7 +655,8 @@ export class StdioChildClient {
         'tools/list',
         cursor === undefined ? {} : { cursor },
         timeoutMs,
-        'tools/list'
+        'tools/list',
+        options.signal
       )) as { tools?: unknown; nextCursor?: unknown };
       if (
         !res ||
@@ -460,34 +669,31 @@ export class StdioChildClient {
             (tool as ChildToolDescriptor).name.length > 0
         )
       ) {
-        throw this.fail('tools/list', 'tools/list returned an invalid result.', {
+        throw this.failConnection('tools/list', 'tools/list returned an invalid result.', {
           kind: 'tools_list_failure',
         });
       }
       tools.push(...res.tools);
       if (tools.length > this.maxCatalogTools) {
-        throw this.fail(
+        throw this.failConnection(
           'tools/list',
           `child catalog exceeded ${this.maxCatalogTools} tools`,
           { kind: 'tools_list_limit_exceeded' }
         );
       }
-      if (res.nextCursor === undefined) {
-        this.currentPhase = 'runtime';
-        return tools;
-      }
+      if (res.nextCursor === undefined) return tools;
       if (typeof res.nextCursor !== 'string' || res.nextCursor.length === 0) {
-        throw this.fail('tools/list', 'tools/list returned an invalid nextCursor.', {
+        throw this.failConnection('tools/list', 'tools/list returned an invalid nextCursor.', {
           kind: 'tools_list_failure',
         });
       }
       if (seenCursors.has(res.nextCursor)) {
-        throw this.fail('tools/list', `tools/list repeated cursor: ${res.nextCursor}`, {
+        throw this.failConnection('tools/list', `tools/list repeated cursor: ${res.nextCursor}`, {
           kind: 'tools_list_pagination_cycle',
         });
       }
       if (page >= this.maxCatalogPages) {
-        throw this.fail(
+        throw this.failConnection(
           'tools/list',
           `child catalog exceeded ${this.maxCatalogPages} pages`,
           { kind: 'tools_list_limit_exceeded' }
@@ -498,8 +704,18 @@ export class StdioChildClient {
     }
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
-    return this.request('tools/call', { name, arguments: args }, this.requestTimeoutMs, 'runtime');
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    options: ChildMcpRequestOptions = {}
+  ): Promise<unknown> {
+    return this.request(
+      'tools/call',
+      { name, arguments: args },
+      options.timeoutMs ?? this.requestTimeoutMs,
+      'runtime',
+      options.signal
+    );
   }
 
   isReady(): boolean {
@@ -542,13 +758,14 @@ export class StdioChildClient {
     this.initialized = false;
     this.negotiatedProtocol = null;
     this.serverToolsListChanged = false;
-    this.currentPhase = 'shutdown';
-    for (const pending of this.pending.values()) pending.reject(new Error('child stopped'));
+    this.buffer = '';
+    const error = abortError(undefined, 'Child MCP client stopped.');
+    for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
     if (child) terminateChildProcessTree(child);
   }
 
-  private fail(
+  private diagnosticFor(
     phase: ChildFailurePhase,
     message: string,
     options: {
@@ -557,9 +774,8 @@ export class StdioChildClient {
       spawnError?: Error;
       timedOut?: boolean;
       kind?: ChildFailureKind;
-      terminate?: boolean;
     } = {}
-  ): ChildMcpError {
+  ): ChildMcpDiagnostic {
     const spawnError = options.spawnError as NodeJS.ErrnoException | undefined;
     const kind = options.kind ?? classifyChildFailure(phase, {
       message,
@@ -567,11 +783,10 @@ export class StdioChildClient {
       ...(options.timedOut !== undefined ? { timedOut: options.timedOut } : {}),
       ...(spawnError?.code ? { code: spawnError.code } : {}),
     });
-    const safeArgs = redactChildArgs(this.options.args);
-    const diagnostic: ChildMcpDiagnostic = {
+    return {
       adapter: this.options.adapter,
       command: this.options.command,
-      args: safeArgs,
+      args: redactChildArgs(this.options.args),
       cwd: this.options.cwd ?? process.cwd(),
       phase,
       kind,
@@ -583,11 +798,47 @@ export class StdioChildClient {
       remediation: remediationFor(kind),
       occurredAt: new Date().toISOString(),
     };
+  }
+
+  private requestFailure(
+    phase: ChildFailurePhase,
+    message: string,
+    options: {
+      timedOut?: boolean;
+      kind?: ChildFailureKind;
+      code?: number;
+      data?: unknown;
+    } = {}
+  ): ChildMcpRequestError {
+    const diagnostic = this.diagnosticFor(phase, message, {
+      ...(options.timedOut !== undefined ? { timedOut: options.timedOut } : {}),
+      ...(options.kind ? { kind: options.kind } : {}),
+    });
+    return new ChildMcpRequestError(
+      `${this.options.adapter} adapter request failed during ${phase}: ${message}`,
+      diagnostic,
+      options.code,
+      options.data
+    );
+  }
+
+  private failConnection(
+    phase: ChildFailurePhase,
+    message: string,
+    options: {
+      exitCode?: number | null;
+      signal?: NodeJS.Signals | null;
+      spawnError?: Error;
+      timedOut?: boolean;
+      kind?: ChildFailureKind;
+      terminate?: boolean;
+    } = {}
+  ): ChildMcpError {
+    const diagnostic = this.diagnosticFor(phase, message, options);
     this.lastFailure = diagnostic;
-    if (options.terminate !== false) {
-      this.negotiatedProtocol = null;
-      this.serverToolsListChanged = false;
-    }
+    this.initialized = false;
+    this.negotiatedProtocol = null;
+    this.serverToolsListChanged = false;
     this.options.onDiagnostic?.(diagnostic);
     const error = new ChildMcpError(
       `${this.options.adapter} adapter failed during ${phase}: ${message}`,
@@ -598,7 +849,6 @@ export class StdioChildClient {
     if (options.terminate !== false && this.child) {
       const child = this.child;
       this.child = null;
-      this.initialized = false;
       this.stopping = true;
       terminateChildProcessTree(child);
     }
