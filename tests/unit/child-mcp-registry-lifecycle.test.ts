@@ -250,6 +250,86 @@ describe('ChildMcpRegistry lifecycle resilience', () => {
     expect(launchCount(counter)).toBe(2);
   });
 
+  it('blocks compatibility failures until the adapter definition is replaced', async () => {
+    const adapters = registry('unsupported-protocol');
+
+    await expect(adapters.ensure('serena')).rejects.toBeInstanceOf(ChildMcpError);
+    expect(adapters.status()[0]).toMatchObject({
+      state: 'blocked',
+      ready: false,
+      degraded: true,
+      startAttempts: 1,
+      consecutiveFailures: 1,
+      failureDisposition: 'compatibility',
+      metrics: {
+        totalFailures: 1,
+        failuresByKind: { unsupported_protocol_version: 1 },
+        failuresByDisposition: { compatibility: 1 },
+      },
+    });
+
+    await expect(adapters.ensure('serena')).rejects.toMatchObject({
+      name: 'AdapterUnavailableError',
+      state: 'blocked',
+      retryAt: null,
+    });
+    expect(adapters.status()[0]?.startAttempts).toBe(1);
+
+    adapters.upsert('serena', {
+      enabled: true,
+      command: process.execPath,
+      args: [fixture, 'success'],
+    });
+    await expect(adapters.ensure('serena')).resolves.toBeDefined();
+    expect(adapters.status()[0]).toMatchObject({
+      state: 'ready',
+      ready: true,
+      startAttempts: 1,
+      consecutiveFailures: 0,
+      metrics: { totalFailures: 0 },
+    });
+  });
+
+  it('calculates uptime, availability, recovery time, histograms, and transport evidence', async () => {
+    const root = tempRoot('folderforge-registry-metrics');
+    const counter = join(root, 'starts.txt');
+    let now = Date.parse('2026-07-18T16:00:00.000Z');
+    const adapters = registry('initialize-fail-until', [counter, '1'], {
+      retryBaseMs: 100,
+      retryMaxMs: 1_000,
+      circuitFailureThreshold: 3,
+      circuitOpenMs: 5_000,
+      now: () => now,
+    });
+
+    await expect(adapters.ensure('serena')).rejects.toBeInstanceOf(ChildMcpError);
+    now += 100;
+    await adapters.ensure('serena');
+    now += 900;
+
+    const status = adapters.status()[0];
+    expect(status).toMatchObject({
+      state: 'ready',
+      metrics: {
+        observedMs: 1_000,
+        currentUptimeMs: 900,
+        totalReadyMs: 900,
+        availability: 0.9,
+        totalFailures: 1,
+        failureRatePerHour: 3_600,
+        recoveries: 1,
+        meanRecoveryMs: 100,
+        failuresByKind: { child_exited_before_initialize: 1 },
+        failuresByDisposition: { transient: 1 },
+      },
+      transport: {
+        pendingRequests: 0,
+      },
+    });
+    expect(status?.transport?.requestsSent).toBeGreaterThanOrEqual(1);
+    expect(status?.transport?.responsesReceived).toBeGreaterThanOrEqual(1);
+  });
+
   it('gracefully stops every child and exposes the stopped state', async () => {
     const adapters = registry('success');
     await adapters.ensure('serena');

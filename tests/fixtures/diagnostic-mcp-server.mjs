@@ -112,11 +112,34 @@ lines.on('line', (line) => {
 
   if (message.method === 'initialize') {
     if (mode === 'initialize-timeout') return;
+    if (mode === 'stdout-no-newline-flood') {
+      process.stdout.write('x'.repeat(4096));
+      return;
+    }
+    if (mode === 'oversized-jsonrpc-line') {
+      send({
+        jsonrpc: '2.0',
+        id: message.id,
+        result: {
+          protocolVersion: message.params?.protocolVersion,
+          capabilities: {},
+          serverInfo: { name: 'diagnostic-fixture', version: '1.0.0' },
+          padding: 'x'.repeat(4096),
+        },
+      });
+      return;
+    }
     if (mode === 'slow-initialize-counted') {
       setTimeout(() => initialize(message.id, message.params), 50);
       return;
     }
     initialize(message.id, message.params);
+    return;
+  }
+
+  if (message.method === 'ping') {
+    if (mode === 'ignore-ping') return;
+    send({ jsonrpc: '2.0', id: message.id, result: {} });
     return;
   }
 

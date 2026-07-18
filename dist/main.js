@@ -518,20 +518,16 @@ async function main() {
     else {
         await startStdioTransport(server);
     }
+    let shuttingDown = false;
     const shutdown = async (signal) => {
+        if (shuttingDown)
+            return;
+        shuttingDown = true;
         logger.info({ signal }, "Shutting down FolderForge");
-        try {
-            container.adapters.stopAll();
-        }
-        catch {
-            // ignore
-        }
-        try {
-            await server.close();
-        }
-        catch {
-            // ignore
-        }
+        await Promise.allSettled([
+            server.close(),
+            container.adapters.stopAllAndWait(1_500),
+        ]);
         process.exit(0);
     };
     process.on("SIGINT", () => void shutdown("SIGINT"));

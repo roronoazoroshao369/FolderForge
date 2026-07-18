@@ -9,6 +9,7 @@ import {
   ChildMcpRequestError,
   StdioChildClient,
   classifyChildFailure,
+  classifyChildFailureDisposition,
   type ChildMcpDiagnostic,
 } from '../../src/adapters/child-mcp/client.js';
 import { ChildMcpRegistry } from '../../src/adapters/child-mcp/registry.js';
@@ -28,6 +29,11 @@ interface ClientOptions {
   cwd?: string;
   maxCatalogTools?: number;
   maxCatalogPages?: number;
+  maxJsonRpcMessageBytes?: number;
+  maxStdoutBufferBytes?: number;
+  maxPendingRequests?: number;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
   onToolsListChanged?: () => void;
 }
 
@@ -60,6 +66,21 @@ function client(mode: string, options: ClientOptions = {}): StdioChildClient {
       : {}),
     ...(options.maxCatalogPages !== undefined
       ? { maxCatalogPages: options.maxCatalogPages }
+      : {}),
+    ...(options.maxJsonRpcMessageBytes !== undefined
+      ? { maxJsonRpcMessageBytes: options.maxJsonRpcMessageBytes }
+      : {}),
+    ...(options.maxStdoutBufferBytes !== undefined
+      ? { maxStdoutBufferBytes: options.maxStdoutBufferBytes }
+      : {}),
+    ...(options.maxPendingRequests !== undefined
+      ? { maxPendingRequests: options.maxPendingRequests }
+      : {}),
+    ...(options.heartbeatIntervalMs !== undefined
+      ? { heartbeatIntervalMs: options.heartbeatIntervalMs }
+      : {}),
+    ...(options.heartbeatTimeoutMs !== undefined
+      ? { heartbeatTimeoutMs: options.heartbeatTimeoutMs }
       : {}),
     ...(options.onToolsListChanged
       ? { onToolsListChanged: options.onToolsListChanged }
@@ -375,6 +396,141 @@ describe('StdioChildClient diagnostics and protocol handling', () => {
     await sleep(50);
     expect((await child.listTools()).map((tool) => tool.name)).toEqual(['echo']);
     expect(child.isReady()).toBe(true);
+  });
+
+  it('fails closed when stdout grows past the unterminated buffer bound', async () => {
+    const child = client('stdout-no-newline-flood', {
+      maxJsonRpcMessageBytes: 512,
+      maxStdoutBufferBytes: 1024,
+    });
+
+    const diagnostic = await failure(() => child.start());
+    expect(diagnostic).toMatchObject({
+      phase: 'initialize',
+      kind: 'stdout_buffer_limit_exceeded',
+    });
+    expect(child.isReady()).toBe(false);
+  });
+
+  it('fails closed when one JSON-RPC line exceeds the message bound', async () => {
+    const child = client('oversized-jsonrpc-line', {
+      maxJsonRpcMessageBytes: 512,
+      maxStdoutBufferBytes: 8192,
+    });
+
+    const diagnostic = await failure(() => child.start());
+    expect(diagnostic).toMatchObject({
+      phase: 'initialize',
+      kind: 'json_rpc_message_too_large',
+    });
+    expect(child.isReady()).toBe(false);
+  });
+
+  it('applies request backpressure without tearing down the connection', async () => {
+    const child = client('delayed-call', {
+      timeout: 500,
+      maxPendingRequests: 2,
+    });
+    await child.start();
+
+    const first = child.callTool('slow', { text: 'first' });
+    const second = child.callTool('slow', { text: 'second' });
+    const rejected = await child.callTool('slow', { text: 'third' }).then(
+      () => new Error('Expected pending request saturation to fail.'),
+      (error: unknown) => error
+    );
+
+    expect(rejected).toBeInstanceOf(ChildMcpRequestError);
+    expect(rejected).toMatchObject({
+      diagnostic: { phase: 'runtime', kind: 'pending_request_limit_exceeded' },
+    });
+    expect(resultText(await first)).toBe('first');
+    expect(resultText(await second)).toBe('second');
+    expect(child.isReady()).toBe(true);
+  });
+
+  it('keeps a responsive idle child healthy and exposes transport counters', async () => {
+    const child = client('success', {
+      timeout: 500,
+      heartbeatIntervalMs: 20,
+      heartbeatTimeoutMs: 30,
+    });
+    await child.start();
+    await child.listTools();
+    await sleep(80);
+
+    const stats = child.transportStats();
+    expect(child.isReady()).toBe(true);
+    expect(child.diagnostic()).toBeNull();
+    expect(stats.heartbeatsSent).toBeGreaterThanOrEqual(1);
+    expect(stats.requestsSent).toBeGreaterThanOrEqual(3);
+    expect(stats.responsesReceived).toBeGreaterThanOrEqual(3);
+    expect(stats.bytesReceived).toBeGreaterThan(0);
+    expect(stats.bytesSent).toBeGreaterThan(0);
+    expect(stats.pendingRequests).toBe(0);
+  });
+
+  it('closes an idle child that stops answering heartbeat pings', async () => {
+    const child = client('ignore-ping', {
+      timeout: 500,
+      heartbeatIntervalMs: 20,
+      heartbeatTimeoutMs: 20,
+    });
+    await child.start();
+
+    for (let attempt = 0; attempt < 30 && child.isReady(); attempt += 1) {
+      await sleep(10);
+    }
+
+    expect(child.isReady()).toBe(false);
+    expect(child.diagnostic()).toMatchObject({
+      phase: 'runtime',
+      kind: 'heartbeat_timeout',
+      timedOut: true,
+    });
+  });
+
+  it('rejects an oversized outbound request without tearing down the connection', async () => {
+    const child = client('success', {
+      maxJsonRpcMessageBytes: 1024,
+      maxStdoutBufferBytes: 2048,
+    });
+    await child.start();
+
+    const error = await child.callTool('echo', { text: 'x'.repeat(4096) }).then(
+      () => new Error('Expected oversized outbound request to fail.'),
+      (value: unknown) => value
+    );
+
+    expect(error).toBeInstanceOf(ChildMcpRequestError);
+    expect(error).toMatchObject({
+      diagnostic: { phase: 'runtime', kind: 'json_rpc_message_too_large' },
+    });
+    expect(child.isReady()).toBe(true);
+    expect(child.diagnostic()).toBeNull();
+    expect(resultText(await child.callTool('echo', { text: 'after-large-request' })))
+      .toBe('after-large-request');
+  });
+
+  it.each([
+    ['invalid_adapter_arguments', 'configuration'],
+    ['unsupported_protocol_version', 'compatibility'],
+    ['json_rpc_message_too_large', 'resource'],
+    ['runtime_crash', 'transient'],
+    ['browser_launch_failure', 'transient'],
+    ['shutdown_failure', 'shutdown'],
+  ] as const)('classifies %s failures as %s', (kind, disposition) => {
+    expect(classifyChildFailureDisposition(kind)).toBe(disposition);
+  });
+
+  it('validates protocol output bounds at construction time', () => {
+    expect(() => new StdioChildClient({
+      adapter: 'playwright',
+      command: process.execPath,
+      args: [fixture, 'success'],
+      maxJsonRpcMessageBytes: 2048,
+      maxStdoutBufferBytes: 1024,
+    })).toThrow('maxStdoutBufferBytes must be greater than or equal to maxJsonRpcMessageBytes');
   });
 
   it.each([

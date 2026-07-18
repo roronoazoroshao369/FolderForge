@@ -25,7 +25,7 @@ adapters:
 
 Each adapter (`AdapterDef`) has:
 
-- `enabled` - whether to spawn it on startup;
+- `enabled` - whether the adapter is eligible for lazy discovery and startup;
 - `command` / `args` - how to launch the child server. The generated Playwright
   value `package:@playwright/mcp` is an internal package-local marker, not a shell
   executable;
@@ -39,18 +39,28 @@ Each adapter (`AdapterDef`) has:
 
 ## Lifecycle
 
-1. On startup, `ChildMcpRegistry` reads enabled adapters from config.
-2. Adapters start **lazily** - the child process is spawned on first use (or first
-   tool discovery), not eagerly, to avoid paying their cost when unused.
+1. On startup, `ChildMcpRegistry` reads adapter definitions without eagerly
+   spawning their processes.
+2. Adapters start **lazily** on first discovery or call. Concurrent callers share
+   one single-flight start promise, so one adapter definition cannot create a
+   duplicate-process startup storm.
 3. FolderForge initializes with the latest protocol version supported by its
    installed official MCP SDK, accepts only SDK-supported fallback versions, then
    follows every cursor page returned by `tools/list`. Discovery fails closed on
    malformed cursors, cursor cycles, more than 1,000 pages, or more than 10,000
    tools. Discovered tools are **namespaced** with the adapter name and a `__`
    separator (e.g. `serena__find_symbol`) and re-exported through the main registry.
-4. Calls are still wrapped by the FolderForge policy + audit pipeline before
-   being forwarded to the child.
-5. On shutdown, `stopAll()` terminates every spawned child.
+4. Every call remains inside the FolderForge policy + audit pipeline. FolderForge
+   never automatically replays a failed `tools/call`, because the child may have
+   completed a side effect before its connection failed.
+5. Transient startup/runtime failures use bounded exponential backoff and a
+   circuit breaker. After the cooldown, one half-open caller probes recovery.
+   Configuration, protocol-compatibility, and resource-bound failures become
+   `blocked` until the adapter definition is replaced or reloaded; they are not
+   respawned in a tight loop.
+6. Shutdown uses `stopAllAndWait()`: request cleanup, `SIGTERM`/platform process-
+   tree termination, a bounded wait, then a force-kill fallback for a child that
+   does not exit.
 
 The built-in Playwright launch resolves the declared package bin from
 FolderForge's own dependency tree and starts it with `process.execPath`. The exact
@@ -60,9 +70,37 @@ package-locally at runtime; genuinely custom commands and versions are preserved
 Startup is degraded rather than fatal when an optional child fails, but the
 failure is retained as structured status. FolderForge records `resolve`, `spawn`,
 `initialize`, `tools/list`, `runtime`, or `shutdown`, keeps bounded redacted
-stderr, and reports remediation. When Playwright is disabled or unavailable,
+stderr, and reports remediation. Status and health include lifecycle state, PID,
+start/restart/failure counters, next retry time, failure disposition, current and
+total uptime, observed availability, mean recovery time, failure histograms, and
+JSON-RPC transport counters. When Playwright is disabled or unavailable,
 FolderForge removes native `browser_*` wrappers from the advertised registry so
 clients are not shown an unusable capability.
+
+## Protocol and process bounds
+
+The stdio client applies portable bounds before child output can grow without
+limit:
+
+- each inbound or outbound JSON-RPC message is limited to 1 MiB;
+- unterminated stdout buffering is limited to 2 MiB;
+- at most 256 JSON-RPC requests may be pending per child;
+- an idle ready child is pinged every 60 seconds, with a 10-second heartbeat
+  timeout; and
+- stderr is retained only as a bounded, redacted tail.
+
+An oversized outbound call is rejected without killing an otherwise healthy
+connection. Invalid child protocol output, stdout flooding, or heartbeat failure
+closes the connection and enters the registry recovery policy. FolderForge also
+terminates the child process tree during shutdown. These controls are transport
+and lifecycle safeguards, not an operating-system CPU/RSS sandbox: deployments
+that require hard memory or CPU quotas must provide them through containers,
+cgroups, job objects, or another host-level isolation mechanism.
+
+`folderforge doctor` performs a bounded `initialize` plus complete `tools/list`
+probe for every enabled child adapter. Successful evidence includes negotiated
+protocol, elapsed time, tool count, package source, and transport counters;
+failures include the classified disposition and remediation.
 
 ## Tool namespacing
 
@@ -132,12 +170,16 @@ intentional. `folderforge doctor` performs a real bounded `initialize` and
 
 ## Writing a new adapter
 
-1. Add an `AdapterDef` entry to `AdaptersConfig` in `src/core/types.ts`.
-2. Provide a default in `src/core/config.ts`.
-3. Add its name to `ADAPTER_NAMES` in `src/tools/adapter-tools.ts` and to
-   `AdapterName` in `src/adapters/child-mcp/registry.ts` so its tools are
-   discovered, namespaced, and proxied.
+1. Add an `AdapterDef` entry to `AdaptersConfig` in `src/core/types.ts` when the
+   adapter is built in, and provide a default in `src/core/config.ts`. Installed
+   plugins can register dynamic string names without modifying a central enum.
+2. Define per-sub-tool risk overrides in
+   `src/adapters/child-mcp/risk-map.ts` when the conservative default
+   `MEDIUM`/`mutates:true` is not accurate.
+3. Add protocol, lifecycle, failure, and governance tests. Include at least one
+   failed child startup and prove that mutating calls are not automatically
+   replayed after recovery.
 
-Because every proxied call passes through `PolicyEngine.evaluate`, child tools
-inherit the same risk classification, approval, and audit guarantees as native
-tools - decide their risk in `TOOL_RISK` (`src/policy/risk.ts`).
+Every proxied call passes through the same policy, approval, rate-limit, and audit
+pipeline as native tools. The child process is still local executable code, so
+review its provenance and permissions independently of MCP-level governance.

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { TextDecoder } from 'node:util';
 import {
   LATEST_PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL_VERSIONS,
@@ -59,6 +60,10 @@ export type ChildFailureKind =
   | 'request_timeout'
   | 'json_rpc_error'
   | 'malformed_json_rpc'
+  | 'json_rpc_message_too_large'
+  | 'stdout_buffer_limit_exceeded'
+  | 'pending_request_limit_exceeded'
+  | 'heartbeat_timeout'
   | 'missing_chromium'
   | 'browser_launch_failure'
   | 'permission_or_quarantine'
@@ -68,6 +73,40 @@ export type ChildFailureKind =
   | 'runtime_crash'
   | 'shutdown_failure'
   | 'unknown';
+
+export type ChildFailureDisposition =
+  | 'transient'
+  | 'configuration'
+  | 'compatibility'
+  | 'resource'
+  | 'shutdown';
+
+export function classifyChildFailureDisposition(kind: ChildFailureKind): ChildFailureDisposition {
+  switch (kind) {
+    case 'executable_not_found':
+    case 'npm_package_resolution_failure':
+    case 'missing_chromium':
+    case 'permission_or_quarantine':
+    case 'architecture_mismatch':
+    case 'unsupported_node_version':
+    case 'invalid_adapter_arguments':
+      return 'configuration';
+    case 'unsupported_protocol_version':
+    case 'tools_list_failure':
+    case 'tools_list_limit_exceeded':
+    case 'tools_list_pagination_cycle':
+    case 'malformed_json_rpc':
+      return 'compatibility';
+    case 'json_rpc_message_too_large':
+    case 'stdout_buffer_limit_exceeded':
+    case 'pending_request_limit_exceeded':
+      return 'resource';
+    case 'shutdown_failure':
+      return 'shutdown';
+    default:
+      return 'transient';
+  }
+}
 
 export interface ChildMcpDiagnostic {
   adapter: string;
@@ -112,6 +151,18 @@ export interface ChildMcpRequestOptions {
   signal?: AbortSignal;
 }
 
+export interface ChildTransportStats {
+  bytesReceived: number;
+  bytesSent: number;
+  messagesReceived: number;
+  messagesSent: number;
+  requestsSent: number;
+  responsesReceived: number;
+  notificationsReceived: number;
+  pendingRequests: number;
+  heartbeatsSent: number;
+}
+
 export interface StdioChildClientOptions {
   adapter: string;
   command: string;
@@ -123,6 +174,11 @@ export interface StdioChildClientOptions {
   stderrLimit?: number;
   maxCatalogTools?: number;
   maxCatalogPages?: number;
+  maxJsonRpcMessageBytes?: number;
+  maxStdoutBufferBytes?: number;
+  maxPendingRequests?: number;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
   redact?: (text: string) => string;
   onDiagnostic?: (diagnostic: ChildMcpDiagnostic) => void;
   onToolsListChanged?: () => void;
@@ -132,6 +188,11 @@ const DEFAULT_STDERR_LIMIT = 16 * 1024;
 const DEFAULT_REQUEST_TIMEOUT = 30_000;
 const DEFAULT_MAX_CATALOG_TOOLS = 10_000;
 const DEFAULT_MAX_CATALOG_PAGES = 1_000;
+const DEFAULT_MAX_JSON_RPC_MESSAGE_BYTES = 1024 * 1024;
+const DEFAULT_MAX_STDOUT_BUFFER_BYTES = 2 * 1024 * 1024;
+const DEFAULT_MAX_PENDING_REQUESTS = 256;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 60_000;
+const DEFAULT_HEARTBEAT_TIMEOUT_MS = 10_000;
 const secretPolicy = new SecretPolicy();
 
 const SENSITIVE_ARG_RE = /(?:^|[-_])(token|secret|password|passwd|api[-_]?key|cookie|authorization)(?:$|[=_-])/i;
@@ -227,6 +288,13 @@ function remediationFor(kind: ChildFailureKind): string {
       return 'Review the child MCP error message and arguments; the connection remained available for unrelated requests.';
     case 'malformed_json_rpc':
       return 'The child wrote invalid data to its MCP stdout channel. Verify package integrity and adapter compatibility.';
+    case 'json_rpc_message_too_large':
+    case 'stdout_buffer_limit_exceeded':
+      return 'The child exceeded FolderForge protocol output bounds. Review the child for stdout flooding or unexpectedly large MCP payloads.';
+    case 'pending_request_limit_exceeded':
+      return 'Reduce concurrent child operations or wait for current requests to complete before retrying.';
+    case 'heartbeat_timeout':
+      return 'The idle child stopped responding to MCP ping. FolderForge closed it so the registry can recover after backoff.';
     default:
       return 'Run `folderforge doctor` and inspect the adapter readiness finding and stderr tail.';
   }
@@ -260,12 +328,39 @@ function abortError(reason: unknown, fallback: string): Error {
   return error;
 }
 
+function positiveSafeInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive safe integer.`);
+  }
+  return value;
+}
+
+function nonNegativeSafeInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative safe integer.`);
+  }
+  return value;
+}
+
+function emptyTransportStats(): Omit<ChildTransportStats, 'pendingRequests'> {
+  return {
+    bytesReceived: 0,
+    bytesSent: 0,
+    messagesReceived: 0,
+    messagesSent: 0,
+    requestsSent: 0,
+    responsesReceived: 0,
+    notificationsReceived: 0,
+    heartbeatsSent: 0,
+  };
+}
+
 /** Minimal JSON-RPC client over a child MCP server's stdio. */
 export class StdioChildClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private pending = new Map<number, PendingRequest>();
   private nextId = 1;
-  private buffer = '';
+  private buffer = Buffer.alloc(0);
   private initialized = false;
   private stderrTail = '';
   private stderrRawTail = '';
@@ -273,35 +368,76 @@ export class StdioChildClient {
   private lastFailure: ChildMcpDiagnostic | null = null;
   private negotiatedProtocol: string | null = null;
   private serverToolsListChanged = false;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private heartbeatInFlight = false;
+  private transport = emptyTransportStats();
   private readonly requestTimeoutMs: number;
   private readonly stderrLimit: number;
   private readonly maxCatalogTools: number;
   private readonly maxCatalogPages: number;
+  private readonly maxJsonRpcMessageBytes: number;
+  private readonly maxStdoutBufferBytes: number;
+  private readonly maxPendingRequests: number;
+  private readonly heartbeatIntervalMs: number;
+  private readonly heartbeatTimeoutMs: number;
   private readonly redact: (text: string) => string;
+  private readonly utf8 = new TextDecoder('utf-8', { fatal: true });
 
   constructor(private readonly options: StdioChildClientOptions) {
-    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
-    this.stderrLimit = options.stderrLimit ?? DEFAULT_STDERR_LIMIT;
-    this.maxCatalogTools = options.maxCatalogTools ?? DEFAULT_MAX_CATALOG_TOOLS;
-    this.maxCatalogPages = options.maxCatalogPages ?? DEFAULT_MAX_CATALOG_PAGES;
-    if (!Number.isSafeInteger(this.maxCatalogTools) || this.maxCatalogTools < 1) {
-      throw new Error('maxCatalogTools must be a positive safe integer.');
+    this.requestTimeoutMs = positiveSafeInteger(
+      options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT,
+      'requestTimeoutMs'
+    );
+    this.stderrLimit = positiveSafeInteger(
+      options.stderrLimit ?? DEFAULT_STDERR_LIMIT,
+      'stderrLimit'
+    );
+    this.maxCatalogTools = positiveSafeInteger(
+      options.maxCatalogTools ?? DEFAULT_MAX_CATALOG_TOOLS,
+      'maxCatalogTools'
+    );
+    this.maxCatalogPages = positiveSafeInteger(
+      options.maxCatalogPages ?? DEFAULT_MAX_CATALOG_PAGES,
+      'maxCatalogPages'
+    );
+    this.maxJsonRpcMessageBytes = positiveSafeInteger(
+      options.maxJsonRpcMessageBytes ?? DEFAULT_MAX_JSON_RPC_MESSAGE_BYTES,
+      'maxJsonRpcMessageBytes'
+    );
+    this.maxStdoutBufferBytes = positiveSafeInteger(
+      options.maxStdoutBufferBytes ?? DEFAULT_MAX_STDOUT_BUFFER_BYTES,
+      'maxStdoutBufferBytes'
+    );
+    if (this.maxStdoutBufferBytes < this.maxJsonRpcMessageBytes) {
+      throw new Error('maxStdoutBufferBytes must be greater than or equal to maxJsonRpcMessageBytes.');
     }
-    if (!Number.isSafeInteger(this.maxCatalogPages) || this.maxCatalogPages < 1) {
-      throw new Error('maxCatalogPages must be a positive safe integer.');
-    }
+    this.maxPendingRequests = positiveSafeInteger(
+      options.maxPendingRequests ?? DEFAULT_MAX_PENDING_REQUESTS,
+      'maxPendingRequests'
+    );
+    this.heartbeatIntervalMs = nonNegativeSafeInteger(
+      options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+      'heartbeatIntervalMs'
+    );
+    this.heartbeatTimeoutMs = positiveSafeInteger(
+      options.heartbeatTimeoutMs ?? DEFAULT_HEARTBEAT_TIMEOUT_MS,
+      'heartbeatTimeoutMs'
+    );
     this.redact = options.redact ?? ((text) => secretPolicy.redact(text));
   }
 
   async start(): Promise<void> {
     if (this.isReady()) return;
     if (this.child) this.stop();
+    this.clearHeartbeat();
     this.stopping = false;
     this.stderrTail = '';
     this.stderrRawTail = '';
-    this.buffer = '';
+    this.buffer = Buffer.alloc(0);
     this.negotiatedProtocol = null;
     this.serverToolsListChanged = false;
+    this.heartbeatInFlight = false;
+    this.transport = emptyTransportStats();
     this.nextId = 1;
 
     let child: ChildProcessWithoutNullStreams;
@@ -379,6 +515,7 @@ export class StdioChildClient {
       this.notify('notifications/initialized', {});
       this.initialized = true;
       this.lastFailure = null;
+      this.startHeartbeat();
     } catch (error) {
       this.stop();
       throw error;
@@ -418,6 +555,8 @@ export class StdioChildClient {
     this.initialized = false;
     this.negotiatedProtocol = null;
     this.serverToolsListChanged = false;
+    this.clearHeartbeat();
+    this.buffer = Buffer.alloc(0);
     if (wasStopping) return;
     const error = this.failConnection(
       phase,
@@ -429,105 +568,163 @@ export class StdioChildClient {
 
   private onData(child: ChildProcessWithoutNullStreams, chunk: Buffer): void {
     if (this.child !== child) return;
-    this.buffer += chunk.toString('utf8');
-    let idx: number;
-    while ((idx = this.buffer.indexOf('\n')) >= 0) {
-      const line = this.buffer.slice(0, idx).trim();
-      this.buffer = this.buffer.slice(idx + 1);
-      if (!line) continue;
+    this.transport.bytesReceived += chunk.length;
 
-      let decoded: unknown;
-      try {
-        decoded = JSON.parse(line);
-      } catch {
-        this.failConnection(this.connectionPhase(), 'Malformed JSON-RPC received from child stdout.', {
-          kind: 'malformed_json_rpc',
-        });
-        return;
-      }
-      if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
-        this.failConnection(this.connectionPhase(), 'Child stdout contained a non-object JSON-RPC message.', {
-          kind: 'malformed_json_rpc',
-        });
-        return;
-      }
-      const msg = decoded as ChildJsonRpcMessage;
-      const messagePhase =
-        typeof msg.id === 'number'
-          ? this.pending.get(msg.id)?.phase ?? this.connectionPhase()
-          : this.connectionPhase();
-      if (msg.jsonrpc !== '2.0') {
-        this.failConnection(messagePhase, 'Child sent a JSON-RPC message without jsonrpc="2.0".', {
-          kind: 'malformed_json_rpc',
-        });
-        return;
-      }
-
-      const hasId = hasOwn(msg, 'id');
-      if (typeof msg.method === 'string') {
-        if (hasId) {
-          if (!isRequestId(msg.id)) {
-            this.failConnection(this.connectionPhase(), 'Child sent a request with an invalid id.', {
-              kind: 'malformed_json_rpc',
-            });
-            return;
-          }
-          if (msg.method === 'ping') {
-            this.sendMessage(child, { jsonrpc: '2.0', id: msg.id, result: {} }, this.connectionPhase());
-          } else {
-            this.sendMessage(
-              child,
-              {
-                jsonrpc: '2.0',
-                id: msg.id,
-                error: { code: -32601, message: `Method not found: ${msg.method}` },
-              },
-              this.connectionPhase()
-            );
-          }
-          continue;
+    let remaining = chunk;
+    while (remaining.length > 0) {
+      const newline = remaining.indexOf(0x0a);
+      if (newline < 0) {
+        const bufferedBytes = this.buffer.length + remaining.length;
+        if (bufferedBytes > this.maxStdoutBufferBytes) {
+          this.failConnection(
+            this.connectionPhase(),
+            `Child stdout exceeded ${this.maxStdoutBufferBytes} bytes without a line terminator.`,
+            { kind: 'stdout_buffer_limit_exceeded' }
+          );
+          return;
         }
-
-        if (msg.method === 'notifications/tools/list_changed') {
-          const validParams =
-            msg.params === undefined ||
-            (msg.params !== null && typeof msg.params === 'object' && !Array.isArray(msg.params));
-          if (validParams && this.serverToolsListChanged) this.options.onToolsListChanged?.();
+        if (bufferedBytes > this.maxJsonRpcMessageBytes) {
+          this.failConnection(
+            this.connectionPhase(),
+            `Child JSON-RPC message exceeded ${this.maxJsonRpcMessageBytes} bytes before its line terminator.`,
+            { kind: 'json_rpc_message_too_large' }
+          );
+          return;
         }
-        continue;
-      }
-
-      if (!hasId || !isRequestId(msg.id)) {
-        this.failConnection(this.connectionPhase(), 'Child sent a response with an invalid id.', {
-          kind: 'malformed_json_rpc',
-        });
-        return;
-      }
-      if (typeof msg.id !== 'number' || !this.pending.has(msg.id)) continue;
-
-      const pending = this.pending.get(msg.id)!;
-      const hasResult = hasOwn(msg, 'result');
-      const hasError = hasOwn(msg, 'error');
-      if (hasResult === hasError || (hasError && !isJsonRpcError(msg.error))) {
-        this.failConnection(pending.phase, `Child sent an invalid response for ${pending.method}.`, {
-          kind: 'malformed_json_rpc',
-        });
+        this.buffer = this.buffer.length === 0
+          ? Buffer.from(remaining)
+          : Buffer.concat([this.buffer, remaining]);
         return;
       }
 
-      this.pending.delete(msg.id);
-      pending.cleanup();
-      if (hasError) {
-        const rpcError = msg.error as ChildJsonRpcError;
-        pending.reject(this.requestFailure(
-          pending.phase,
-          `Child MCP ${pending.method} failed: ${rpcError.message}`,
-          { kind: 'json_rpc_error', code: rpcError.code, data: rpcError.data }
-        ));
-      } else {
-        pending.resolve(msg.result);
+      const segment = remaining.subarray(0, newline);
+      const lineBytes = this.buffer.length + segment.length;
+      if (lineBytes > this.maxJsonRpcMessageBytes) {
+        this.failConnection(
+          this.connectionPhase(),
+          `Child JSON-RPC message exceeded ${this.maxJsonRpcMessageBytes} bytes.`,
+          { kind: 'json_rpc_message_too_large' }
+        );
+        return;
       }
+
+      const lineBuffer = this.buffer.length === 0
+        ? segment
+        : Buffer.concat([this.buffer, segment]);
+      this.buffer = Buffer.alloc(0);
+      remaining = remaining.subarray(newline + 1);
+      if (lineBuffer.length === 0) continue;
+      if (!this.handleJsonRpcLine(child, lineBuffer)) return;
     }
+  }
+
+  private handleJsonRpcLine(child: ChildProcessWithoutNullStreams, lineBuffer: Buffer): boolean {
+    let line: string;
+    try {
+      line = this.utf8.decode(lineBuffer).trim();
+    } catch {
+      this.failConnection(this.connectionPhase(), 'Child stdout contained invalid UTF-8.', {
+        kind: 'malformed_json_rpc',
+      });
+      return false;
+    }
+    if (!line) return true;
+
+    this.transport.messagesReceived += 1;
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(line);
+    } catch {
+      this.failConnection(this.connectionPhase(), 'Malformed JSON-RPC received from child stdout.', {
+        kind: 'malformed_json_rpc',
+      });
+      return false;
+    }
+    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
+      this.failConnection(this.connectionPhase(), 'Child stdout contained a non-object JSON-RPC message.', {
+        kind: 'malformed_json_rpc',
+      });
+      return false;
+    }
+    const msg = decoded as ChildJsonRpcMessage;
+    const messagePhase =
+      typeof msg.id === 'number'
+        ? this.pending.get(msg.id)?.phase ?? this.connectionPhase()
+        : this.connectionPhase();
+    if (msg.jsonrpc !== '2.0') {
+      this.failConnection(messagePhase, 'Child sent a JSON-RPC message without jsonrpc="2.0".', {
+        kind: 'malformed_json_rpc',
+      });
+      return false;
+    }
+
+    const hasId = hasOwn(msg, 'id');
+    if (typeof msg.method === 'string') {
+      if (hasId) {
+        if (!isRequestId(msg.id)) {
+          this.failConnection(this.connectionPhase(), 'Child sent a request with an invalid id.', {
+            kind: 'malformed_json_rpc',
+          });
+          return false;
+        }
+        if (msg.method === 'ping') {
+          this.sendMessage(child, { jsonrpc: '2.0', id: msg.id, result: {} }, this.connectionPhase());
+        } else {
+          this.sendMessage(
+            child,
+            {
+              jsonrpc: '2.0',
+              id: msg.id,
+              error: { code: -32601, message: `Method not found: ${msg.method}` },
+            },
+            this.connectionPhase()
+          );
+        }
+        return true;
+      }
+
+      this.transport.notificationsReceived += 1;
+      if (msg.method === 'notifications/tools/list_changed') {
+        const validParams =
+          msg.params === undefined ||
+          (msg.params !== null && typeof msg.params === 'object' && !Array.isArray(msg.params));
+        if (validParams && this.serverToolsListChanged) this.options.onToolsListChanged?.();
+      }
+      return true;
+    }
+
+    if (!hasId || !isRequestId(msg.id)) {
+      this.failConnection(this.connectionPhase(), 'Child sent a response with an invalid id.', {
+        kind: 'malformed_json_rpc',
+      });
+      return false;
+    }
+    if (typeof msg.id !== 'number' || !this.pending.has(msg.id)) return true;
+
+    const pending = this.pending.get(msg.id)!;
+    const hasResult = hasOwn(msg, 'result');
+    const hasError = hasOwn(msg, 'error');
+    if (hasResult === hasError || (hasError && !isJsonRpcError(msg.error))) {
+      this.failConnection(pending.phase, `Child sent an invalid response for ${pending.method}.`, {
+        kind: 'malformed_json_rpc',
+      });
+      return false;
+    }
+
+    this.transport.responsesReceived += 1;
+    this.pending.delete(msg.id);
+    pending.cleanup();
+    if (hasError) {
+      const rpcError = msg.error as ChildJsonRpcError;
+      pending.reject(this.requestFailure(
+        pending.phase,
+        `Child MCP ${pending.method} failed: ${rpcError.message}`,
+        { kind: 'json_rpc_error', code: rpcError.code, data: rpcError.data }
+      ));
+    } else {
+      pending.resolve(msg.result);
+    }
+    return true;
   }
 
   private sendMessage(
@@ -537,7 +734,10 @@ export class StdioChildClient {
   ): boolean {
     if (this.child !== child || child.stdin.destroyed || child.stdin.writableEnded) return false;
     try {
-      child.stdin.write(`${JSON.stringify(message)}\n`);
+      const payload = `${JSON.stringify(message)}\n`;
+      child.stdin.write(payload);
+      this.transport.bytesSent += Buffer.byteLength(payload);
+      this.transport.messagesSent += 1;
       return true;
     } catch (error) {
       this.failConnection(phase, error instanceof Error ? error.message : String(error));
@@ -549,6 +749,40 @@ export class StdioChildClient {
     const child = this.child;
     if (!child) return false;
     return this.sendMessage(child, { jsonrpc: '2.0', method, params }, this.connectionPhase());
+  }
+
+  private clearHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+    this.heartbeatInFlight = false;
+  }
+
+  private startHeartbeat(): void {
+    this.clearHeartbeat();
+    if (this.heartbeatIntervalMs === 0) return;
+    this.heartbeatTimer = setInterval(() => void this.runHeartbeat(), this.heartbeatIntervalMs);
+    this.heartbeatTimer.unref();
+  }
+
+  private async runHeartbeat(): Promise<void> {
+    if (!this.isReady() || this.stopping || this.heartbeatInFlight || this.pending.size > 0) return;
+    const child = this.child;
+    if (!child) return;
+    this.heartbeatInFlight = true;
+    this.transport.heartbeatsSent += 1;
+    try {
+      await this.request('ping', {}, this.heartbeatTimeoutMs, 'runtime');
+    } catch (error) {
+      if (this.child === child && this.isReady() && !this.stopping) {
+        const timedOut = error instanceof ChildMcpError && error.diagnostic.timedOut;
+        this.failConnection('runtime', 'child heartbeat did not complete successfully', {
+          kind: 'heartbeat_timeout',
+          ...(timedOut ? { timedOut: true } : {}),
+        });
+      }
+    } finally {
+      this.heartbeatInFlight = false;
+    }
   }
 
   request(
@@ -568,8 +802,34 @@ export class StdioChildClient {
     if (signal?.aborted) {
       return Promise.reject(abortError(signal.reason, `Child MCP ${method} cancelled.`));
     }
+    if (this.pending.size >= this.maxPendingRequests) {
+      return Promise.reject(this.requestFailure(
+        phase,
+        `pending request limit exceeded (${this.maxPendingRequests})`,
+        { kind: 'pending_request_limit_exceeded' }
+      ));
+    }
 
     const id = this.nextId++;
+    const message = { jsonrpc: '2.0', id, method, params };
+    let serializedBytes: number;
+    try {
+      serializedBytes = Buffer.byteLength(JSON.stringify(message)) + 1;
+    } catch (error) {
+      return Promise.reject(this.requestFailure(
+        phase,
+        `request could not be serialized: ${error instanceof Error ? error.message : String(error)}`,
+        { kind: 'json_rpc_error' }
+      ));
+    }
+    if (serializedBytes > this.maxJsonRpcMessageBytes) {
+      return Promise.reject(this.requestFailure(
+        phase,
+        `outbound JSON-RPC message exceeded ${this.maxJsonRpcMessageBytes} bytes`,
+        { kind: 'json_rpc_message_too_large' }
+      ));
+    }
+
     return new Promise((resolveRequest, rejectRequest) => {
       let timer: NodeJS.Timeout | null = null;
       const cleanup = (): void => {
@@ -631,10 +891,12 @@ export class StdioChildClient {
         );
       }, timeoutMs);
 
-      if (!this.sendMessage(child, { jsonrpc: '2.0', id, method, params }, phase) && this.pending.has(id)) {
+      if (!this.sendMessage(child, message, phase) && this.pending.has(id)) {
         this.pending.delete(id);
         cleanup();
         rejectRequest(this.requestFailure(phase, 'child transport is not writable'));
+      } else if (this.pending.has(id)) {
+        this.transport.requestsSent += 1;
       }
     });
   }
@@ -738,6 +1000,10 @@ export class StdioChildClient {
     return this.lastFailure ? { ...this.lastFailure, args: [...this.lastFailure.args] } : null;
   }
 
+  transportStats(): ChildTransportStats {
+    return { ...this.transport, pendingRequests: this.pending.size };
+  }
+
   async stopAndWait(timeoutMs = 1_000): Promise<void> {
     if (!Number.isFinite(timeoutMs) || timeoutMs < 1) {
       throw new RangeError('timeoutMs must be a positive finite number.');
@@ -766,11 +1032,12 @@ export class StdioChildClient {
   stop(): void {
     const child = this.child;
     this.stopping = true;
+    this.clearHeartbeat();
     this.child = null;
     this.initialized = false;
     this.negotiatedProtocol = null;
     this.serverToolsListChanged = false;
-    this.buffer = '';
+    this.buffer = Buffer.alloc(0);
     const error = abortError(undefined, 'Child MCP client stopped.');
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
@@ -851,6 +1118,8 @@ export class StdioChildClient {
     this.initialized = false;
     this.negotiatedProtocol = null;
     this.serverToolsListChanged = false;
+    this.clearHeartbeat();
+    this.buffer = Buffer.alloc(0);
     this.options.onDiagnostic?.(diagnostic);
     const error = new ChildMcpError(
       `${this.options.adapter} adapter failed during ${phase}: ${message}`,

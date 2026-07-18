@@ -208,6 +208,68 @@ describe('folderforge doctor', () => {
   });
 
 
+  it('probes every enabled child adapter and reports protocol transport evidence', async () => {
+    const root = tempProject();
+    writeFileSync(join(root, 'folderforge.yaml'), [
+      'adapters:',
+      '  serena:',
+      '    enabled: true',
+      `    command: ${JSON.stringify(process.execPath)}`,
+      '    args: []',
+      '    inheritEnv: false',
+      '  playwright:',
+      '    enabled: false',
+      '',
+    ].join('\n'));
+    const probed: string[] = [];
+
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      playwrightProbe: () => ({
+        packagePath: '/package/playwright/package.json',
+        executablePath: process.execPath,
+        exists: true,
+      }),
+      adapterProbe: async (name) => {
+        probed.push(name);
+        return {
+          command: process.execPath,
+          args: [],
+          cwd: root,
+          source: 'custom',
+          tools: 3,
+          protocolVersion: '2025-11-25',
+          elapsedMs: 42,
+          transport: {
+            bytesReceived: 200,
+            bytesSent: 100,
+            messagesReceived: 2,
+            messagesSent: 3,
+            requestsSent: 2,
+            responsesReceived: 2,
+            notificationsReceived: 0,
+            pendingRequests: 0,
+            heartbeatsSent: 0,
+          },
+        };
+      },
+    });
+
+    expect(probed).toEqual(['serena']);
+    expect(byId(report, 'adapter.serena.handshake')).toMatchObject({
+      status: 'pass',
+      summary: 'serena child completed MCP initialize and tools/list.',
+    });
+    expect(byId(report, 'adapter.serena.handshake')?.evidence).toContain('protocol=2025-11-25');
+    expect(byId(report, 'adapter.serena.handshake')?.evidence).toContain('elapsedMs=42');
+    expect(byId(report, 'adapter.serena.handshake')?.evidence).toContain('"requestsSent":2');
+    expect(byId(report, 'adapter.playwright.handshake')).toMatchObject({
+      status: 'pass',
+      summary: 'Playwright adapter handshake probe was skipped because the adapter is disabled.',
+    });
+  });
+
   it('reports the exact adapter handshake phase, stderr, and remediation', async () => {
     const root = tempProject();
     writeFileSync(join(root, 'folderforge.yaml'), `adapters:

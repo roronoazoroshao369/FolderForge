@@ -1,7 +1,26 @@
-import { StdioChildClient, ChildMcpError, redactChildArgs } from './client.js';
+import { StdioChildClient, ChildMcpError, classifyChildFailureDisposition, redactChildArgs, } from './client.js';
 import { resolveAdapterLaunch } from './resolve.js';
 import { logger } from '../../core/logger.js';
 import { SecretPolicy } from '../../policy/secret-policy.js';
+export class AdapterUnavailableError extends Error {
+    adapter;
+    state;
+    retryAt;
+    diagnostic;
+    constructor(adapter, state, retryAt, diagnostic) {
+        const retry = retryAt ? ` Retry is available at ${retryAt}.` : '';
+        super(`Adapter ${adapter} is ${state}.${retry}`);
+        this.adapter = adapter;
+        this.state = state;
+        this.retryAt = retryAt;
+        this.diagnostic = diagnostic;
+        this.name = 'AdapterUnavailableError';
+    }
+}
+const DEFAULT_RETRY_BASE_MS = 250;
+const DEFAULT_RETRY_MAX_MS = 10_000;
+const DEFAULT_CIRCUIT_FAILURE_THRESHOLD = 3;
+const DEFAULT_CIRCUIT_OPEN_MS = 30_000;
 const secretPolicy = new SecretPolicy();
 function isAdapterDef(value) {
     return Boolean(value &&
@@ -9,6 +28,15 @@ function isAdapterDef(value) {
         typeof value.enabled === 'boolean' &&
         typeof value.command === 'string' &&
         Array.isArray(value.args));
+}
+function positiveSafeInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value < 1) {
+        throw new Error(`${name} must be a positive safe integer.`);
+    }
+    return value;
+}
+function cloneDiagnostic(diagnostic) {
+    return diagnostic ? { ...diagnostic, args: [...diagnostic.args] } : null;
 }
 function resolutionDiagnostic(name, def, error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -32,10 +60,81 @@ function resolutionDiagnostic(name, def, error) {
         occurredAt: new Date().toISOString(),
     };
 }
+function unexpectedDiagnostic(name, def, phase, error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+        adapter: name,
+        command: def.command,
+        args: redactChildArgs(def.args),
+        cwd: def.cwd ?? process.cwd(),
+        phase,
+        kind: phase === 'runtime' ? 'runtime_crash' : 'unknown',
+        exitCode: null,
+        signal: null,
+        spawnError: secretPolicy.redact(message),
+        stderrTail: '',
+        timedOut: false,
+        remediation: 'Run `folderforge doctor` and inspect the adapter lifecycle status.',
+        occurredAt: new Date().toISOString(),
+    };
+}
+function createEntry(name, def, now) {
+    return {
+        name,
+        def: { ...def, args: [...def.args], ...(def.env ? { env: { ...def.env } } : {}) },
+        client: null,
+        startPromise: null,
+        lazyStarted: false,
+        catalog: null,
+        catalogGeneration: 0,
+        launch: null,
+        diagnostic: null,
+        state: 'idle',
+        stopped: false,
+        startAttempts: 0,
+        successfulStarts: 0,
+        restartCount: 0,
+        consecutiveFailures: 0,
+        nextRetryAtMs: 0,
+        lastStartAt: null,
+        lastReadyAt: null,
+        lastFailureAt: null,
+        lastCountedFailure: null,
+        failureDisposition: null,
+        createdAtMs: now,
+        readySinceMs: null,
+        totalReadyMs: 0,
+        totalFailures: 0,
+        recoveries: 0,
+        totalRecoveryMs: 0,
+        recoveryStartedAtMs: null,
+        failuresByKind: {},
+        failuresByDisposition: {
+            transient: 0,
+            configuration: 0,
+            compatibility: 0,
+            resource: 0,
+            shutdown: 0,
+        },
+    };
+}
 /** Lazily spawns and manages built-in and installed child MCP servers. */
 export class ChildMcpRegistry {
     entries = new Map();
-    constructor(config, extras = []) {
+    lifecycle;
+    constructor(config, extras = [], options = {}) {
+        const retryBaseMs = positiveSafeInteger(options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS, 'retryBaseMs');
+        const retryMaxMs = positiveSafeInteger(options.retryMaxMs ?? DEFAULT_RETRY_MAX_MS, 'retryMaxMs');
+        if (retryMaxMs < retryBaseMs) {
+            throw new Error('retryMaxMs must be greater than or equal to retryBaseMs.');
+        }
+        this.lifecycle = {
+            retryBaseMs,
+            retryMaxMs,
+            circuitFailureThreshold: positiveSafeInteger(options.circuitFailureThreshold ?? DEFAULT_CIRCUIT_FAILURE_THRESHOLD, 'circuitFailureThreshold'),
+            circuitOpenMs: positiveSafeInteger(options.circuitOpenMs ?? DEFAULT_CIRCUIT_OPEN_MS, 'circuitOpenMs'),
+            now: options.now ?? Date.now,
+        };
         for (const [name, def] of Object.entries(config)) {
             if (isAdapterDef(def))
                 this.upsert(name, def);
@@ -48,19 +147,16 @@ export class ChildMcpRegistry {
     }
     upsert(name, def) {
         const existing = this.entries.get(name);
+        if (existing)
+            this.closeReadyWindow(existing);
         existing?.client?.stop();
-        this.entries.set(name, {
-            name,
-            def: { ...def, args: [...def.args], ...(def.env ? { env: { ...def.env } } : {}) },
-            client: null,
-            lazyStarted: false,
-            catalog: null,
-            launch: null,
-            diagnostic: null,
-        });
+        this.entries.set(name, createEntry(name, def, this.now()));
     }
     remove(name) {
-        this.entries.get(name)?.client?.stop();
+        const entry = this.entries.get(name);
+        if (entry)
+            this.closeReadyWindow(entry);
+        entry?.client?.stop();
         this.entries.delete(name);
     }
     isEnabled(name) {
@@ -69,53 +165,206 @@ export class ChildMcpRegistry {
     isFacade(name) {
         return this.entries.get(name)?.def.facade ?? false;
     }
+    now() {
+        return this.lifecycle.now();
+    }
+    closeReadyWindow(entry) {
+        if (entry.readySinceMs === null)
+            return;
+        entry.totalReadyMs += Math.max(0, this.now() - entry.readySinceMs);
+        entry.readySinceMs = null;
+    }
+    metricsFor(entry) {
+        const now = this.now();
+        const observedMs = Math.max(0, now - entry.createdAtMs);
+        const currentUptimeMs = entry.readySinceMs === null ? 0 : Math.max(0, now - entry.readySinceMs);
+        const totalReadyMs = entry.totalReadyMs + currentUptimeMs;
+        return {
+            observedMs,
+            currentUptimeMs,
+            totalReadyMs,
+            availability: observedMs === 0 ? (entry.client?.isReady() ? 1 : 0) : totalReadyMs / observedMs,
+            totalFailures: entry.totalFailures,
+            failureRatePerHour: observedMs === 0 ? 0 : entry.totalFailures / (observedMs / 3_600_000),
+            recoveries: entry.recoveries,
+            meanRecoveryMs: entry.recoveries === 0 ? null : entry.totalRecoveryMs / entry.recoveries,
+            failuresByKind: { ...entry.failuresByKind },
+            failuresByDisposition: { ...entry.failuresByDisposition },
+        };
+    }
+    refreshLifecycleState(entry) {
+        if (entry.stopped) {
+            entry.state = 'stopped';
+            return;
+        }
+        if (entry.client?.isReady()) {
+            entry.state = 'ready';
+            return;
+        }
+        if (entry.startPromise)
+            return;
+        if ((entry.state === 'backoff' || entry.state === 'open') &&
+            entry.nextRetryAtMs <= this.now()) {
+            entry.state = 'degraded';
+        }
+    }
+    retryDelayMs(consecutiveFailures) {
+        const exponent = Math.min(30, Math.max(0, consecutiveFailures - 1));
+        const exponential = Math.min(this.lifecycle.retryMaxMs, this.lifecycle.retryBaseMs * 2 ** exponent);
+        return consecutiveFailures >= this.lifecycle.circuitFailureThreshold
+            ? Math.max(exponential, this.lifecycle.circuitOpenMs)
+            : exponential;
+    }
+    recordFailure(entry, diagnostic) {
+        entry.diagnostic = cloneDiagnostic(diagnostic);
+        entry.lastFailureAt = diagnostic.occurredAt;
+        const token = [
+            diagnostic.occurredAt,
+            diagnostic.phase,
+            diagnostic.kind,
+            diagnostic.exitCode,
+            diagnostic.signal,
+        ].join('|');
+        if (entry.lastCountedFailure === token)
+            return;
+        const now = this.now();
+        this.closeReadyWindow(entry);
+        entry.catalog = null;
+        entry.catalogGeneration += 1;
+        entry.lastCountedFailure = token;
+        entry.failureDisposition = classifyChildFailureDisposition(diagnostic.kind);
+        entry.totalFailures += 1;
+        entry.failuresByKind[diagnostic.kind] = (entry.failuresByKind[diagnostic.kind] ?? 0) + 1;
+        entry.failuresByDisposition[entry.failureDisposition] += 1;
+        entry.recoveryStartedAtMs ??= now;
+        entry.consecutiveFailures += 1;
+        if (entry.failureDisposition !== 'transient') {
+            entry.nextRetryAtMs = 0;
+            entry.state = entry.failureDisposition === 'shutdown' ? 'stopped' : 'blocked';
+            return;
+        }
+        entry.nextRetryAtMs = now + this.retryDelayMs(entry.consecutiveFailures);
+        entry.state = entry.consecutiveFailures >= this.lifecycle.circuitFailureThreshold
+            ? 'open'
+            : 'backoff';
+    }
+    markReady(entry) {
+        const now = this.now();
+        const recovered = entry.startAttempts > 1 || entry.lazyStarted || entry.consecutiveFailures > 0;
+        entry.lazyStarted = true;
+        entry.successfulStarts += 1;
+        if (recovered)
+            entry.restartCount += 1;
+        if (entry.recoveryStartedAtMs !== null) {
+            entry.recoveries += 1;
+            entry.totalRecoveryMs += Math.max(0, now - entry.recoveryStartedAtMs);
+            entry.recoveryStartedAtMs = null;
+        }
+        entry.readySinceMs = now;
+        entry.consecutiveFailures = 0;
+        entry.nextRetryAtMs = 0;
+        entry.diagnostic = null;
+        entry.lastCountedFailure = null;
+        entry.failureDisposition = null;
+        entry.lastReadyAt = new Date(now).toISOString();
+        entry.state = 'ready';
+    }
+    unavailable(entry) {
+        this.refreshLifecycleState(entry);
+        const retryAt = entry.nextRetryAtMs > this.now()
+            ? new Date(entry.nextRetryAtMs).toISOString()
+            : null;
+        return new AdapterUnavailableError(entry.name, entry.state, retryAt, cloneDiagnostic(entry.diagnostic));
+    }
+    createClient(entry) {
+        try {
+            entry.launch = resolveAdapterLaunch(entry.name, entry.def);
+        }
+        catch (error) {
+            const diagnostic = resolutionDiagnostic(entry.name, entry.def, error);
+            this.recordFailure(entry, diagnostic);
+            logger.warn({ diagnostic }, 'child MCP adapter resolution failed');
+            throw new ChildMcpError(`${entry.name} adapter failed during resolve: ${String(error)}`, diagnostic);
+        }
+        const launch = entry.launch;
+        return new StdioChildClient({
+            adapter: entry.name,
+            command: launch.command,
+            args: launch.args,
+            env: entry.def.env ?? {},
+            ...(launch.cwd ? { cwd: launch.cwd } : {}),
+            inheritEnv: entry.def.inheritEnv !== false,
+            onDiagnostic: (diagnostic) => {
+                if (!entry.stopped)
+                    this.recordFailure(entry, diagnostic);
+            },
+            onToolsListChanged: () => {
+                entry.catalog = null;
+                entry.catalogGeneration += 1;
+                logger.info({ adapter: entry.name }, 'Child MCP tool catalog invalidated');
+            },
+        });
+    }
+    async startEntry(entry) {
+        if (!entry.client)
+            entry.client = this.createClient(entry);
+        const client = entry.client;
+        logger.info({
+            adapter: entry.name,
+            command: entry.launch?.command,
+            args: redactChildArgs(entry.launch?.args ?? []),
+            source: entry.launch?.source,
+            attempt: entry.startAttempts,
+            lifecycleState: entry.state,
+        }, 'Starting child MCP adapter');
+        try {
+            await client.start();
+            if (entry.stopped) {
+                client.stop();
+                throw new AdapterUnavailableError(entry.name, 'stopped', null, null);
+            }
+            this.markReady(entry);
+            return client;
+        }
+        catch (error) {
+            if (!entry.stopped) {
+                const diagnostic = client.diagnostic()
+                    ?? entry.diagnostic
+                    ?? unexpectedDiagnostic(entry.name, entry.def, 'initialize', error);
+                this.recordFailure(entry, diagnostic);
+            }
+            throw error;
+        }
+    }
     async ensure(name) {
         const entry = this.entries.get(name);
         if (!entry)
             throw new Error(`Adapter not configured: ${name}`);
         if (!entry.def.enabled)
             throw new Error(`Adapter disabled: ${name}`);
-        if (!entry.client) {
-            try {
-                entry.launch = resolveAdapterLaunch(name, entry.def);
-            }
-            catch (error) {
-                entry.diagnostic = resolutionDiagnostic(name, entry.def, error);
-                logger.warn({ diagnostic: entry.diagnostic }, 'child MCP adapter resolution failed');
-                throw new ChildMcpError(`${name} adapter failed during resolve: ${String(error)}`, entry.diagnostic);
-            }
-            const launch = entry.launch;
-            entry.client = new StdioChildClient({
-                adapter: name,
-                command: launch.command,
-                args: launch.args,
-                env: entry.def.env ?? {},
-                ...(launch.cwd ? { cwd: launch.cwd } : {}),
-                inheritEnv: entry.def.inheritEnv !== false,
-                onDiagnostic: (diagnostic) => {
-                    entry.diagnostic = diagnostic;
-                    entry.catalog = null;
-                },
-            });
+        if (entry.stopped || entry.state === 'blocked')
+            throw this.unavailable(entry);
+        if (entry.client?.isReady()) {
+            entry.state = 'ready';
+            return entry.client;
         }
-        if (!entry.client.isReady()) {
-            logger.info({
-                adapter: name,
-                command: entry.launch?.command,
-                args: redactChildArgs(entry.launch?.args ?? []),
-                source: entry.launch?.source,
-            }, 'Starting child MCP adapter');
-            try {
-                await entry.client.start();
-                entry.lazyStarted = true;
-                entry.diagnostic = null;
-            }
-            catch (error) {
-                entry.diagnostic = entry.client.diagnostic() ?? entry.diagnostic;
-                throw error;
-            }
-        }
-        return entry.client;
+        if (entry.startPromise)
+            return entry.startPromise;
+        this.refreshLifecycleState(entry);
+        if (entry.nextRetryAtMs > this.now())
+            throw this.unavailable(entry);
+        const circuitProbe = entry.consecutiveFailures >= this.lifecycle.circuitFailureThreshold;
+        entry.state = circuitProbe ? 'half_open' : 'starting';
+        entry.startAttempts += 1;
+        entry.lastStartAt = new Date(this.now()).toISOString();
+        let startPromise;
+        startPromise = this.startEntry(entry).finally(() => {
+            if (entry.startPromise === startPromise)
+                entry.startPromise = null;
+            this.refreshLifecycleState(entry);
+        });
+        entry.startPromise = startPromise;
+        return startPromise;
     }
     async catalog(name, refresh = false) {
         const entry = this.entries.get(name);
@@ -125,14 +374,22 @@ export class ChildMcpRegistry {
             return entry.catalog;
         const client = await this.ensure(name);
         try {
-            const tools = await client.listTools();
-            entry.catalog = tools.map((tool) => ({
-                name: tool.name,
-                ...(tool.description !== undefined ? { description: tool.description } : {}),
-                ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
-            }));
-            entry.diagnostic = null;
-            return entry.catalog;
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+                const generation = entry.catalogGeneration;
+                const tools = await client.listTools();
+                const catalog = tools.map((tool) => ({
+                    name: tool.name,
+                    ...(tool.description !== undefined ? { description: tool.description } : {}),
+                    ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
+                }));
+                if (entry.catalogGeneration !== generation)
+                    continue;
+                entry.catalog = catalog;
+                entry.diagnostic = null;
+                entry.state = 'ready';
+                return entry.catalog;
+            }
+            throw new Error(`Adapter ${name} changed its tool catalog repeatedly during discovery.`);
         }
         catch (error) {
             entry.diagnostic = client.diagnostic() ?? entry.diagnostic;
@@ -141,30 +398,85 @@ export class ChildMcpRegistry {
     }
     async health(name) {
         const entry = this.entries.get(name);
-        if (!entry || !entry.def.enabled)
-            return { enabled: false, ready: false };
+        if (!entry || !entry.def.enabled) {
+            const empty = entry ? this.metricsFor(entry) : {
+                observedMs: 0,
+                currentUptimeMs: 0,
+                totalReadyMs: 0,
+                availability: 0,
+                totalFailures: 0,
+                failureRatePerHour: 0,
+                recoveries: 0,
+                meanRecoveryMs: null,
+                failuresByKind: {},
+                failuresByDisposition: {
+                    transient: 0,
+                    configuration: 0,
+                    compatibility: 0,
+                    resource: 0,
+                    shutdown: 0,
+                },
+            };
+            return { enabled: false, ready: false, state: 'idle', metrics: empty };
+        }
         try {
             const tools = await this.catalog(name, true);
-            return { enabled: true, ready: true, tools: tools.length };
+            return {
+                enabled: true,
+                ready: true,
+                state: 'ready',
+                tools: tools.length,
+                metrics: this.metricsFor(entry),
+                ...(entry.client ? { transport: entry.client.transportStats() } : {}),
+            };
         }
         catch (error) {
+            const status = this.status().find((candidate) => candidate.name === name);
             return {
                 enabled: true,
                 ready: false,
+                state: status?.state ?? 'degraded',
                 error: error instanceof Error ? error.message : String(error),
-                ...(entry.diagnostic ? { diagnostic: { ...entry.diagnostic, args: [...entry.diagnostic.args] } } : {}),
+                metrics: status?.metrics ?? this.metricsFor(entry),
+                ...(status?.nextRetryAt ? { nextRetryAt: status.nextRetryAt } : {}),
+                ...(status?.failureDisposition
+                    ? { failureDisposition: status.failureDisposition }
+                    : {}),
+                ...(status?.transport ? { transport: status.transport } : {}),
+                ...(entry.diagnostic ? { diagnostic: cloneDiagnostic(entry.diagnostic) } : {}),
             };
         }
     }
     status() {
         return [...this.entries.values()].map((entry) => {
+            this.refreshLifecycleState(entry);
             const ready = entry.client?.isReady() ?? false;
+            const pid = entry.client?.pid();
+            const nextRetryAt = entry.nextRetryAtMs > this.now()
+                ? new Date(entry.nextRetryAtMs).toISOString()
+                : null;
             return {
                 name: entry.name,
                 enabled: entry.def.enabled,
                 started: entry.lazyStarted,
                 ready,
+                degraded: entry.def.enabled && !ready && entry.state !== 'idle' && entry.state !== 'stopped',
                 facade: entry.def.facade ?? false,
+                state: entry.state,
+                ...(pid !== undefined ? { pid } : {}),
+                startAttempts: entry.startAttempts,
+                successfulStarts: entry.successfulStarts,
+                restartCount: entry.restartCount,
+                consecutiveFailures: entry.consecutiveFailures,
+                ...(nextRetryAt ? { nextRetryAt } : {}),
+                ...(entry.lastStartAt ? { lastStartAt: entry.lastStartAt } : {}),
+                ...(entry.lastReadyAt ? { lastReadyAt: entry.lastReadyAt } : {}),
+                ...(entry.lastFailureAt ? { lastFailureAt: entry.lastFailureAt } : {}),
+                ...(entry.failureDisposition
+                    ? { failureDisposition: entry.failureDisposition }
+                    : {}),
+                metrics: this.metricsFor(entry),
+                ...(entry.client ? { transport: entry.client.transportStats() } : {}),
                 ...(entry.launch
                     ? {
                         launch: {
@@ -177,14 +489,30 @@ export class ChildMcpRegistry {
                         },
                     }
                     : {}),
-                ...(entry.diagnostic
-                    ? { diagnostic: { ...entry.diagnostic, args: [...entry.diagnostic.args] } }
-                    : {}),
+                ...(entry.diagnostic ? { diagnostic: cloneDiagnostic(entry.diagnostic) } : {}),
             };
         });
     }
     stopAll() {
-        for (const entry of this.entries.values())
+        for (const entry of this.entries.values()) {
+            this.closeReadyWindow(entry);
+            entry.stopped = true;
+            entry.state = 'stopped';
+            entry.catalog = null;
             entry.client?.stop();
+        }
+    }
+    async stopAllAndWait(timeoutMs = 1_000) {
+        positiveSafeInteger(timeoutMs, 'timeoutMs');
+        const stops = [];
+        for (const entry of this.entries.values()) {
+            this.closeReadyWindow(entry);
+            entry.stopped = true;
+            entry.state = 'stopped';
+            entry.catalog = null;
+            if (entry.client)
+                stops.push(entry.client.stopAndWait(timeoutMs));
+        }
+        await Promise.allSettled(stops);
     }
 }

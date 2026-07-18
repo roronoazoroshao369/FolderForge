@@ -99,13 +99,18 @@ A successful report contains evidence similar to:
 ```text
 phase=tools/list
 source=package-local
+protocol=2025-11-25
+elapsedMs=84
 tools=21
+transport={"requestsSent":2,"responsesReceived":2,"pendingRequests":0}
 package=@playwright/mcp@0.0.41
 ```
 
-A failed report includes the adapter name, resolved command, redacted arguments,
-working directory, failure phase, classified failure kind, exit code or spawn
-error, timeout state, bounded redacted stderr, and remediation.
+Doctor runs the same bounded readiness probe for every enabled child MCP adapter,
+not only Playwright. A failed report includes the adapter name, resolved command,
+redacted arguments, working directory, failure phase, classified failure kind and
+disposition, exit code or spawn error, timeout state, bounded redacted stderr,
+and remediation.
 
 ## Failure phases and classifications
 
@@ -131,7 +136,16 @@ child_exited_before_initialize
 initialize_timeout
 tools_list_failure
 tools_list_timeout
+unsupported_protocol_version
+tools_list_limit_exceeded
+tools_list_pagination_cycle
+request_timeout
+json_rpc_error
 malformed_json_rpc
+json_rpc_message_too_large
+stdout_buffer_limit_exceeded
+pending_request_limit_exceeded
+heartbeat_timeout
 missing_chromium
 browser_launch_failure
 permission_or_quarantine
@@ -152,12 +166,19 @@ environment.
 The default policy remains backward compatible: FolderForge continues starting
 when an enabled child adapter fails. The failure is not silently discarded.
 
-- Adapter status retains `ready: false` and the last structured diagnostic.
+- Adapter status retains `ready: false`, lifecycle state, failure disposition,
+  retry timing, metrics, transport counters, and the last structured diagnostic.
+- Transient failures enter exponential backoff and, after repeated failures, an
+  open circuit. One half-open request probes recovery after the cooldown.
+- Configuration, compatibility, and resource-bound failures become `blocked`
+  until the adapter definition is replaced or reloaded; they are not respawned
+  continuously.
 - `workspace_status`, `workspace_health`, doctor, dashboard health, and startup
   warning logs can expose the failure.
 - Native `browser_*` wrappers are removed from the advertised registry when the
   configured Playwright adapter is disabled or fails discovery.
-- Non-browser tools remain usable.
+- Non-browser tools remain usable, and FolderForge never automatically replays a
+  failed browser/tool call after reconnecting.
 
 This avoids both extremes: a headless project is not blocked by an optional
 browser integration, and an AI agent is not told that browser tools are ready

@@ -1,9 +1,13 @@
 import {
   StdioChildClient,
   ChildMcpError,
+  classifyChildFailureDisposition,
   redactChildArgs,
+  type ChildFailureDisposition,
+  type ChildFailureKind,
   type ChildFailurePhase,
   type ChildMcpDiagnostic,
+  type ChildTransportStats,
 } from './client.js';
 import { resolveAdapterLaunch, type ResolvedAdapterLaunch } from './resolve.js';
 import type { AdaptersConfig, AdapterDef } from '../../core/types.js';
@@ -27,7 +31,21 @@ export type AdapterLifecycleState =
   | 'open'
   | 'half_open'
   | 'degraded'
+  | 'blocked'
   | 'stopped';
+
+export interface AdapterMetrics {
+  observedMs: number;
+  currentUptimeMs: number;
+  totalReadyMs: number;
+  availability: number;
+  totalFailures: number;
+  failureRatePerHour: number;
+  recoveries: number;
+  meanRecoveryMs: number | null;
+  failuresByKind: Partial<Record<ChildFailureKind, number>>;
+  failuresByDisposition: Record<ChildFailureDisposition, number>;
+}
 
 export interface AdapterStatus {
   name: AdapterName;
@@ -46,6 +64,9 @@ export interface AdapterStatus {
   lastStartAt?: string;
   lastReadyAt?: string;
   lastFailureAt?: string;
+  failureDisposition?: ChildFailureDisposition;
+  metrics: AdapterMetrics;
+  transport?: ChildTransportStats;
   launch?: {
     command: string;
     args: string[];
@@ -99,6 +120,16 @@ interface AdapterEntry {
   lastReadyAt: string | null;
   lastFailureAt: string | null;
   lastCountedFailure: string | null;
+  failureDisposition: ChildFailureDisposition | null;
+  createdAtMs: number;
+  readySinceMs: number | null;
+  totalReadyMs: number;
+  totalFailures: number;
+  recoveries: number;
+  totalRecoveryMs: number;
+  recoveryStartedAtMs: number | null;
+  failuresByKind: Partial<Record<ChildFailureKind, number>>;
+  failuresByDisposition: Record<ChildFailureDisposition, number>;
 }
 
 interface NormalizedRegistryOptions {
@@ -183,7 +214,7 @@ function unexpectedDiagnostic(
   };
 }
 
-function createEntry(name: string, def: AdapterDef): AdapterEntry {
+function createEntry(name: string, def: AdapterDef, now: number): AdapterEntry {
   return {
     name,
     def: { ...def, args: [...def.args], ...(def.env ? { env: { ...def.env } } : {}) },
@@ -205,6 +236,22 @@ function createEntry(name: string, def: AdapterDef): AdapterEntry {
     lastReadyAt: null,
     lastFailureAt: null,
     lastCountedFailure: null,
+    failureDisposition: null,
+    createdAtMs: now,
+    readySinceMs: null,
+    totalReadyMs: 0,
+    totalFailures: 0,
+    recoveries: 0,
+    totalRecoveryMs: 0,
+    recoveryStartedAtMs: null,
+    failuresByKind: {},
+    failuresByDisposition: {
+      transient: 0,
+      configuration: 0,
+      compatibility: 0,
+      resource: 0,
+      shutdown: 0,
+    },
   };
 }
 
@@ -254,12 +301,16 @@ export class ChildMcpRegistry {
   }
 
   upsert(name: string, def: AdapterDef): void {
-    this.entries.get(name)?.client?.stop();
-    this.entries.set(name, createEntry(name, def));
+    const existing = this.entries.get(name);
+    if (existing) this.closeReadyWindow(existing);
+    existing?.client?.stop();
+    this.entries.set(name, createEntry(name, def, this.now()));
   }
 
   remove(name: string): void {
-    this.entries.get(name)?.client?.stop();
+    const entry = this.entries.get(name);
+    if (entry) this.closeReadyWindow(entry);
+    entry?.client?.stop();
     this.entries.delete(name);
   }
 
@@ -273,6 +324,31 @@ export class ChildMcpRegistry {
 
   private now(): number {
     return this.lifecycle.now();
+  }
+
+  private closeReadyWindow(entry: AdapterEntry): void {
+    if (entry.readySinceMs === null) return;
+    entry.totalReadyMs += Math.max(0, this.now() - entry.readySinceMs);
+    entry.readySinceMs = null;
+  }
+
+  private metricsFor(entry: AdapterEntry): AdapterMetrics {
+    const now = this.now();
+    const observedMs = Math.max(0, now - entry.createdAtMs);
+    const currentUptimeMs = entry.readySinceMs === null ? 0 : Math.max(0, now - entry.readySinceMs);
+    const totalReadyMs = entry.totalReadyMs + currentUptimeMs;
+    return {
+      observedMs,
+      currentUptimeMs,
+      totalReadyMs,
+      availability: observedMs === 0 ? (entry.client?.isReady() ? 1 : 0) : totalReadyMs / observedMs,
+      totalFailures: entry.totalFailures,
+      failureRatePerHour: observedMs === 0 ? 0 : entry.totalFailures / (observedMs / 3_600_000),
+      recoveries: entry.recoveries,
+      meanRecoveryMs: entry.recoveries === 0 ? null : entry.totalRecoveryMs / entry.recoveries,
+      failuresByKind: { ...entry.failuresByKind },
+      failuresByDisposition: { ...entry.failuresByDisposition },
+    };
   }
 
   private refreshLifecycleState(entry: AdapterEntry): void {
@@ -306,8 +382,6 @@ export class ChildMcpRegistry {
 
   private recordFailure(entry: AdapterEntry, diagnostic: ChildMcpDiagnostic): void {
     entry.diagnostic = cloneDiagnostic(diagnostic);
-    entry.catalog = null;
-    entry.catalogGeneration += 1;
     entry.lastFailureAt = diagnostic.occurredAt;
 
     const token = [
@@ -318,24 +392,49 @@ export class ChildMcpRegistry {
       diagnostic.signal,
     ].join('|');
     if (entry.lastCountedFailure === token) return;
+
+    const now = this.now();
+    this.closeReadyWindow(entry);
+    entry.catalog = null;
+    entry.catalogGeneration += 1;
     entry.lastCountedFailure = token;
+    entry.failureDisposition = classifyChildFailureDisposition(diagnostic.kind);
+    entry.totalFailures += 1;
+    entry.failuresByKind[diagnostic.kind] = (entry.failuresByKind[diagnostic.kind] ?? 0) + 1;
+    entry.failuresByDisposition[entry.failureDisposition] += 1;
+    entry.recoveryStartedAtMs ??= now;
     entry.consecutiveFailures += 1;
-    entry.nextRetryAtMs = this.now() + this.retryDelayMs(entry.consecutiveFailures);
+
+    if (entry.failureDisposition !== 'transient') {
+      entry.nextRetryAtMs = 0;
+      entry.state = entry.failureDisposition === 'shutdown' ? 'stopped' : 'blocked';
+      return;
+    }
+
+    entry.nextRetryAtMs = now + this.retryDelayMs(entry.consecutiveFailures);
     entry.state = entry.consecutiveFailures >= this.lifecycle.circuitFailureThreshold
       ? 'open'
       : 'backoff';
   }
 
   private markReady(entry: AdapterEntry): void {
+    const now = this.now();
     const recovered = entry.startAttempts > 1 || entry.lazyStarted || entry.consecutiveFailures > 0;
     entry.lazyStarted = true;
     entry.successfulStarts += 1;
     if (recovered) entry.restartCount += 1;
+    if (entry.recoveryStartedAtMs !== null) {
+      entry.recoveries += 1;
+      entry.totalRecoveryMs += Math.max(0, now - entry.recoveryStartedAtMs);
+      entry.recoveryStartedAtMs = null;
+    }
+    entry.readySinceMs = now;
     entry.consecutiveFailures = 0;
     entry.nextRetryAtMs = 0;
     entry.diagnostic = null;
     entry.lastCountedFailure = null;
-    entry.lastReadyAt = new Date(this.now()).toISOString();
+    entry.failureDisposition = null;
+    entry.lastReadyAt = new Date(now).toISOString();
     entry.state = 'ready';
   }
 
@@ -423,7 +522,7 @@ export class ChildMcpRegistry {
     const entry = this.entries.get(name);
     if (!entry) throw new Error(`Adapter not configured: ${name}`);
     if (!entry.def.enabled) throw new Error(`Adapter disabled: ${name}`);
-    if (entry.stopped) throw this.unavailable(entry);
+    if (entry.stopped || entry.state === 'blocked') throw this.unavailable(entry);
     if (entry.client?.isReady()) {
       entry.state = 'ready';
       return entry.client;
@@ -481,13 +580,43 @@ export class ChildMcpRegistry {
     tools?: number;
     error?: string;
     nextRetryAt?: string;
+    failureDisposition?: ChildFailureDisposition;
+    metrics: AdapterMetrics;
+    transport?: ChildTransportStats;
     diagnostic?: ChildMcpDiagnostic;
   }> {
     const entry = this.entries.get(name);
-    if (!entry || !entry.def.enabled) return { enabled: false, ready: false, state: 'idle' };
+    if (!entry || !entry.def.enabled) {
+      const empty = entry ? this.metricsFor(entry) : {
+        observedMs: 0,
+        currentUptimeMs: 0,
+        totalReadyMs: 0,
+        availability: 0,
+        totalFailures: 0,
+        failureRatePerHour: 0,
+        recoveries: 0,
+        meanRecoveryMs: null,
+        failuresByKind: {},
+        failuresByDisposition: {
+          transient: 0,
+          configuration: 0,
+          compatibility: 0,
+          resource: 0,
+          shutdown: 0,
+        },
+      } satisfies AdapterMetrics;
+      return { enabled: false, ready: false, state: 'idle', metrics: empty };
+    }
     try {
       const tools = await this.catalog(name, true);
-      return { enabled: true, ready: true, state: 'ready', tools: tools.length };
+      return {
+        enabled: true,
+        ready: true,
+        state: 'ready',
+        tools: tools.length,
+        metrics: this.metricsFor(entry),
+        ...(entry.client ? { transport: entry.client.transportStats() } : {}),
+      };
     } catch (error) {
       const status = this.status().find((candidate) => candidate.name === name);
       return {
@@ -495,7 +624,12 @@ export class ChildMcpRegistry {
         ready: false,
         state: status?.state ?? 'degraded',
         error: error instanceof Error ? error.message : String(error),
+        metrics: status?.metrics ?? this.metricsFor(entry),
         ...(status?.nextRetryAt ? { nextRetryAt: status.nextRetryAt } : {}),
+        ...(status?.failureDisposition
+          ? { failureDisposition: status.failureDisposition }
+          : {}),
+        ...(status?.transport ? { transport: status.transport } : {}),
         ...(entry.diagnostic ? { diagnostic: cloneDiagnostic(entry.diagnostic)! } : {}),
       };
     }
@@ -526,6 +660,11 @@ export class ChildMcpRegistry {
         ...(entry.lastStartAt ? { lastStartAt: entry.lastStartAt } : {}),
         ...(entry.lastReadyAt ? { lastReadyAt: entry.lastReadyAt } : {}),
         ...(entry.lastFailureAt ? { lastFailureAt: entry.lastFailureAt } : {}),
+        ...(entry.failureDisposition
+          ? { failureDisposition: entry.failureDisposition }
+          : {}),
+        metrics: this.metricsFor(entry),
+        ...(entry.client ? { transport: entry.client.transportStats() } : {}),
         ...(entry.launch
           ? {
               launch: {
@@ -545,6 +684,7 @@ export class ChildMcpRegistry {
 
   stopAll(): void {
     for (const entry of this.entries.values()) {
+      this.closeReadyWindow(entry);
       entry.stopped = true;
       entry.state = 'stopped';
       entry.catalog = null;
@@ -556,6 +696,7 @@ export class ChildMcpRegistry {
     positiveSafeInteger(timeoutMs, 'timeoutMs');
     const stops: Promise<void>[] = [];
     for (const entry of this.entries.values()) {
+      this.closeReadyWindow(entry);
       entry.stopped = true;
       entry.state = 'stopped';
       entry.catalog = null;

@@ -17,7 +17,14 @@ import { defaultConfig, loadConfig } from '../core/config.js';
 import type { AdapterDef, FolderForgeConfig } from '../core/types.js';
 import { readFolderForgeVersion } from '../core/version.js';
 import { PluginManager } from '../plugins/plugin-manager.js';
-import { StdioChildClient, ChildMcpError, redactChildArgs, type ChildMcpDiagnostic } from '../adapters/child-mcp/client.js';
+import {
+  StdioChildClient,
+  ChildMcpError,
+  classifyChildFailureDisposition,
+  redactChildArgs,
+  type ChildMcpDiagnostic,
+  type ChildTransportStats,
+} from '../adapters/child-mcp/client.js';
 import { resolveAdapterLaunch, resolvePlaywrightMcpRuntime } from '../adapters/child-mcp/resolve.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
@@ -50,6 +57,9 @@ export interface AdapterReadinessProbeResult {
   cwd: string;
   source: 'custom' | 'package-local';
   tools: number;
+  protocolVersion?: string;
+  elapsedMs?: number;
+  transport?: ChildTransportStats;
   packageName?: string;
   packageVersion?: string;
 }
@@ -810,6 +820,7 @@ async function defaultAdapterReadinessProbe(
       diagnostic = value;
     },
   });
+  const startedAt = Date.now();
   try {
     await client.start();
     const tools = await client.listTools(5_000);
@@ -819,6 +830,9 @@ async function defaultAdapterReadinessProbe(
       cwd: launch.cwd ?? projectRoot,
       source: launch.source,
       tools: tools.length,
+      ...(client.protocolVersion() ? { protocolVersion: client.protocolVersion()! } : {}),
+      elapsedMs: Date.now() - startedAt,
+      transport: client.transportStats(),
       ...(launch.packageName ? { packageName: launch.packageName } : {}),
       ...(launch.packageVersion ? { packageVersion: launch.packageVersion } : {}),
     };
@@ -838,50 +852,76 @@ async function checkAdapterReadiness(
   findings: DoctorFinding[],
   probe: DoctorOptions['adapterProbe'] = defaultAdapterReadinessProbe
 ): Promise<void> {
-  const def = config.adapters.playwright;
-  if (!def || !def.enabled) {
-    findings.push(
-      finding(
-        'adapter.playwright.handshake',
-        'pass',
-        'info',
-        'Playwright adapter handshake probe was skipped because the adapter is disabled.',
-        'enabled=false'
-      )
-    );
-    return;
-  }
+  for (const [name, def] of adapterEntries(config)) {
+    const id = `adapter.${name}.handshake`;
+    const label = name === 'playwright' ? 'Playwright' : name;
+    if (!def.enabled) {
+      findings.push(
+        finding(
+          id,
+          'pass',
+          'info',
+          `${label} adapter handshake probe was skipped because the adapter is disabled.`,
+          'enabled=false'
+        )
+      );
+      continue;
+    }
 
-  try {
-    const result = await probe!('playwright', def, env, projectRoot);
-    findings.push(
-      finding(
-        'adapter.playwright.handshake',
-        'pass',
-        'info',
-        'Playwright child completed MCP initialize and tools/list.',
-        `phase=tools/list; command=${result.command}; args=${JSON.stringify(result.args)}; cwd=${result.cwd}; ` +
-          `source=${result.source}; tools=${result.tools}` +
-          (result.packageName ? `; package=${result.packageName}@${result.packageVersion}` : '')
-      )
-    );
-  } catch (error) {
-    const diagnostic = error instanceof ChildMcpError ? error.diagnostic : undefined;
-    findings.push(
-      finding(
-        'adapter.playwright.handshake',
-        'fail',
-        'error',
-        'Playwright child failed its MCP readiness handshake.',
-        diagnostic
-          ? `phase=${diagnostic.phase}; kind=${diagnostic.kind}; command=${diagnostic.command}; ` +
-            `args=${JSON.stringify(diagnostic.args)}; cwd=${diagnostic.cwd}; exit=${diagnostic.exitCode ?? 'none'}; ` +
-            `signal=${diagnostic.signal ?? 'none'}; timeout=${diagnostic.timedOut}; ` +
-            `spawnError=${diagnostic.spawnError || 'none'}; stderr=${diagnostic.stderrTail || 'none'}`
-          : errorText(error),
-        diagnostic?.remediation ?? 'Run folderforge setup browser, then run folderforge doctor again.'
-      )
-    );
+    try {
+      const result = await probe!(name, def, env, projectRoot);
+      const transport = result.transport
+        ? `; transport=${JSON.stringify({
+            bytesSent: result.transport.bytesSent,
+            bytesReceived: result.transport.bytesReceived,
+            requestsSent: result.transport.requestsSent,
+            responsesReceived: result.transport.responsesReceived,
+            pendingRequests: result.transport.pendingRequests,
+          })}`
+        : '';
+      findings.push(
+        finding(
+          id,
+          'pass',
+          'info',
+          name === 'playwright'
+            ? 'Playwright child completed MCP initialize and tools/list.'
+            : `${label} child completed MCP initialize and tools/list.`,
+          `phase=tools/list; command=${result.command}; args=${JSON.stringify(result.args)}; cwd=${result.cwd}; ` +
+            `source=${result.source}; tools=${result.tools}` +
+            (result.protocolVersion ? `; protocol=${result.protocolVersion}` : '') +
+            (result.elapsedMs !== undefined ? `; elapsedMs=${result.elapsedMs}` : '') +
+            transport +
+            (result.packageName ? `; package=${result.packageName}@${result.packageVersion}` : '')
+        )
+      );
+    } catch (error) {
+      const diagnostic = error instanceof ChildMcpError ? error.diagnostic : undefined;
+      const disposition = diagnostic
+        ? classifyChildFailureDisposition(diagnostic.kind)
+        : 'transient';
+      findings.push(
+        finding(
+          id,
+          'fail',
+          'error',
+          name === 'playwright'
+            ? 'Playwright child failed its MCP readiness handshake.'
+            : `${label} child failed its MCP readiness handshake.`,
+          diagnostic
+            ? `phase=${diagnostic.phase}; kind=${diagnostic.kind}; disposition=${disposition}; ` +
+              `command=${diagnostic.command}; args=${JSON.stringify(diagnostic.args)}; cwd=${diagnostic.cwd}; ` +
+              `exit=${diagnostic.exitCode ?? 'none'}; signal=${diagnostic.signal ?? 'none'}; ` +
+              `timeout=${diagnostic.timedOut}; spawnError=${diagnostic.spawnError || 'none'}; ` +
+              `stderr=${diagnostic.stderrTail || 'none'}`
+            : `disposition=${disposition}; ${errorText(error)}`,
+          diagnostic?.remediation ??
+            (name === 'playwright'
+              ? 'Run folderforge setup browser, then run folderforge doctor again.'
+              : 'Repair the adapter command or package, then run folderforge doctor again.')
+        )
+      );
+    }
   }
 }
 

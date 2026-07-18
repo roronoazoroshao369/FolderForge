@@ -6,6 +6,30 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add child-adapter lifecycle status and health evidence for state, PID, startup
+  attempts, restart/failure counts, retry timing, failure disposition, uptime,
+  observed availability, mean recovery time, failure histograms, and JSON-RPC
+  transport counters.
+- Add portable child-MCP safeguards for inbound/outbound JSON-RPC message size,
+  unterminated stdout buffering, pending-request backpressure, idle heartbeats,
+  bounded redacted stderr, and graceful-to-forced process-tree shutdown.
+- Extend `folderforge doctor` readiness probes to every enabled child MCP adapter,
+  including negotiated protocol, elapsed time, tool count, transport counters,
+  classified disposition, and remediation evidence.
+
+### Changed
+
+- Single-flight concurrent lazy adapter starts, retry transient failures with
+  exponential backoff and a circuit breaker, and allow one half-open recovery
+  probe after cooldown.
+- Mark configuration, protocol-compatibility, and resource-bound failures as
+  `blocked` until the adapter definition is replaced or reloaded, avoiding
+  unproductive respawn loops.
+- Never automatically replay a failed `tools/call`; recovery applies only to a
+  later request so uncertain side effects cannot be duplicated.
+
 ### Fixed
 
 - Negotiate child MCP protocol versions against the installed official SDK instead
@@ -14,6 +38,12 @@ semantic versioning.
 - Follow cursor-paginated child `tools/list` catalogs with cycle, page, and tool
   bounds, and invalidate cached catalogs only for capability-advertised
   `notifications/tools/list_changed` events.
+- Isolate JSON-RPC request errors, timeouts, and cancellation so one failed child
+  call no longer drains unrelated concurrent work; send cancellation notices and
+  ignore late responses safely.
+- Answer child-initiated ping requests, reject malformed protocol frames, drain
+  pending work on real connection failure, and prevent stale child exit events
+  from clobbering a restarted process.
 
 ## [2.3.2] - 2026-07-18
 
