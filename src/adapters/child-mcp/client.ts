@@ -739,16 +739,28 @@ export class StdioChildClient {
   }
 
   async stopAndWait(timeoutMs = 1_000): Promise<void> {
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 1) {
+      throw new RangeError('timeoutMs must be a positive finite number.');
+    }
     const child = this.child;
+    if (!child) return;
+    const exitPromise = new Promise<boolean>((resolveExit) => {
+      child.once('exit', () => resolveExit(true));
+    });
     this.stop();
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    if (child.exitCode !== null || child.signalCode !== null) return;
+
     const exited = await Promise.race([
-      new Promise<boolean>((resolveExit) => child.once('exit', () => resolveExit(true))),
+      exitPromise,
       new Promise<boolean>((resolveTimeout) => setTimeout(() => resolveTimeout(false), timeoutMs)),
     ]);
-    if (!exited && child.exitCode === null && child.signalCode === null) {
-      terminateChildProcessTree(child, true);
-    }
+    if (exited || child.exitCode !== null || child.signalCode !== null) return;
+
+    terminateChildProcessTree(child, true);
+    await Promise.race([
+      exitPromise,
+      new Promise<boolean>((resolveTimeout) => setTimeout(() => resolveTimeout(false), timeoutMs)),
+    ]);
   }
 
   stop(): void {

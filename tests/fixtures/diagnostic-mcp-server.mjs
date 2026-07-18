@@ -1,11 +1,26 @@
 #!/usr/bin/env node
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const mode = process.argv[2] ?? 'success';
 const auxiliaryFile = process.argv[3];
+const failUntil = Number(process.argv[4] ?? 0);
+let launchCount = 0;
+
 if (auxiliaryFile && mode === 'initialize-timeout') {
   writeFileSync(auxiliaryFile, String(process.pid), 'utf8');
+}
+
+if (auxiliaryFile && ['count-starts', 'slow-initialize-counted', 'initialize-fail-until'].includes(mode)) {
+  launchCount = existsSync(auxiliaryFile)
+    ? Number(readFileSync(auxiliaryFile, 'utf8')) + 1
+    : 1;
+  writeFileSync(auxiliaryFile, String(launchCount), 'utf8');
+}
+
+if (mode === 'initialize-fail-until' && launchCount <= failUntil) {
+  process.stderr.write(`transient initialize failure ${launchCount}/${failUntil}\n`);
+  process.exit(1);
 }
 
 let catalogRevision = 1;
@@ -97,6 +112,10 @@ lines.on('line', (line) => {
 
   if (message.method === 'initialize') {
     if (mode === 'initialize-timeout') return;
+    if (mode === 'slow-initialize-counted') {
+      setTimeout(() => initialize(message.id, message.params), 50);
+      return;
+    }
     initialize(message.id, message.params);
     return;
   }
