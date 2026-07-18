@@ -1,5 +1,8 @@
 # Implementation Log
 
+> **Status:** Historical implementation log. This file is not the current product, release, or compatibility contract. See [the documentation index](README.md).
+
+
 This log records product defects and developer-experience issues observed while
 using FolderForge itself to implement the AI/browser roadmap.
 

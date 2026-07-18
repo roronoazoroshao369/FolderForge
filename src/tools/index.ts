@@ -67,6 +67,16 @@ export async function registerAdapterTools(
   const adapterTools = await buildAdapterTools(container);
   registry.registerAll(adapterTools);
   if (activate) registry.activate(adapterTools.map((tool) => tool.name));
+
+  const playwright = container.adapters.status().find((adapter) => adapter.name === 'playwright');
+  if (!playwright?.enabled || !playwright.ready) {
+    const removed = registry.unregisterWhere((tool) => tool.group === 'browser');
+    if (removed.length > 0) {
+      // Browser wrappers are capability claims. Do not advertise them when the
+      // configured Playwright child is unavailable; diagnostics remain visible
+      // through workspace_status/workspace_health and doctor.
+    }
+  }
   return adapterTools.length;
 }
 

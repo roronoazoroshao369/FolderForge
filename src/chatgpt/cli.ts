@@ -653,7 +653,14 @@ async function runCommand(
   options: { cwd?: string; timeoutMs?: number } = {},
 ): Promise<RunResult> {
   return await new Promise<RunResult>((resolveRun, rejectRun) => {
-    const child = spawn(command, args, {
+    const auth0TestCli =
+      command === "auth0" && process.env.NODE_ENV === "test"
+        ? process.env.FOLDERFORGE_AUTH0_CLI_JS
+        : undefined;
+    const child = spawn(
+      auth0TestCli ? process.execPath : command,
+      auth0TestCli ? [auth0TestCli, ...args] : args,
+      {
       cwd: options.cwd,
       shell: false,
       windowsHide: true,

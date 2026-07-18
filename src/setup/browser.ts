@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { readFolderForgeVersion } from '../core/version.js';
+import { resolvePlaywrightMcpRuntime } from '../adapters/child-mcp/resolve.js';
 
 export type BrowserSetupExitCode = 0 | 1 | 2;
 
@@ -19,6 +19,8 @@ export interface BrowserSetupReport {
   stdout: string;
   stderr: string;
   error: string;
+  executablePath?: string;
+  runtimeVersion?: string;
 }
 
 export interface BrowserSetupCliResult {
@@ -36,21 +38,20 @@ interface RunResult {
 
 export interface BrowserSetupDependencies {
   resolvePlaywrightCli?: () => string;
+  resolveChromiumExecutable?: () => { executablePath: string; runtimeVersion: string };
   run?: (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => RunResult;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
 }
 
 const VERSION = readFolderForgeVersion();
-const requireFromSetup = createRequire(import.meta.url);
-
 function defaultResolvePlaywrightCli(): string {
-  const packageJsonPath = requireFromSetup.resolve('playwright/package.json');
-  const cliPath = join(dirname(packageJsonPath), 'cli.js');
-  if (!existsSync(cliPath)) {
-    throw new Error(`Playwright CLI is missing next to ${packageJsonPath}`);
-  }
-  return cliPath;
+  return resolvePlaywrightMcpRuntime().playwrightCliPath;
+}
+
+function defaultResolveChromiumExecutable(): { executablePath: string; runtimeVersion: string } {
+  const runtime = resolvePlaywrightMcpRuntime();
+  return { executablePath: runtime.chromiumExecutablePath, runtimeVersion: runtime.playwrightVersion };
 }
 
 function defaultRun(
@@ -130,6 +131,7 @@ function formatHuman(report: BrowserSetupReport): string {
       'FolderForge browser setup complete.',
       report.stdout.trim(),
       report.stderr.trim(),
+      report.executablePath ? `Chromium: ${report.executablePath}` : '',
       '',
     ].filter((line, index, all) => line || index === all.length - 1).join('\n');
   }
@@ -216,6 +218,13 @@ export function executeBrowserSetupCli(
   }
 
   const args = [cliPath, 'install', ...(withDeps ? ['--with-deps'] : []), 'chromium'];
+  let expectedRuntime: { executablePath: string; runtimeVersion: string } | undefined;
+  try {
+    expectedRuntime = (dependencies.resolveChromiumExecutable ?? defaultResolveChromiumExecutable)();
+  } catch {
+    // Dry-run can still show the exact package-local install command even when
+    // the runtime metadata is incomplete; real setup will fail verification.
+  }
   if (dryRun) {
     const report = makeReport({
       command: process.execPath,
@@ -226,6 +235,7 @@ export function executeBrowserSetupCli(
       stdout: '',
       stderr: '',
       error: '',
+      ...(expectedRuntime ? expectedRuntime : {}),
     });
     return {
       exitCode: 0,
@@ -235,7 +245,21 @@ export function executeBrowserSetupCli(
   }
 
   const result = (dependencies.run ?? defaultRun)(process.execPath, args, { cwd, env });
-  const exitCode: BrowserSetupExitCode = result.status === 0 ? 0 : 1;
+  let exitCode: BrowserSetupExitCode = result.status === 0 ? 0 : 1;
+  let verificationError = '';
+  let verifiedRuntime = expectedRuntime;
+  if (exitCode === 0) {
+    try {
+      verifiedRuntime = (dependencies.resolveChromiumExecutable ?? defaultResolveChromiumExecutable)();
+      if (!existsSync(verifiedRuntime.executablePath)) {
+        exitCode = 1;
+        verificationError = `Chromium executable is still missing after setup: ${verifiedRuntime.executablePath}`;
+      }
+    } catch (error) {
+      exitCode = 1;
+      verificationError = `Could not verify the @playwright/mcp Chromium runtime: ${errorText(error)}`;
+    }
+  }
   const report = makeReport({
     command: process.execPath,
     args,
@@ -244,7 +268,10 @@ export function executeBrowserSetupCli(
     exitCode,
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
-    error: result.error ? errorText(result.error) : exitCode === 0 ? '' : `Playwright exited with code ${String(result.status)}.`,
+    error: result.error
+      ? errorText(result.error)
+      : verificationError || (exitCode === 0 ? '' : `Playwright exited with code ${String(result.status)}.`),
+    ...(verifiedRuntime ? verifiedRuntime : {}),
   });
   return {
     exitCode,

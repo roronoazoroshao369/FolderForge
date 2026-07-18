@@ -54,6 +54,7 @@ describe('folderforge setup browser', () => {
     const env = { PATH: '/custom/bin', HTTPS_PROXY: 'http://proxy.invalid' };
     const result = executeBrowserSetupCli(['browser', '--json'], {
       resolvePlaywrightCli: () => cliPath,
+      resolveChromiumExecutable: () => ({ executablePath: process.execPath, runtimeVersion: 'test' }),
       run,
       cwd: projectDir,
       env,

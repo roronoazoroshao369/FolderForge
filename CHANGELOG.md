@@ -6,6 +6,10 @@ semantic versioning.
 
 ## [Unreleased]
 
+No changes have been recorded since 2.3.0.
+
+## [2.3.0] - 2026-07-18
+
 ### Added
 
 - Add a shared ChatGPT lifecycle state machine for CLI and dashboard, covering
@@ -99,6 +103,16 @@ semantic versioning.
   never deleted automatically.
 - Extend CLI/dashboard redaction to bearer credentials, complete JWTs, common
   token/secret assignments, and API-key-shaped values.
+
+## [2.2.3] - 2026-07-17
+
+### Added
+
+- Add regression coverage for the expanded ChatGPT lifecycle and Auth0 management flows.
+
+### Changed
+
+- Bump package and lockfile metadata to 2.2.3.
 
 ## [2.2.2] - 2026-07-16
 

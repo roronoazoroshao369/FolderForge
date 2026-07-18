@@ -103,7 +103,14 @@ async function runAuth0(
   timeoutMs = 30_000,
 ): Promise<CommandResult> {
   return await new Promise<CommandResult>((resolve) => {
-    const child = spawn("auth0", args, {
+    const testCli =
+      process.env.NODE_ENV === "test"
+        ? process.env.FOLDERFORGE_AUTH0_CLI_JS
+        : undefined;
+    const child = spawn(
+      testCli ? process.execPath : "auth0",
+      testCli ? [testCli, ...args] : args,
+      {
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,

@@ -1,5 +1,8 @@
 # Roadmap
 
+> **Status:** Historical delivery record. This file is not the current product, release, or compatibility contract. See [the documentation index](README.md).
+
+
 Release history and production-readiness roadmap for FolderForge.
 
 ## Current stable track

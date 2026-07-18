@@ -1,20 +1,43 @@
 # FolderForge
 
-FolderForge turns any local folder into a safe, full-tool MCP workspace for AI agents.
+> Turn a local project folder into a governed MCP workspace for AI coding agents.
 
-## Installation
+[![CI](https://github.com/roronoazoroshao369/FolderForge/actions/workflows/ci.yml/badge.svg)](https://github.com/roronoazoroshao369/FolderForge/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@musashishao/folderforge)](https://www.npmjs.com/package/@musashishao/folderforge)
+[![Node](https://img.shields.io/node/v/@musashishao/folderforge)](package.json)
+[![License](https://img.shields.io/npm/l/@musashishao/folderforge)](LICENSE)
 
-FolderForge is a single CLI (`folderforge`) that an AI coding agent launches over
-stdio. It needs **Node.js >= 22**. It runs against any project folder you point
-it at with `--project`; a config file is optional (without one it allows just
-that project directory and applies safe defaults).
+FolderForge is a local-first MCP server and CLI. Point it at a project and an MCP
+client can inspect files, search code, run governed commands, use Git and build
+tools, and optionally connect browser, database, plugin, workflow, and Godot
+capabilities. Path restrictions, risk policy, approvals, secret redaction, rate
+limits, and audit logging remain enforced on the server side.
 
-### Option 1 - npx (no install, recommended)
+## Quick start
 
-The fastest path: let your agent run FolderForge on demand. Nothing to install
-globally. Point any MCP client at it:
+**Requirements:** Node.js 22 or 24 and an MCP client that supports stdio.
 
-```jsonc
+Check the published CLI:
+
+```bash
+npx -y @musashishao/folderforge --version
+npx -y @musashishao/folderforge --help
+```
+
+Run FolderForge for the current project:
+
+```bash
+npx -y @musashishao/folderforge --project . --stdio
+```
+
+The process waits for MCP JSON-RPC on stdin. In normal use your MCP client starts
+this command for you.
+
+### Claude Desktop or a generic MCP client
+
+Replace the project path with an absolute path:
+
+```json
 {
   "mcpServers": {
     "folderforge": {
@@ -22,568 +45,222 @@ globally. Point any MCP client at it:
       "args": [
         "-y",
         "@musashishao/folderforge",
-        "--stdio",
         "--project",
-        "/absolute/path/to/your-project",
-      ],
-    },
-  },
+        "/absolute/path/to/project",
+        "--stdio"
+      ]
+    }
+  }
 }
 ```
 
-Try it in a terminal first:
+### Codex
 
-```bash
-npx -y @musashishao/folderforge --project . --stdio
+Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.folderforge]
+command = "npx"
+args = [
+  "-y",
+  "@musashishao/folderforge",
+  "--project",
+  "/absolute/path/to/project",
+  "--stdio",
+]
 ```
 
-### Option 2 - global install from npm
+### Cursor
 
-Install once, then call `folderforge` from anywhere:
+Create an MCP server using command `npx` and these arguments:
+
+```text
+-y
+@musashishao/folderforge
+--project
+/absolute/path/to/project
+--stdio
+```
+
+Use an absolute project path because desktop clients may start servers from an
+unexpected working directory.
+
+## Install globally
 
 ```bash
 npm install -g @musashishao/folderforge
 folderforge --version
-
-# run against any folder
-cd /path/to/your-project
-folderforge --stdio --project .
+folderforge doctor
+folderforge --project /absolute/path/to/project --stdio
 ```
 
-Agent config when installed globally:
+A global install is convenient when several MCP clients share the same Node
+installation. `npx` is the simpler default because it does not require a global
+binary.
 
-```jsonc
-{
-  "mcpServers": {
-    "folderforge": {
-      "command": "folderforge",
-      "args": ["--stdio", "--project", "/absolute/path/to/your-project"],
-    },
-  },
-}
+## Browser tools
+
+Browser downloads are deliberately excluded from package installation. Set up
+the package-compatible Chromium runtime explicitly:
+
+```bash
+folderforge setup browser --dry-run --json
+folderforge setup browser
+folderforge doctor
 ```
 
-### Option 3 - from source (Git, for contributors)
+On supported Linux hosts that also need operating-system dependencies:
 
-Clone and build when you want to hack on FolderForge or run an unreleased
-version:
+```bash
+folderforge setup browser --with-deps
+```
+
+FolderForge resolves the Playwright runtime from its installed dependency tree;
+the built-in adapter does not launch a mutable `npx` package. If Playwright or
+Chromium is unavailable, FolderForge keeps non-browser tools usable and does not
+advertise unusable `browser_*` wrappers. See
+[Playwright setup and diagnostics](docs/playwright-macos.md).
+
+## Core capabilities
+
+- **Workspace:** activate one or more project roots and inspect health.
+- **Files and code:** governed reads, writes, searches, diffs, code context, and
+  transactional patches.
+- **Commands and builds:** shell, managed processes, tests, builds, formatting,
+  coverage, and package-manager operations.
+- **Git:** status, diff, history, branches, commits, fetch/pull/push under policy.
+- **MCP composition:** namespace or facade child MCP servers and local plugins.
+- **Workflows:** persistent role-scoped plans with checkpoints and bounded
+  evidence.
+- **Optional integrations:** Playwright browser tools, databases, OAuth/ChatGPT,
+  and a shipped Godot 4 addon.
+
+The exact CLI and tool reference lives in [the documentation index](docs/README.md)
+rather than this landing page.
+
+## Safety model
+
+FolderForge treats the agent as capable but not fully trusted.
+
+- Paths must remain inside configured workspace roots and pass denied-glob,
+  symlink/junction, and protected-directory checks.
+- Commands and tools are classified by risk and evaluated under `readonly`,
+  `safe`, `dev`, or `danger` policy.
+- High-risk and critical actions may require a separate administrator approval.
+  Agent MCP clients cannot approve their own requests or elevate policy.
+- Arguments, output, approvals, diagnostics, and audit records use bounded secret
+  redaction.
+- HTTP defaults to loopback. Non-loopback use requires explicit authentication.
+
+`--policy danger` does not by itself bypass critical approvals. The
+`--dangerously-allow-critical` escape hatch is for isolated development only.
+Read [Security](SECURITY.md) and the [technical security model](docs/security.md)
+before exposing FolderForge beyond a trusted local machine.
+
+## Authenticated HTTP
+
+Stdio is the recommended local MCP transport. HTTP is useful for a fixed trusted
+client or an OAuth deployment.
+
+Generate a strong token and start a loopback endpoint:
+
+```bash
+TOKEN="$(openssl rand -hex 32)"
+folderforge --project . --http --auth token --require-auth \
+  --host 127.0.0.1 --port 7331 --token "$TOKEN"
+```
+
+Call it with a bearer token:
+
+```bash
+curl -sS -X POST http://127.0.0.1:7331/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"example","version":"1.0.0"}}}'
+```
+
+Static credentials never act as OAuth credentials. OAuth mode never falls back
+to `X-API-Key`. For ChatGPT/Auth0 and external authorization-server setup, use:
+
+- [ChatGPT connection guide](docs/chatgpt-connect.md)
+- [OAuth deployment reference](docs/oauth.md)
+- [OAuth architecture decision](docs/adr-0004-oauth-resource-server.md)
+
+## Tool surface
+
+Clients with a tool-count limit can select a preset:
+
+```bash
+folderforge --project . --stdio --tools-preset vibe
+folderforge --project . --stdio --tools-preset vibe-lite
+folderforge --project . --stdio --tools-preset readonly
+folderforge --project . --stdio --tools-preset full
+```
+
+You can also enable groups or individual tools. Run `folderforge --help` and see
+[Tools reference](docs/tools.md). Tool counts are intentionally not hard-coded
+here because integrations and generated surfaces can change.
+
+## Godot addon
+
+The npm package includes `addons/folderforge_bridge`, the Godot 4 runtime bridge
+used by FolderForge's live-game tools. Copy that directory into a Godot project,
+enable the plugin, and follow [the Godot guide](docs/godot-mcp.md). The bridge
+binds to loopback by default and does not replace FolderForge policy or approval
+checks.
+
+## From source
 
 ```bash
 git clone https://github.com/roronoazoroshao369/FolderForge.git
 cd FolderForge
-npm install
-npm run build        # emits dist/
-
-# optional: expose the `folderforge` command system-wide
-npm link
-
-# or run directly without linking
-node dist/main.js --stdio --project /path/to/your-project
+npm ci --ignore-scripts
+npm run build
+npm test
+node dist/main.js --version
 ```
 
-During development you can skip the build step and run the TypeScript source
-directly:
+During development:
 
 ```bash
-npm run dev -- --stdio --project /path/to/your-project
+npm run dev -- --project . --stdio
 ```
 
-You can also install straight from a Git remote without a published npm release:
+Run the complete local release gate:
 
 ```bash
-npm install -g github:roronoazoroshao369/FolderForge
+npm run release:check
 ```
 
-### Pointing at a different folder
+A local pass is not proof that another operating system passed. Platform claims
+must come from CI or direct evidence for the exact revision.
 
-The folder FolderForge serves is independent of where it is installed. Set the
-working project with `--project` (and, if you use a config file, make sure its
-`workspace.allowedDirectories` includes that folder). To work across several
-projects at once, list them all in `allowedDirectories`.
+## Documentation
 
-### Limiting the tool surface (tool list caps)
+Start at [docs/README.md](docs/README.md).
 
-Some MCP clients cap how many tools they will load (around 50). FolderForge
-exposes a large native catalog, so you can trim the advertised list at startup
-to a focused set. The filter is applied before the first `tools/list`, so the
-client never sees the tools you excluded. Most presets retain the `workspace`
-group; `vibe-lite` is intentionally folder-scoped and is the exception.
+- [Getting started and compatibility](docs/README.md#getting-started)
+- [Tools and adapters](docs/README.md#reference)
+- [Security](docs/README.md#security)
+- [Architecture](docs/README.md#architecture)
+- [Migration](docs/README.md#migration)
+- [Release process](docs/releasing.md)
+- [Contributing](CONTRIBUTING.md)
+- [Support](SUPPORT.md)
 
-Fastest path - the `vibe` preset (workspace, workflow, agent, file, search,
-terminal, process, git, code, build):
+## Compatibility
 
-```jsonc
-{
-  "mcpServers": {
-    "folderforge": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@musashishao/folderforge",
-        "--stdio",
-        "--project",
-        "/path/to/project",
-        "--tools-preset",
-        "vibe",
-      ],
-    },
-  },
-}
-```
+FolderForge supports Node.js 22 and 24. The required CI matrix covers Ubuntu,
+macOS, and Windows. See [Compatibility](docs/compatibility.md) for the current
+contract and evidence rules.
 
-Other ways to control it (CLI flags override the config file):
+## Contributing
 
-```bash
-# Pick whole groups
-folderforge --stdio --project . --tools-groups file,search,terminal,git,code,build
-
-# Start from a preset, then fine-tune
-folderforge --stdio --project . --tools-preset vibe --tools-disable search_ast --tools-enable run_test
-```
-
-Available presets: `vibe` (71-tool coding/workflow surface in the audited tree),
-`vibe-lite` (folder-scoped coding plus all browser wrappers, hard-capped at 50),
-`readonly` (42-tool exploration-oriented surface), and `full` (269 native tools
-before dynamic child/plugin tools). Groups include `workspace`, `workflow`,
-`agent`, `file`, `search`, `terminal`, `process`, `git`, `build`, `code`, `pkg`,
-`format`, `coverage`, `memory`, `security`, `browser`, `db`, `plugin`, and `game`.
-
-Or set it in `folderforge.yaml` so you don't repeat flags:
-
-```yaml
-tools:
-  preset: vibe
-  # enabledGroups: [file, search, git, code, terminal]
-  # enabled: [run_test]
-  # disabled: [search_ast]
-```
-
-## What it does
-
-- Activates a local workspace (single or multiple projects at once)
-- Exposes MCP tools over stdio and localhost HTTP
-- Enforces path, command, and secret policy with a four-level risk model
-- Gates sensitive actions behind an approval queue (persisted across restarts)
-- Records every call to an append-only audit log
-- Supports file, search, shell, process, git, build, code-intelligence,
-  memory, browser, and database workflows
-
-## Status
-
-The package metadata currently targets **2.2.3**. Changes under
-`[Unreleased]` add the complete ChatGPT DCR lifecycle, shared CLI/dashboard state,
-scoped default third-party Auth0 grants, repair actions, receipt v2 migration, and
-expanded regression coverage.
-
-Release readiness is established by the repository gates documented in
-`docs/releasing.md`: typecheck, lint, the complete unit/integration suite, build,
-dependency audits, packed-tarball installation, CLI/stdio smoke, and authenticated
-HTTP MCP smoke. A local passing gate does not publish npm, push Git, create a tag,
-or create a hosted release.
-
-Core capabilities include:
-
-- **Governance** — multi-project activation, workspace/path/command/secret policy,
-  exact approvals, rate limits, append-only audit, and persisted workflows.
-- **MCP** — stdio and authenticated Streamable HTTP, OAuth resource-server mode,
-  structured errors, progress, cancellation, elicitation, embedded resources,
-  child facades, and dynamic adapters.
-- **ChatGPT** — one-command Auth0/DCR provisioning, exact client detection,
-  connection/grant repair, authorize verification, shared lifecycle dashboard,
-  and credential-safe diagnostics.
-- **Developer runtime** — bounded code context, transactional edits,
-  verification/report tools, browser wrappers, database helpers, and Godot
-  integration.
-
-See `docs/roadmap.md`, `docs/releasing.md`, `docs/compatibility.md`,
-`docs/chatgpt-connect.md`, and `docs/migration-chatgpt-lifecycle-v2.md`.
-
-### MCP protocol features (1.2)
-
-Beyond `tools/list` / `tools/call`, FolderForge supports progress
-notifications (P4), cancellation (P6), and elicitation (P8), wired through a
-per-call control object that leaves the frozen tool schema untouched.
-
-#### Approval administration boundary
-
-When a tool is gated by the approval queue (for example `git_commit`, `git_push`,
-or `file_delete`), the agent receives an `approvalId` and cannot resolve it over
-the MCP tool plane. Approval resolution is restricted to the dashboard admin
-plane (`http://localhost:7332 → Approvals`).
-
-Each request records the requester principal and an expiry. A distinct admin
-principal may grant `once` (exact requester + tool + canonical arguments, consumed
-once) or `session` (requester + tool for the current process). Self-approval,
-expired approvals, argument replay, and approval reuse by another principal are
-rejected. Runtime policy changes, including elevation to `danger`, are also
-admin-plane operations; the agent-facing registry does not advertise them.
-
-#### Embedded resources
-
-Tool results can now carry MCP content blocks beyond plain text. `git_diff`
-attaches the diff as an embedded `text/x-diff` resource, and child MCP image
-blocks are promoted so `browser_screenshot` can render directly in
-vision-capable clients. Other tools may attach `resource_link` blocks pointing
-to local file URIs or dashboard URLs. Promoted image base64 is not duplicated in
-the compatibility text summary.
-
-`git_reset`, `git_push`, and `git_pull` confirm interactively before acting
-when the client supports elicitation, and `git_push` / `git_fetch` / `git_pull`
-/ `process_tail` emit progress notifications.
-
-## Run
-
-The default transport is **stdio** (for agents). You can also serve over
-**HTTP** on a port.
-
-### From source (dev)
-
-```bash
-npm install
-npm run dev -- --stdio
-```
-
-or over HTTP:
-
-```bash
-npm run dev -- --http --port 7331 --host 127.0.0.1
-```
-
-### Via npx (no install)
-
-stdio:
-
-```bash
-npx -y @musashishao/folderforge --project . --stdio
-```
-
-HTTP with an API key and a trimmed tool surface - this is a complete,
-copy-pasteable example:
-
-```bash
-npx -y @musashishao/folderforge --project . --http --port 17331 \
-  --api-key "key" --tools-preset vibe-lite
-```
-
-What that command does:
-
-- serves MCP over HTTP on `http://127.0.0.1:17331/mcp` (default host is loopback);
-- sets one API key (`key`), which **turns auth on** - every request must send it,
-  even on localhost;
-- limits the advertised tools to the `vibe-lite` preset (capped at 50).
-
-Call it from a client:
-
-```bash
-curl -sS -X POST http://127.0.0.1:17331/mcp \
-  -H "X-API-Key: key" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
-### CLI commands
-
-| Command                                                               | Description                                                                                                        |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `folderforge doctor [--json]`                                         | Run read-only installation, configuration, dependency, port, plugin, and state diagnostics                         |
-| `folderforge setup browser [--with-deps]`                             | Explicitly install package-compatible Playwright Chromium; may access the network                                  |
-| `folderforge setup browser --dry-run --json`                          | Resolve the exact package-local setup command without downloading anything                                         |
-| `folderforge connect chatgpt [--quick\|--secure]`                     | Provision/repair Auth0, start connectivity, verify OAuth, wait for the ChatGPT DCR client, and prepare login       |
-| `folderforge chatgpt status\|doctor\|repair\|start\|stop\|disconnect` | Inspect and repair the shared ChatGPT lifecycle, runtime, Auth0 client, connection, grant, and authorize readiness |
-
-### All CLI options
-
-| Flag                                   | Description                                                                              |
-| -------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `-p, --project <dir>`                  | Project root to activate (default: cwd)                                                  |
-| `-c, --config <file>`                  | Path to a YAML config file                                                               |
-| `--http`                               | Serve MCP over Streamable HTTP                                                           |
-| `--port <n>`                           | HTTP MCP port (default 7331)                                                             |
-| `--host <addr>`                        | Bind address (default 127.0.0.1)                                                         |
-| `--token <secret>`                     | Primary credential for the HTTP endpoint                                                 |
-| `--api-key <csv>`                      | Extra API keys (repeatable / comma-separated)                                            |
-| `--require-auth`                       | Enforce auth even on a loopback bind                                                     |
-| `--auth <mode>`                        | HTTP auth mode: `none`, `token`, or `oauth`                                              |
-| `--oauth-resource <url>`               | Canonical public MCP resource URL (normally the public `/mcp` URL)                       |
-| `--oauth-issuer <url>`                 | External OAuth authorization-server issuer                                               |
-| `--oauth-scopes <csv>`                 | Scopes advertised by protected-resource metadata                                         |
-| `--oauth-read-scope <scope>`           | Scope required for MCP read access                                                       |
-| `--oauth-write-scope <scope>`          | Additional scope required by mutating tools                                              |
-| `--oauth-client-registration <mode>`   | `cimd`, `dcr`, or `predefined`                                                           |
-| `--oauth-jwks-uri <url>`               | Explicit trusted JWKS URI override                                                       |
-| `--oauth-trusted-jwks-hosts <csv>`     | Exact trusted JWKS `host[:port]` values                                                  |
-| `--oauth-algorithms <csv>`             | Allowed asymmetric JWT algorithms                                                        |
-| `--oauth-resource-documentation <url>` | Public documentation URL included in protected-resource metadata                         |
-| `--unsafe-oauth-http`                  | Development only: permit loopback HTTP issuer/resource URLs                              |
-| `--dashboard-port <n>`                 | Dashboard port (default 7332)                                                            |
-| `--no-dashboard`                       | Disable the local dashboard                                                              |
-| `--tools-preset <id>`                  | `vibe` \| `vibe-lite` \| `readonly` \| `full`                                            |
-| `--tools-groups <csv>`                 | Limit advertised tools to these groups                                                   |
-| `--tools-enable <csv>`                 | Always-keep tool names                                                                   |
-| `--tools-disable <csv>`                | Drop these tool names                                                                    |
-| `--policy <mode>`                      | Policy mode at startup: `readonly` \| `safe` \| `dev` \| `danger` (CLI wins over config) |
-| `-v, --version`                        | Print version and exit                                                                   |
-| `-h, --help`                           | Show help                                                                                |
-
-## Zero-config first run (new in 1.4.0)
-
-You no longer have to hand-write a config to get the full feature set. On the
-first run in a project, if no config file exists yet, FolderForge writes a
-complete `folderforge.yaml` next to your project and loads it immediately. So
-this is enough:
-
-```bash
-npm install -g @musashishao/folderforge
-folderforge --project . --http --port 3112 --tools-preset vibe-lite --no-dashboard
-```
-
-The generated `folderforge.yaml` is **batteries-included**:
-
-- `policy.defaultMode: dev`
-- `tools.preset: vibe-lite` (folder-scoped coding set + the full `browser` group)
-- **`adapters.playwright.enabled: true`** - so the `browser_*` tools (navigate,
-  viewport resize, click, type, snapshot, console, network, screenshot, eval)
-  actually run for FE / UI-UX testing instead of returning _"Playwright adapter
-  is disabled"_. Generated adapter args include `--isolated` so concurrent
-  FolderForge instances do not lock the same browser profile.
-
-Rules:
-
-- It is only written when **no** config is found in any discovery location
-  (`folderforge.yaml`, `.folderforge.yaml`, `.folderforge/config.yaml`, or
-  `$FOLDERFORGE_CONFIG`). An existing file is **never** overwritten.
-- Passing `--config <file>` skips auto-generation entirely.
-- A failed write is non-fatal: FolderForge logs a warning and falls back to the
-  built-in defaults.
-- CLI flags still override the file (e.g. `--port 3112` wins over the file's port).
-
-Playwright is installed as a package dependency, but FolderForge does **not**
-download a browser during `npm install`, global install, or `npx` startup. Browser
-installation is an explicit, network-capable setup step:
-
-```bash
-folderforge setup browser
-
-# Linux hosts that also need Playwright's operating-system packages
-folderforge setup browser --with-deps
-```
-
-The setup command resolves the Playwright CLI shipped with the installed
-FolderForge dependency graph; it does not invoke a mutable `npx` package. Run
-`folderforge doctor` to check whether Chromium is available. Non-browser tools
-continue to work when Chromium is intentionally absent.
-
-## Authentication
-
-FolderForge has three HTTP authentication modes. Stdio remains protected by the
-local process boundary and does not use the HTTP OAuth flow.
-
-| Mode    | Intended use                             | Behavior                                                                           |
-| ------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
-| `none`  | loopback-only local development          | rejected on non-loopback binds                                                     |
-| `token` | scripts and trusted fixed clients        | static Bearer or `X-API-Key`; legacy omitted-mode inference remains supported      |
-| `oauth` | ChatGPT and user-delegated remote access | external OAuth 2.1 authorization server; JWT/JWKS verification and per-tool scopes |
-
-When `server.http.auth.mode` is omitted, existing behavior is preserved: a
-configured token/API key enables static auth, while a credential-free loopback
-bind remains local-only. A non-loopback token-mode bind now fails startup unless
-a credential is explicitly configured; FolderForge never prints generated
-credentials into logs.
-
-### Static token/API-key mode
-
-```bash
-folderforge --http --auth token --host 127.0.0.1 --port 7331 \
-  --token "$(openssl rand -base64 32)"
-```
-
-Clients may send `Authorization: Bearer <credential>` or `X-API-Key:
-<credential>`. Static credentials never act as OAuth credentials, and OAuth mode
-never falls back to `X-API-Key`.
-
-### OAuth mode for ChatGPT
-
-FolderForge acts as an OAuth **resource server only**. Auth0 owns login,
-consent, exact redirect validation, Authorization Code + PKCE S256, token
-issuance, refresh, and revocation. FolderForge publishes RFC 9728 metadata,
-validates access JWTs, binds the exact issuer and audience, and requires
-`folderforge:read` for MCP access plus `folderforge:write` for mutations.
-
-The primary path is one command:
-
-```bash
-folderforge connect chatgpt
-```
-
-FolderForge provisions or repairs the Auth0 resource server, starts the local
-server and public endpoint, verifies metadata and the unauthenticated `401`
-challenge, prints the MCP URL, and waits for ChatGPT:
-
-```text
-Waiting for ChatGPT to register an OAuth client...
-```
-
-Create the connector in ChatGPT with that URL and click Connect. Before exposing
-the URL, FolderForge creates a `subject_type=user` default grant restricted to the
-exact MCP audience and required scopes, so current and future third-party DCR
-clients are authorized without a timing-dependent repair. FolderForge then safely
-detects the new client, verifies the login connection and `/authorize` request,
-and does not require copying a `tpc_*` client ID or running Auth0 API commands.
-
-When the CLI reports:
-
-```text
-OAuth is ready. Return to ChatGPT and complete sign-in.
-```
-
-finish Auth0 login or consent in ChatGPT. FolderForge reports `CONNECTED` only
-after an authenticated MCP tool call is recorded from the exact verified OAuth
-client.
-
-The shared CLI/dashboard lifecycle is:
-
-```text
-UNCONFIGURED
-→ AUTH0_READY
-→ RESOURCE_SERVER_READY
-→ LOCAL_SERVER_READY
-→ PUBLIC_ENDPOINT_READY
-→ OAUTH_METADATA_READY
-→ WAITING_FOR_CHATGPT_CLIENT
-→ CHATGPT_CLIENT_DETECTED
-→ LOGIN_CONNECTIONS_READY
-→ USER_GRANT_READY
-→ AUTHORIZE_READY
-→ READY_TO_COMPLETE_LOGIN
-→ CONNECTED
-```
-
-Auth0 quick mode uses `user.require_client_grant` and `client.deny_all`; FolderForge
-creates the required user grant only for the verified client. Matching requires
-exact ChatGPT DCR metadata, bounded ChatGPT callbacks, the connect-session
-boundary, and an Auth0 log proving the exact FolderForge resource. Multiple
-matches fail closed.
-
-Useful lifecycle commands:
-
-```bash
-folderforge connect chatgpt --wait
-folderforge chatgpt status
-folderforge chatgpt doctor
-folderforge chatgpt repair
-folderforge chatgpt repair --no-start
-folderforge chatgpt start
-folderforge chatgpt stop
-folderforge chatgpt disconnect
-```
-
-A stable public endpoint can keep the automatic DCR lifecycle:
-
-```bash
-folderforge connect chatgpt --quick \
-  --public-url https://mcp.example.com/mcp \
-  --tunnel none
-```
-
-A temporary Cloudflare quick tunnel is development-only. When its hostname
-changes, the OAuth resource/audience changes; FolderForge does not silently grant
-the old ChatGPT client access to the new resource.
-
-Use predefined-client mode only when deployment policy forbids DCR:
-
-```bash
-folderforge connect chatgpt --secure \
-  --public-url https://mcp.example.com/mcp
-```
-
-Enable the local lifecycle dashboard with `--dashboard`. It uses the same state
-model as the CLI and shows overall status, timeline, diagnostics, repair actions,
-configuration, and bounded redacted logs.
-
-FolderForge never stores or displays Auth0 Management tokens, access/refresh/ID
-tokens, authorization codes, client secrets, private keys, PKCE verifiers,
-passwords, cookies, browser sessions, or complete JWTs. OAuth scope remains only
-one layer: every tool call still passes workspace, policy, approval, rate-limit,
-and audit controls.
-
-Receipt version 1 is migrated to version 2 on read/write. See
-[the one-command guide](docs/chatgpt-connect.md) and
-[the migration notes](docs/migration-chatgpt-lifecycle-v2.md).
-
-Manual/external-IdP configuration remains available:
-
-```bash
-folderforge --http --auth oauth --host 0.0.0.0 --port 7331 \
-  --oauth-resource https://mcp.example.com/mcp \
-  --oauth-issuer https://auth.example.com \
-  --oauth-scopes folderforge:read,folderforge:write \
-  --oauth-client-registration cimd \
-  --no-dashboard
-```
-
-Equivalent YAML:
-
-```yaml
-server:
-  transport: http
-  http:
-    host: 0.0.0.0
-    port: 7331
-    auth:
-      mode: oauth
-      oauth:
-        resource: https://mcp.example.com/mcp
-        issuer: https://auth.example.com
-        scopes: [folderforge:read, folderforge:write]
-        readScope: folderforge:read
-        writeScope: folderforge:write
-        clientRegistration: cimd
-```
-
-Production OAuth requires HTTPS for both the canonical resource and issuer.
-Loopback HTTP is available only for deterministic development/tests with
-`--unsafe-oauth-http`. The protected-resource metadata URL for the example is
-`https://mcp.example.com/.well-known/oauth-protected-resource/mcp` (with a root
-fallback also served).
-
-Environment equivalents include `FOLDERFORGE_HTTP_AUTH`,
-`FOLDERFORGE_OAUTH_RESOURCE`, `FOLDERFORGE_OAUTH_ISSUER`,
-`FOLDERFORGE_OAUTH_SCOPES`, `FOLDERFORGE_OAUTH_READ_SCOPE`,
-`FOLDERFORGE_OAUTH_WRITE_SCOPE`, `FOLDERFORGE_OAUTH_CLIENT_REGISTRATION`,
-`FOLDERFORGE_OAUTH_JWKS_URI`, `FOLDERFORGE_OAUTH_TRUSTED_JWKS_HOSTS`,
-`FOLDERFORGE_OAUTH_ALGORITHMS`, and
-`FOLDERFORGE_OAUTH_ALLOW_INSECURE_HTTP`. Precedence is CLI > environment > YAML
-
-> built-in/legacy behavior.
-
-See [the one-command Auth0/ChatGPT guide](docs/chatgpt-connect.md),
-[OAuth setup and ChatGPT validation](docs/oauth.md),
-[the architecture decision](docs/adr-0004-oauth-resource-server.md), and
-[security hardening](docs/security.md).
-
-## Develop
-
-```bash
-npm test          # unit + integration (vitest)
-npm run typecheck # tsc --noEmit
-npm run build     # emit to dist/
-```
-
-## Design goals
-
-- Safe by default
-- Local-first
-- Auditable
-- MCP-native
-- Production-minded code structure
-
-## Repository structure
-
-- `src/` - server, policy, workspace, tools, audit, dashboard
-- `docs/` - architecture, tools, adapters, security, and roadmap docs
-- `examples/` - sample client configs
-- `tests/` - unit and integration tests (incl. the schema-lock guard)
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md),
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SUPPORT.md](SUPPORT.md) first.
+Security vulnerabilities must follow [SECURITY.md](SECURITY.md), not a public
+issue.
 
 ## License
 
-Apache-2.0
+Apache-2.0. See [LICENSE](LICENSE).

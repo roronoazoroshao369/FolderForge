@@ -9,6 +9,7 @@ import {
   type DoctorReport,
 } from '../../src/doctor/index.js';
 import { PluginManager } from '../../src/plugins/plugin-manager.js';
+import { ChildMcpError } from '../../src/adapters/child-mcp/client.js';
 
 const tempRoots: string[] = [];
 const passingPortProbe = async (host: string, port: number) => ({
@@ -191,10 +192,97 @@ describe('folderforge doctor', () => {
         executablePath: join(root, 'missing-browser', 'chromium'),
         exists: false,
       }),
+      adapterProbe: async () => ({
+        command: process.execPath,
+        args: ['/package-local/@playwright/mcp/cli.js', '--isolated'],
+        cwd: root,
+        source: 'package-local',
+        tools: 21,
+        packageName: '@playwright/mcp',
+        packageVersion: '0.0.41',
+      }),
     });
 
     expect(report.exitCode).toBe(1);
     expect(byId(report, 'playwright.chromium')?.status).toBe('fail');
+  });
+
+
+  it('reports the exact adapter handshake phase, stderr, and remediation', async () => {
+    const root = tempProject();
+    writeFileSync(join(root, 'folderforge.yaml'), `adapters:
+  playwright:
+    enabled: true
+`);
+
+    const diagnostic = {
+      adapter: 'playwright',
+      command: process.execPath,
+      args: ['/package-local/@playwright/mcp/cli.js', '--isolated'],
+      cwd: root,
+      phase: 'initialize' as const,
+      kind: 'child_exited_before_initialize' as const,
+      exitCode: 1,
+      signal: null,
+      spawnError: '',
+      stderrTail: 'browser adapter boot failed',
+      timedOut: false,
+      remediation: 'Run `folderforge doctor` after repairing the package.',
+      occurredAt: new Date(0).toISOString(),
+    };
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      playwrightProbe: () => ({
+        packagePath: '/package/playwright/package.json',
+        executablePath: process.execPath,
+        exists: true,
+      }),
+      adapterProbe: async () => {
+        throw new ChildMcpError('fixture failure', diagnostic);
+      },
+    });
+
+    const finding = byId(report, 'adapter.playwright.handshake');
+    expect(report.exitCode).toBe(1);
+    expect(finding).toMatchObject({ status: 'fail', severity: 'error' });
+    expect(finding?.evidence).toContain('phase=initialize');
+    expect(finding?.evidence).toContain('kind=child_exited_before_initialize');
+    expect(finding?.evidence).toContain('stderr=browser adapter boot failed');
+    expect(finding?.remediation).toContain('repairing the package');
+  });
+
+  it('records a successful package-local initialize and tools/list probe', async () => {
+    const root = tempProject();
+    writeFileSync(join(root, 'folderforge.yaml'), `adapters:
+  playwright:
+    enabled: true
+`);
+
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      playwrightProbe: () => ({
+        packagePath: '/package/playwright/package.json',
+        executablePath: process.execPath,
+        exists: true,
+      }),
+      adapterProbe: async () => ({
+        command: process.execPath,
+        args: ['/package-local/@playwright/mcp/cli.js', '--isolated'],
+        cwd: root,
+        source: 'package-local',
+        tools: 21,
+        packageName: '@playwright/mcp',
+        packageVersion: '0.0.41',
+      }),
+    });
+
+    expect(byId(report, 'adapter.playwright.handshake')).toMatchObject({
+      status: 'pass',
+      summary: 'Playwright child completed MCP initialize and tools/list.',
+    });
+    expect(byId(report, 'adapter.playwright.handshake')?.evidence).toContain('tools=21');
   });
 
   it('detects tampering of an installed plugin package', async () => {

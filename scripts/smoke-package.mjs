@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
@@ -133,6 +133,10 @@ try {
     'dist/dashboard/static/index.html',
     'dist/server/auth/oauth.js',
     'dist/chatgpt/cli.js',
+    'addons/folderforge_bridge/plugin.cfg',
+    'addons/folderforge_bridge/plugin.gd',
+    'addons/folderforge_bridge/runtime_bridge.gd',
+    'docs/README.md',
     'docs/oauth.md',
     'docs/chatgpt-connect.md',
     'docs/adr-0004-oauth-resource-server.md',
@@ -217,12 +221,122 @@ try {
     throw new Error(`Browser setup resolved an unexpected command: ${setupOutput}`);
   }
   const resolvedPlaywrightCli = setup.args[0];
+  const installedMcpPackage = JSON.parse(
+    readFileSync(join(temp, 'node_modules', '@playwright', 'mcp', 'package.json'), 'utf8')
+  );
+  const expectedPlaywrightRuntime = installedMcpPackage.dependencies?.playwright;
   if (
     typeof resolvedPlaywrightCli !== 'string' ||
+    !resolvedPlaywrightCli.startsWith(temp) ||
     !resolvedPlaywrightCli.includes(`${join('node_modules', 'playwright')}`) ||
+    typeof setup.runtimeVersion !== 'string' ||
+    setup.runtimeVersion !== expectedPlaywrightRuntime ||
     setupOutput.includes('npx')
   ) {
-    throw new Error(`Browser setup did not use the installed package-local Playwright CLI: ${setupOutput}`);
+    throw new Error(`Browser setup did not use the @playwright/mcp-compatible package-local Playwright CLI: ${setupOutput}`);
+  }
+
+  // Verify the installed tarball resolves and handshakes the built-in adapter
+  // entirely from its own dependency tree. The temp installation path contains
+  // both spaces and Unicode, and npm is forced offline for the child process.
+  const resolverModule = await import(pathToFileURL(join(installedRoot, 'dist', 'adapters', 'child-mcp', 'resolve.js')).href);
+  const clientModule = await import(pathToFileURL(join(installedRoot, 'dist', 'adapters', 'child-mcp', 'client.js')).href);
+  const adapterLaunch = resolverModule.resolveAdapterLaunch('playwright', {
+    enabled: true,
+    command: resolverModule.PACKAGE_LOCAL_PLAYWRIGHT_COMMAND,
+    args: ['--isolated'],
+  });
+  if (
+    adapterLaunch.command !== process.execPath ||
+    adapterLaunch.source !== 'package-local' ||
+    !adapterLaunch.args[0]?.startsWith(temp) ||
+    adapterLaunch.args.join(' ').includes('npx')
+  ) {
+    throw new Error(`Packed Playwright adapter did not resolve package-locally: ${JSON.stringify(adapterLaunch)}`);
+  }
+  const adapterClient = new clientModule.StdioChildClient({
+    adapter: 'playwright',
+    command: adapterLaunch.command,
+    args: adapterLaunch.args,
+    cwd: temp,
+    env: { npm_config_offline: 'true', NPM_CONFIG_OFFLINE: 'true' },
+    inheritEnv: true,
+    requestTimeoutMs: 5000,
+  });
+  try {
+    await adapterClient.start();
+    const adapterTools = await adapterClient.listTools(5000);
+    if (!Array.isArray(adapterTools) || adapterTools.length === 0) {
+      throw new Error('Packed Playwright adapter returned no tools.');
+    }
+  } finally {
+    await adapterClient.stopAndWait(1000);
+  }
+  if (adapterClient.isReady()) {
+    throw new Error('Packed Playwright adapter remained ready after bounded cleanup.');
+  }
+
+  // Exercise npm's global installation layout separately. This catches Node
+  // installation and dependency-hoisting assumptions that a local install can
+  // hide, without relying on npx or the global npm cache at adapter startup.
+  const globalPrefix = join(temp, 'global prefix ünicode');
+  mkdirSync(globalPrefix, { recursive: true });
+  runNpm(
+    ['install', '--global', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', globalPrefix, tarballPath],
+    { cwd: temp }
+  );
+  const globalRoot = runNpm(['root', '--global', '--prefix', globalPrefix], { cwd: temp }).stdout.trim();
+  const globalInstalledRoot = join(globalRoot, '@musashishao', 'folderforge');
+  const globalCli = join(globalInstalledRoot, 'dist', 'main.js');
+  if (!existsSync(globalCli)) {
+    throw new Error(`Global npm installation is missing FolderForge: ${globalCli}`);
+  }
+  const globalVersion = run(process.execPath, [globalCli, '--version'], { cwd: temp }).stdout.trim();
+  if (globalVersion !== expected) {
+    throw new Error(`Global CLI version mismatch: expected "${expected}", got "${globalVersion}".`);
+  }
+  const globalSetupOutput = run(process.execPath, [globalCli, 'setup', 'browser', '--dry-run', '--json'], { cwd: temp }).stdout;
+  const globalSetup = JSON.parse(globalSetupOutput);
+  const globalMcpPackage = JSON.parse(
+    readFileSync(join(globalInstalledRoot, 'node_modules', '@playwright', 'mcp', 'package.json'), 'utf8')
+  );
+  if (
+    globalSetup.exitCode !== 0 ||
+    typeof globalSetup.args?.[0] !== 'string' ||
+    !globalSetup.args[0].startsWith(globalPrefix) ||
+    !globalSetup.args[0].includes(`${join('node_modules', 'playwright')}`) ||
+    globalSetup.runtimeVersion !== globalMcpPackage.dependencies?.playwright ||
+    globalSetupOutput.includes('npx')
+  ) {
+    throw new Error(`Global package did not resolve the package-local Playwright runtime: ${globalSetupOutput}`);
+  }
+  const globalResolver = await import(pathToFileURL(join(globalInstalledRoot, 'dist', 'adapters', 'child-mcp', 'resolve.js')).href);
+  const globalClientModule = await import(pathToFileURL(join(globalInstalledRoot, 'dist', 'adapters', 'child-mcp', 'client.js')).href);
+  const globalLaunch = globalResolver.resolveAdapterLaunch('playwright', {
+    enabled: true,
+    command: globalResolver.PACKAGE_LOCAL_PLAYWRIGHT_COMMAND,
+    args: ['--isolated'],
+  });
+  const globalAdapterClient = new globalClientModule.StdioChildClient({
+    adapter: 'playwright',
+    command: globalLaunch.command,
+    args: globalLaunch.args,
+    cwd: temp,
+    env: { npm_config_offline: 'true', NPM_CONFIG_OFFLINE: 'true' },
+    inheritEnv: true,
+    requestTimeoutMs: 5000,
+  });
+  try {
+    await globalAdapterClient.start();
+    const tools = await globalAdapterClient.listTools(5000);
+    if (!Array.isArray(tools) || tools.length === 0) {
+      throw new Error('Globally installed Playwright adapter returned no tools.');
+    }
+  } finally {
+    await globalAdapterClient.stopAndWait(1000);
+  }
+  if (globalAdapterClient.isReady()) {
+    throw new Error('Globally installed Playwright adapter remained ready after cleanup.');
   }
 
   const [httpPort, dashboardPort] = await Promise.all([freePort(), freePort()]);
@@ -387,6 +501,7 @@ try {
         installedTo: temp,
         pathHasSpaces: temp.includes(' '),
         pathHasUnicode: temp.includes('ü'),
+        playwrightAdapter: 'local + global package-local initialize/tools-list bounded-cleanup',
         oauth: 'packed-cli-startup / metadata / 401-challenge / signed-token-tools-list',
       },
       null,

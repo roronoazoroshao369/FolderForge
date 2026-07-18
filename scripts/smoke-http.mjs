@@ -123,7 +123,7 @@ try {
         tools: { preset: 'vibe-lite', enabled: ['pkg_audit', 'shell_exec'] },
         adapters: {
           serena: { enabled: false },
-          playwright: { enabled: false },
+          playwright: { enabled: true },
           desktopCommander: { enabled: false },
         },
         server: {

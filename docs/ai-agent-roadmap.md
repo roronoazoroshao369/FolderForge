@@ -1,5 +1,8 @@
 # AI Agent Roadmap
 
+> **Status:** Internal planning document. This file is not the current product, release, or compatibility contract. See [the documentation index](README.md).
+
+
 FolderForge's product goal is to let an AI agent safely complete a software task
 through one MCP connection: understand the project, edit code, run it, inspect the
 result, review quality, and produce an auditable outcome.

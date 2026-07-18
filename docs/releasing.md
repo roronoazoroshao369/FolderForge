@@ -1,67 +1,95 @@
 # Release process
 
-FolderForge releases are gated by executable evidence, not by source review alone.
-The repository must pass the following command before a version is tagged or
-published:
+**Audience:** Maintainers.
+
+FolderForge releases are gated by executable evidence. Source review or a local
+build alone is not release evidence.
+
+## Sources of truth
+
+- `package.json` is the package and CLI version source.
+- `package-lock.json` must match the root package version.
+- `CHANGELOG.md` must contain a heading for that version; `[Unreleased]` contains
+  only changes not yet published.
+- Git tags, GitHub Releases, and npm dist-tags are public distribution state and
+  must be checked independently. None is inferred from another.
+
+The current public state can be inspected with:
 
 ```bash
-npm run release:check
+node -p "require('./package.json').version"
+npm view @musashishao/folderforge version dist-tags --json
+git ls-remote --tags origin
+gh release list --repo roronoazoroshao369/FolderForge
 ```
 
-That command runs, in order:
+## Required local gate
 
-1. Typecheck and lint.
-2. Unit and integration tests.
-3. Production build.
-4. Production-only and full dependency audits.
-5. `npm pack`, tarball installation in a temporary project, and CLI
-   `--version`/`--help` smoke checks. The package smoke also rejects any
-   `postinstall` script, runs `doctor`, and verifies `setup browser --dry-run`
-   resolves the installed package-local Playwright CLI without downloading.
-6. Stdio MCP smoke checks covering initialization, `tools/list`, and `file_read`
-   from a project path containing spaces and Unicode.
-7. Authenticated HTTP MCP smoke checks covering unauthorized rejection,
-   `initialize`, `tools/list`, and `tools/call`.
+```bash
+npm ci --ignore-scripts
+npm run release:check
+npm pack --dry-run
 
-CI runs source, test, build, tarball, and authenticated HTTP smoke gates on
-Ubuntu, macOS, and Windows with Node 22 and Node 24. Dependency audits run once
-on Ubuntu/Node 22. See `compatibility.md` for the support contract.
+git diff --check
+```
 
-## Release-candidate procedure
+`release:check` runs typecheck, lint, unit/integration tests, build,
+documentation/version/link checks, production and full dependency audits,
+packed-package installation, CLI/doctor/browser-resolution checks, stdio MCP
+smoke, and authenticated HTTP MCP smoke.
 
-1. Confirm the working tree and review every logical change set.
-2. Run `npm run release:check` on the intended version.
-3. Confirm package, CLI, MCP server, and lockfile versions agree.
-4. Review `npm pack --json --ignore-scripts` output for unexpected or missing
-   files.
-5. Review dependency audit output and document any accepted exception.
-6. Update `CHANGELOG.md`, migration notes, roadmap, and implementation log.
-7. Obtain explicit authorization before committing, tagging, pushing,
-   publishing to npm, or creating a hosted release. Publish release candidates
-   with `--tag next`; reserve `latest` for a stable verdict.
+Review `npm pack --json --ignore-scripts` as well. The tarball must contain the
+CLI, production `dist`, dashboard assets, user documentation, examples, license,
+and `addons/folderforge_bridge`; it must not contain runtime state, logs,
+credentials, `node_modules`, or temporary artifacts.
 
-Stable version `2.0.0` passed the complete local release gate and corrected commit
-`6cde6708201873647b8f682cd6918fa86e520f24` passed GitHub Actions runs
-`29215028974` and `29215294614`, each across the full Ubuntu/macOS/Windows ×
-Node 22/24 matrix. npm `latest` resolves to `2.0.0`; a clean registry installation
-reported the expected version, no `postinstall`, a working CLI, and successful
-read-only `doctor --json` validation. The stable Git tag and hosted GitHub release
-remain separate operator-controlled actions.
+## Cross-platform gate
 
-## Current 2.1.0 preparation
+The exact release commit must pass all required CI jobs on:
 
-The repository and lockfile target `2.1.0`. The exact source tree passes
-`npm run release:check`: typecheck, lint, 385 tests across 49 files, build, both
-zero-vulnerability audits, 100-file tarball installation and OAuth startup,
-stdio MCP smoke, and authenticated static-token HTTP smoke. Package smoke removes
-inherited npm dry-run flags from its nested npm calls, so `npm publish --dry-run`
-still creates, installs, and validates the real tarball before npm simulates the
-publication. Version `2.1.0` is intentionally not published by repository
-preparation; the operator performs the final npm command manually.
+- Ubuntu with Node 22 and 24;
+- macOS with Node 22 and 24;
+- Windows with Node 22 and 24.
 
-## Current trust limitations
+A local Linux pass cannot establish macOS or Windows readiness. Do not reuse old
+workflow run IDs as evidence for a newer commit.
 
-Local MCP plugins are prepared executable packages. Their declared network and
-filesystem permissions are review/audit metadata, not OS-enforced sandbox rules.
-Do not enable untrusted packages. Signed provenance, hard sandboxing, and remote
-marketplace distribution remain release blockers for any untrusted plugin flow.
+## Maintainer procedure
+
+1. Review the working tree and classify every change.
+2. Update version metadata and move published changes out of `[Unreleased]`.
+3. Run the local gate and inspect the tarball manifest.
+4. Commit and push the intended release tree.
+5. Wait for the exact commit's required CI matrix to pass.
+6. Obtain explicit authorization for public tag, npm publication, and hosted
+   release actions.
+7. Create an annotated tag, publish npm, and create a GitHub Release from verified
+   changelog content.
+8. Recheck npm dist-tags, tag target, release target, CLI version, and package
+   contents from the registry.
+
+Example operator commands, after authorization and after replacing `VERSION` and
+`COMMIT` with verified values:
+
+```bash
+git tag -a "v${VERSION}" "${COMMIT}" -m "FolderForge ${VERSION}"
+git push origin "v${VERSION}"
+npm publish --access public
+gh release create "v${VERSION}" --verify-tag --title "FolderForge ${VERSION}" --notes-file RELEASE_NOTES.md
+```
+
+Do not use generated release notes as a substitute for reviewing factual release
+notes. Do not retag an existing public version or rewrite release history.
+
+## Current public-state limitation
+
+At the time this document was refreshed, npm `latest` was newer than the latest
+public Git tag and GitHub Release. Repository preparation must not claim those
+public objects exist. Closing that gap requires explicit operator authorization
+and exact-commit CI evidence.
+
+## Plugin trust limitation
+
+Local MCP plugins are executable packages. Declared network and filesystem
+permissions are review and audit metadata, not an operating-system sandbox. Do
+not enable untrusted plugin packages.

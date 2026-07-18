@@ -4,6 +4,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { FolderForgeConfig, OAuthHttpAuthConfig } from './types.js';
 import { logger } from './logger.js';
 import { defaultShell } from './shell.js';
+import { packageLocalPlaywrightDef } from '../adapters/child-mcp/resolve.js';
 
 const DEFAULT_BLOCKED = [
   'rm -rf /',
@@ -214,7 +215,7 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
     },
     adapters: {
       serena: { enabled: false, command: 'serena', args: [] },
-      playwright: { enabled: false, command: 'npx', args: ['-y', '@playwright/mcp@0.0.41', '--isolated'] },
+      playwright: packageLocalPlaywrightDef(false),
       desktopCommander: { enabled: false, command: 'npx', args: ['-y', '@wonderwhy-er/desktop-commander@latest'] },
       godot: { enabled: false, godotPath: 'godot', editorPort: 6550, runtimePort: 9090 },
     },
@@ -276,7 +277,7 @@ export function fullConfig(): Record<string, unknown> {
     tools: { preset: 'vibe-lite' },
     adapters: {
       serena: { enabled: false, command: 'serena', args: [] },
-      playwright: { enabled: true, command: 'npx', args: ['-y', '@playwright/mcp@0.0.41', '--isolated'] },
+      playwright: packageLocalPlaywrightDef(true),
       desktopCommander: {
         enabled: false,
         command: 'npx',

@@ -1,5 +1,8 @@
 # Browser Agent Design
 
+> **Status:** Internal design document. This file is not the current product, release, or compatibility contract. See [the documentation index](README.md).
+
+
 The browser integration is the UI execution and inspection layer for AI coding
 agents. FolderForge provides a stable `browser_*` contract and delegates browser
 control to the pinned Playwright MCP child server.

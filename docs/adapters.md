@@ -15,8 +15,8 @@ adapters:
     args: []
   playwright:
     enabled: true
-    command: npx
-    args: ["-y", "@playwright/mcp@0.0.41", "--isolated"]
+    command: package:@playwright/mcp
+    args: ["--isolated"]
   desktopCommander:
     enabled: false
     command: npx
@@ -26,7 +26,9 @@ adapters:
 Each adapter (`AdapterDef`) has:
 
 - `enabled` - whether to spawn it on startup;
-- `command` / `args` - how to launch the child server;
+- `command` / `args` - how to launch the child server. The generated Playwright
+  value `package:@playwright/mcp` is an internal package-local marker, not a shell
+  executable;
 - `env` - optional extra environment (subject to secret redaction);
 - `facade` - optional (default `false`). When `true`, the adapter is exposed
   through a **two-tool facade** (`<adapter>__list_tools` +
@@ -46,6 +48,18 @@ Each adapter (`AdapterDef`) has:
 4. Calls are still wrapped by the FolderForge policy + audit pipeline before
    being forwarded to the child.
 5. On shutdown, `stopAll()` terminates every spawned child.
+
+The built-in Playwright launch resolves the declared package bin from
+FolderForge's own dependency tree and starts it with `process.execPath`. The exact
+legacy generated `npx -y @playwright/mcp@0.0.41 --isolated` definition is migrated
+package-locally at runtime; genuinely custom commands and versions are preserved.
+
+Startup is degraded rather than fatal when an optional child fails, but the
+failure is retained as structured status. FolderForge records `resolve`, `spawn`,
+`initialize`, `tools/list`, `runtime`, or `shutdown`, keeps bounded redacted
+stderr, and reports remediation. When Playwright is disabled or unavailable,
+FolderForge removes native `browser_*` wrappers from the advertised registry so
+clients are not shown an unusable capability.
 
 ## Tool namespacing
 
@@ -98,7 +112,8 @@ original child payload remains available as structured data, but promoted
 The generated Playwright configuration uses `--isolated` so concurrent
 FolderForge instances do not contend for one persistent browser profile. Override
 its `args` with a dedicated `--user-data-dir` only when persistent state is
-intentional.
+intentional. `folderforge doctor` performs a real bounded `initialize` and
+`tools/list` probe; see [`playwright-macos.md`](./playwright-macos.md).
 
 ## Provided integrations
 

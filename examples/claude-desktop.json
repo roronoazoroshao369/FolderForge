@@ -1,14 +1,13 @@
 {
   "mcpServers": {
     "folderforge": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/home/devops/FolderForge/dist/main.js",
-        "--stdio",
+        "-y",
+        "@musashishao/folderforge",
         "--project",
-        "/home/devops/FolderForge",
-        "--config",
-        "/home/devops/FolderForge/examples/config.basic.yaml"
+        "/absolute/path/to/project",
+        "--stdio"
       ],
       "env": {
         "FOLDERFORGE_LOG_LEVEL": "info"

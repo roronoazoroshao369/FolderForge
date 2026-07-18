@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a reproducible FolderForge defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report vulnerabilities here. Use SECURITY.md.
+  - type: input
+    id: version
+    attributes: {label: FolderForge version, placeholder: "2.3.0 or commit SHA"}
+    validations: {required: true}
+  - type: input
+    id: environment
+    attributes: {label: Environment, placeholder: "Windows 11, Node 24, global npm install"}
+    validations: {required: true}
+  - type: textarea
+    id: reproduce
+    attributes: {label: Reproduction steps}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected behavior}
+    validations: {required: true}
+  - type: textarea
+    id: actual
+    attributes: {label: Actual behavior and redacted diagnostics}
+    validations: {required: true}

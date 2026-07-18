@@ -9,6 +9,7 @@ import { TS_FIXTURE } from './fixtures.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_SERVER = resolve(__dirname, '..', 'fixtures', 'fake-mcp-server.mjs');
+const DIAGNOSTIC_SERVER = resolve(__dirname, '..', 'fixtures', 'diagnostic-mcp-server.mjs');
 
 /**
  * Build a container whose `serena` adapter points at the fake stdio MCP server,
@@ -81,4 +82,36 @@ describe('child MCP adapter wiring', () => {
     expect(added).toBe(0);
     expect(registry.listAll().some((t) => t.name.startsWith('serena__'))).toBe(false);
   });
+
+  it('continues degraded without advertising browser wrappers and retains the failure diagnostic', async () => {
+    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    config.adapters.serena = { enabled: false, command: 'serena', args: [] };
+    config.adapters.playwright = {
+      enabled: true,
+      command: process.execPath,
+      args: [DIAGNOSTIC_SERVER, 'exit-before-init'],
+    };
+    const container = new Container(config);
+    const registry = buildRegistry(container);
+    teardown = () => container.adapters.stopAll();
+
+    const added = await registerAdapterTools(container, registry);
+    const names = registry.listAll().map((tool) => tool.name);
+    const status = container.adapters.status().find((adapter) => adapter.name === 'playwright');
+
+    expect(added).toBe(0);
+    expect(names.some((name) => name.startsWith('browser_'))).toBe(false);
+    expect(status).toMatchObject({
+      enabled: true,
+      started: false,
+      ready: false,
+      diagnostic: {
+        phase: 'initialize',
+        kind: 'invalid_adapter_arguments',
+        exitCode: 1,
+      },
+    });
+    expect(status?.diagnostic?.stderrTail).toContain('invalid adapter arguments');
+  });
+
 });

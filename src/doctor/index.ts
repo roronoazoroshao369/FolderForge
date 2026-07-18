@@ -17,6 +17,8 @@ import { defaultConfig, loadConfig } from '../core/config.js';
 import type { AdapterDef, FolderForgeConfig } from '../core/types.js';
 import { readFolderForgeVersion } from '../core/version.js';
 import { PluginManager } from '../plugins/plugin-manager.js';
+import { StdioChildClient, ChildMcpError, redactChildArgs, type ChildMcpDiagnostic } from '../adapters/child-mcp/client.js';
+import { resolveAdapterLaunch, resolvePlaywrightMcpRuntime } from '../adapters/child-mcp/resolve.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 export type DoctorSeverity = 'info' | 'warning' | 'error' | 'blocker';
@@ -42,6 +44,16 @@ export interface DoctorReport {
   findings: DoctorFinding[];
 }
 
+export interface AdapterReadinessProbeResult {
+  command: string;
+  args: string[];
+  cwd: string;
+  source: 'custom' | 'package-local';
+  tools: number;
+  packageName?: string;
+  packageVersion?: string;
+}
+
 export interface DoctorOptions {
   projectRoot?: string;
   configPath?: string;
@@ -49,6 +61,12 @@ export interface DoctorOptions {
   env?: NodeJS.ProcessEnv;
   portProbe?: (host: string, port: number) => Promise<{ ok: boolean; evidence: string }>;
   playwrightProbe?: () => { packagePath: string; executablePath: string; exists: boolean };
+  adapterProbe?: (
+    name: string,
+    def: AdapterDef,
+    env: NodeJS.ProcessEnv,
+    projectRoot: string
+  ) => Promise<AdapterReadinessProbeResult>;
 }
 
 export interface DoctorCliResult {
@@ -362,7 +380,7 @@ function checkPackageManager(
     { label: '@modelcontextprotocol/sdk', request: '@modelcontextprotocol/sdk/server/index.js' },
     { label: 'yaml', request: 'yaml' },
     { label: 'zod', request: 'zod' },
-    { label: 'playwright', request: 'playwright' },
+    { label: '@playwright/mcp', request: '@playwright/mcp/package.json' },
   ];
   const resolver = createRequire(packageJsonPath);
   const missing: string[] = [];
@@ -637,31 +655,56 @@ function checkAdapters(config: FolderForgeConfig, env: NodeJS.ProcessEnv, findin
       findings.push(finding(`adapter.${name}`, 'pass', 'info', `${name} adapter is disabled.`, `command=${def.command}`));
       continue;
     }
-    const executable = findExecutable(def.command, env);
-    if (!executable) {
+
+    try {
+      const launch = resolveAdapterLaunch(name, def);
+      const executable = launch.source === 'package-local'
+        ? launch.command
+        : findExecutable(launch.command, env);
+      if (!executable) {
+        findings.push(
+          finding(
+            `adapter.${name}`,
+            'fail',
+            'error',
+            `${name} adapter executable is unavailable.`,
+            `command=${launch.command}; source=${launch.source}`,
+            `Install ${launch.command} or update the adapter command.`
+          )
+        );
+      } else {
+        const unpinned = def.args.some((arg) => arg.includes('@latest'));
+        findings.push(
+          finding(
+            `adapter.${name}`,
+            unpinned ? 'warn' : 'pass',
+            unpinned ? 'warning' : 'info',
+            launch.source === 'package-local'
+              ? `${name} adapter resolved from the FolderForge dependency tree.`
+              : unpinned
+                ? `${name} adapter uses an unpinned package reference.`
+                : `${name} adapter executable is available.`,
+            `command=${launch.command}; args=${JSON.stringify(redactChildArgs(launch.args))}; source=${launch.source}` +
+              (launch.packageName ? `; package=${launch.packageName}@${launch.packageVersion}` : ''),
+            unpinned ? 'Pin the child MCP package version for repeatable installs and provenance review.' : ''
+          )
+        );
+      }
+    } catch (error) {
       findings.push(
         finding(
           `adapter.${name}`,
           'fail',
           'error',
-          `${name} adapter executable is unavailable.`,
-          `command=${def.command}`,
-          `Install ${def.command} or update the adapter command.`
-        )
-      );
-    } else {
-      const unpinned = def.args.some((arg) => arg.includes('@latest'));
-      findings.push(
-        finding(
-          `adapter.${name}`,
-          unpinned ? 'warn' : 'pass',
-          unpinned ? 'warning' : 'info',
-          unpinned ? `${name} adapter uses an unpinned package reference.` : `${name} adapter executable is available.`,
-          `${executable}; args=${JSON.stringify(def.args)}`,
-          unpinned ? 'Pin the child MCP package version for repeatable installs and provenance review.' : ''
+          `${name} adapter could not be resolved.`,
+          errorText(error),
+          name === 'playwright'
+            ? 'Reinstall FolderForge so @playwright/mcp is present package-locally, then run folderforge doctor again.'
+            : 'Repair the adapter installation or command configuration.'
         )
       );
     }
+
     if (def.inheritEnv !== false) {
       findings.push(
         finding(
@@ -688,11 +731,12 @@ function checkAdapters(config: FolderForgeConfig, env: NodeJS.ProcessEnv, findin
 }
 
 function defaultPlaywrightProbe(): { packagePath: string; executablePath: string; exists: boolean } {
-  const packagePath = requireFromDoctor.resolve('playwright');
-  const playwright = requireFromDoctor('playwright') as { chromium?: { executablePath: () => string } };
-  const executablePath = playwright.chromium?.executablePath();
-  if (!executablePath) throw new Error('playwright.chromium.executablePath is unavailable');
-  return { packagePath, executablePath, exists: existsSync(executablePath) };
+  const runtime = resolvePlaywrightMcpRuntime(requireFromDoctor);
+  return {
+    packagePath: `${runtime.playwrightPackageJsonPath} (${runtime.playwrightVersion}; @playwright/mcp ${runtime.mcpVersion})`,
+    executablePath: runtime.chromiumExecutablePath,
+    exists: existsSync(runtime.chromiumExecutablePath),
+  };
 }
 
 function checkPlaywright(
@@ -734,6 +778,108 @@ function checkPlaywright(
         'Playwright or Chromium could not be resolved.',
         errorText(error),
         'Install package dependencies, then run folderforge setup browser explicitly.'
+      )
+    );
+  }
+}
+
+async function defaultAdapterReadinessProbe(
+  name: string,
+  def: AdapterDef,
+  env: NodeJS.ProcessEnv,
+  projectRoot: string
+): Promise<AdapterReadinessProbeResult> {
+  const launch = resolveAdapterLaunch(name, def);
+  let diagnostic: ChildMcpDiagnostic | null = null;
+  const client = new StdioChildClient({
+    adapter: name,
+    command: launch.command,
+    args: launch.args,
+    cwd: launch.cwd ?? projectRoot,
+    env: {
+      ...(def.env ?? {}),
+      // Doctor never permits npx/npm to fetch from the network. Legacy generated
+      // Playwright definitions are resolved package-locally before this point.
+      npm_config_offline: 'true',
+      NPM_CONFIG_OFFLINE: 'true',
+    },
+    inheritEnv: def.inheritEnv !== false,
+    requestTimeoutMs: 5_000,
+    stderrLimit: 16 * 1024,
+    onDiagnostic: (value) => {
+      diagnostic = value;
+    },
+  });
+  try {
+    await client.start();
+    const tools = await client.listTools(5_000);
+    return {
+      command: launch.command,
+      args: redactChildArgs(launch.args),
+      cwd: launch.cwd ?? projectRoot,
+      source: launch.source,
+      tools: tools.length,
+      ...(launch.packageName ? { packageName: launch.packageName } : {}),
+      ...(launch.packageVersion ? { packageVersion: launch.packageVersion } : {}),
+    };
+  } catch (error) {
+    if (error instanceof ChildMcpError) throw error;
+    if (diagnostic) throw new ChildMcpError(`${name} adapter readiness probe failed`, diagnostic);
+    throw error;
+  } finally {
+    await client.stopAndWait(1_000);
+  }
+}
+
+async function checkAdapterReadiness(
+  config: FolderForgeConfig,
+  env: NodeJS.ProcessEnv,
+  projectRoot: string,
+  findings: DoctorFinding[],
+  probe: DoctorOptions['adapterProbe'] = defaultAdapterReadinessProbe
+): Promise<void> {
+  const def = config.adapters.playwright;
+  if (!def || !def.enabled) {
+    findings.push(
+      finding(
+        'adapter.playwright.handshake',
+        'pass',
+        'info',
+        'Playwright adapter handshake probe was skipped because the adapter is disabled.',
+        'enabled=false'
+      )
+    );
+    return;
+  }
+
+  try {
+    const result = await probe!('playwright', def, env, projectRoot);
+    findings.push(
+      finding(
+        'adapter.playwright.handshake',
+        'pass',
+        'info',
+        'Playwright child completed MCP initialize and tools/list.',
+        `phase=tools/list; command=${result.command}; args=${JSON.stringify(result.args)}; cwd=${result.cwd}; ` +
+          `source=${result.source}; tools=${result.tools}` +
+          (result.packageName ? `; package=${result.packageName}@${result.packageVersion}` : '')
+      )
+    );
+  } catch (error) {
+    const diagnostic = error instanceof ChildMcpError ? error.diagnostic : undefined;
+    findings.push(
+      finding(
+        'adapter.playwright.handshake',
+        'fail',
+        'error',
+        'Playwright child failed its MCP readiness handshake.',
+        diagnostic
+          ? `phase=${diagnostic.phase}; kind=${diagnostic.kind}; command=${diagnostic.command}; ` +
+            `args=${JSON.stringify(diagnostic.args)}; cwd=${diagnostic.cwd}; exit=${diagnostic.exitCode ?? 'none'}; ` +
+            `signal=${diagnostic.signal ?? 'none'}; timeout=${diagnostic.timedOut}; ` +
+            `spawnError=${diagnostic.spawnError || 'none'}; stderr=${diagnostic.stderrTail || 'none'}`
+          : errorText(error),
+        diagnostic?.remediation ?? 'Run folderforge setup browser, then run folderforge doctor again.'
       )
     );
   }
@@ -1041,6 +1187,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   await checkPorts(configResult.config, options.portProbe ?? defaultPortProbe, findings);
   checkAdapters(configResult.config, env, findings);
   checkPlaywright(configResult.config, findings, options.playwrightProbe);
+  await checkAdapterReadiness(configResult.config, env, projectRoot, findings, options.adapterProbe);
   checkPlugins(projectRoot, env, findings);
   checkState(projectRoot, now, findings);
 

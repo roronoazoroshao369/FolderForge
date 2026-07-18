@@ -1,10 +1,11 @@
 # Compatibility
 
-FolderForge 2.0 requires Node.js 22 or newer. The release-candidate compatibility
-contract covers the two supported LTS lines used by the project and the three
-major GitHub-hosted desktop/server operating-system families.
+**Audience:** Users, operators, and contributors.
 
-## Tested matrix
+FolderForge supports Node.js 22 and 24. The required repository matrix covers the
+current GitHub-hosted Ubuntu, macOS, and Windows runners.
+
+## Required matrix
 
 | Operating system | Node 22 | Node 24 |
 | --- | --- | --- |
@@ -12,53 +13,67 @@ major GitHub-hosted desktop/server operating-system families.
 | macOS latest | Required | Required |
 | Windows latest | Required | Required |
 
-Every matrix entry installs with lifecycle scripts disabled and runs:
+Every matrix entry installs dependencies with lifecycle scripts disabled and
+runs:
 
 1. Typecheck and lint.
 2. Unit and integration tests.
 3. Production build.
-4. Packed-tarball install and CLI/doctor/browser-setup smoke in a path containing spaces and Unicode.
-5. Stdio MCP initialize, `tools/list`, and `file_read` smoke in a Unicode/space project path.
-6. Authenticated HTTP MCP initialize/list/call smoke.
+4. Documentation, link, and version consistency checks.
+5. Packed-tarball local and global-prefix installs plus CLI, doctor, browser
+   resolution, and package-local Playwright MCP handshake smoke in paths with
+   spaces and Unicode.
+6. Stdio MCP initialize, `tools/list`, and governed file-read smoke.
+7. Authenticated HTTP MCP initialize, list, and call smoke.
 
-Dependency audits run once on Ubuntu with Node 22 to avoid duplicating the same
-registry query across all six jobs. The source suite also covers Windows junction
-escape rejection, portable process termination/wakeup, read-only runtime-state
-diagnostics, and missing-browser degradation with Playwright enabled and disabled.
+Dependency audits run once on Ubuntu/Node 22 to avoid repeating the same registry
+query across all six jobs.
 
-GitHub Actions run `29159746609` produced the first observable matrix evidence:
-Ubuntu passed on Node 22 and Node 24, while macOS and Windows failed during the
-test step. Runs `29160360527` through `29161451454` isolated and corrected the
-macOS path and Windows runtime/package-smoke assumptions. Final run `29161853457`
-passed all six Ubuntu, macOS, and Windows jobs on Node 22 and Node 24. The stable
-support matrix is accepted.
+## Evidence rule
+
+Compatibility belongs to an exact Git commit. A platform is accepted only when
+its required job passes for that revision, or when equivalent direct evidence is
+recorded for that same revision. Old workflow run IDs and local results on another
+operating system are not transferable evidence.
+
+The latest public `main` run should be checked before making a readiness claim:
+
+```bash
+gh run list --repo roronoazoroshao369/FolderForge --workflow ci.yml --branch main --limit 5
+gh run view <run-id> --repo roronoazoroshao369/FolderForge
+```
+
+Documentation must say that a revision is awaiting platform verification when its
+fix has not yet been pushed and exercised by the full matrix.
 
 ## Shell behavior
 
-FolderForge executes configured shell commands with platform-specific arguments:
+FolderForge uses platform-specific invocation:
 
 - `cmd.exe`: `/d /s /c <command>`
-- PowerShell / `pwsh`: `-NoLogo -NoProfile -NonInteractive -Command <command>`
+- PowerShell: `-NoLogo -NoProfile -NonInteractive -Command <command>`
 - POSIX shells and Git Bash: `-lc <command>`
 
-The same invocation helper is used by `shell_exec`, managed processes, build
-commands, and `project_verify`. Godot process commands quote literal paths for the
-selected shell, including Windows paths containing spaces.
-
-## Package scripts
-
-The build and clean lifecycle scripts are platform-neutral Node scripts. Windows
-never runs POSIX `chmod` or `rm -rf`; npm creates the normal `.cmd` shim for the
-`folderforge` binary.
+Configured commands, managed processes, verification, and Godot launch paths use
+shared quoting and process-tree cleanup helpers. Tests cover spaces, Unicode,
+Windows junction escape rejection, and bounded child cleanup.
 
 ## Browser installation
 
-Normal installation does not download Chromium. Browser setup remains explicit:
+Normal package installation does not download Chromium. Setup is explicit:
 
 ```bash
 folderforge setup browser
+folderforge doctor
 ```
 
-`--with-deps` is intended for supported Linux environments where Playwright also
-needs operating-system packages. Browser tools on macOS and Windows only require
-the normal explicit browser setup command.
+`--with-deps` is intended only for supported Linux environments that need
+Playwright operating-system packages. The built-in adapter resolves its CLI and
+compatible runtime from FolderForge's installed package tree. See
+[Playwright setup](playwright-macos.md).
+
+## Degraded behavior
+
+An unavailable optional Playwright child does not make non-browser tools fail.
+FolderForge records a structured diagnostic and removes unusable browser wrappers
+from the advertised surface. This is degraded operation, not browser readiness.

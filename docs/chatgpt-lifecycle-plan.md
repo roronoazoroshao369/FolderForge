@@ -1,5 +1,8 @@
 # ChatGPT connection lifecycle implementation plan
 
+> **Status:** Internal design plan. This file is not the current product, release, or compatibility contract. See [the documentation index](README.md).
+
+
 This file tracks the one-command Auth0/DCR lifecycle shared by the CLI and
 dashboard.
 

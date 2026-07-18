@@ -26,6 +26,7 @@ import {
 const originalFetch = globalThis.fetch;
 const originalPath = process.env.PATH;
 const originalState = process.env.FAKE_AUTH0_STATE;
+const originalAuth0CliJs = process.env.FOLDERFORGE_AUTH0_CLI_JS;
 let discoveryOverrides: Record<string, unknown> = {};
 
 function receipt(projectRoot: string): ChatGptConnectionReceipt {
@@ -155,6 +156,7 @@ console.error('unsupported fake auth0 invocation', args.join(' ')); process.exit
 `,
   );
   chmodSync(script, 0o755);
+  process.env.FOLDERFORGE_AUTH0_CLI_JS = script;
   if (process.platform === "win32") {
     writeFileSync(
       join(bin, "auth0.cmd"),
@@ -230,6 +232,8 @@ afterEach(() => {
   process.env.PATH = originalPath;
   if (originalState === undefined) delete process.env.FAKE_AUTH0_STATE;
   else process.env.FAKE_AUTH0_STATE = originalState;
+  if (originalAuth0CliJs === undefined) delete process.env.FOLDERFORGE_AUTH0_CLI_JS;
+  else process.env.FOLDERFORGE_AUTH0_CLI_JS = originalAuth0CliJs;
   vi.restoreAllMocks();
 });
 

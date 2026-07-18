@@ -34,6 +34,7 @@
   "files": [
     "dist",
     "examples",
+    "addons",
     "docs",
     "README.md",
     "LICENSE"
@@ -55,9 +56,10 @@
     "verify": "npm run typecheck && npm run lint && npm test && npm run build",
     "smoke:package": "node scripts/smoke-package.mjs",
     "smoke:http": "node scripts/smoke-http.mjs",
-    "release:check": "npm run verify && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:stdio && npm run smoke:http",
+    "release:check": "npm run verify && npm run docs:check && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:stdio && npm run smoke:http",
     "prepublishOnly": "npm run release:check",
-    "smoke:stdio": "node scripts/smoke-stdio.mjs"
+    "smoke:stdio": "node scripts/smoke-stdio.mjs",
+    "docs:check": "node scripts/check-docs.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -67,7 +69,6 @@
     "ignore": "^6.0.0",
     "jose": "^6.2.3",
     "pino": "^9.0.0",
-    "playwright": "^1.48.0",
     "simple-git": "^3.25.0",
     "yaml": "^2.5.0",
     "zod": "^3.23.0"

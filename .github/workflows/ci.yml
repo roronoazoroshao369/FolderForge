@@ -46,6 +46,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Documentation and version checks
+        run: npm run docs:check
+
       - name: Test
         run: npm test
 
