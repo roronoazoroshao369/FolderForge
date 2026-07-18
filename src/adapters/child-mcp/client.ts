@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../core/logger.js';
 import { terminateChildProcessTree } from '../../core/process-tree.js';
+import { readFolderForgeVersion } from '../../core/version.js';
 import { SecretPolicy } from '../../policy/secret-policy.js';
 
 interface PendingRequest {
@@ -8,6 +13,17 @@ interface PendingRequest {
   phase: ChildFailurePhase;
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
+}
+
+interface ChildInitializeResult {
+  protocolVersion?: unknown;
+  capabilities?: unknown;
+}
+
+export interface ChildToolDescriptor {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
 }
 
 export type ChildFailurePhase = 'resolve' | 'spawn' | 'initialize' | 'tools/list' | 'runtime' | 'shutdown';
@@ -19,8 +35,11 @@ export type ChildFailureKind =
   | 'network_or_cache_failure'
   | 'child_exited_before_initialize'
   | 'initialize_timeout'
+  | 'unsupported_protocol_version'
   | 'tools_list_failure'
   | 'tools_list_timeout'
+  | 'tools_list_limit_exceeded'
+  | 'tools_list_pagination_cycle'
   | 'malformed_json_rpc'
   | 'missing_chromium'
   | 'browser_launch_failure'
@@ -67,12 +86,17 @@ export interface StdioChildClientOptions {
   inheritEnv?: boolean;
   requestTimeoutMs?: number;
   stderrLimit?: number;
+  maxCatalogTools?: number;
+  maxCatalogPages?: number;
   redact?: (text: string) => string;
   onDiagnostic?: (diagnostic: ChildMcpDiagnostic) => void;
+  onToolsListChanged?: () => void;
 }
 
 const DEFAULT_STDERR_LIMIT = 16 * 1024;
 const DEFAULT_REQUEST_TIMEOUT = 30_000;
+const DEFAULT_MAX_CATALOG_TOOLS = 10_000;
+const DEFAULT_MAX_CATALOG_PAGES = 1_000;
 const secretPolicy = new SecretPolicy();
 
 const SENSITIVE_ARG_RE = /(?:^|[-_])(token|secret|password|passwd|api[-_]?key|cookie|authorization)(?:$|[=_-])/i;
@@ -156,6 +180,11 @@ function remediationFor(kind: ChildFailureKind): string {
     case 'initialize_timeout':
     case 'tools_list_timeout':
       return 'Run `folderforge doctor` and inspect the bounded child stderr diagnostic; verify the adapter is not blocked by security software.';
+    case 'unsupported_protocol_version':
+      return 'Upgrade FolderForge or use a child MCP server that negotiates one of the protocol versions supported by the installed MCP SDK.';
+    case 'tools_list_limit_exceeded':
+    case 'tools_list_pagination_cycle':
+      return 'Review the child MCP catalog pagination. FolderForge stopped discovery to avoid an unbounded or cyclic tools/list response.';
     case 'malformed_json_rpc':
       return 'The child wrote invalid data to its MCP stdout channel. Verify package integrity and adapter compatibility.';
     default:
@@ -175,13 +204,25 @@ export class StdioChildClient {
   private stderrRawTail = '';
   private stopping = false;
   private lastFailure: ChildMcpDiagnostic | null = null;
+  private negotiatedProtocol: string | null = null;
+  private serverToolsListChanged = false;
   private readonly requestTimeoutMs: number;
   private readonly stderrLimit: number;
+  private readonly maxCatalogTools: number;
+  private readonly maxCatalogPages: number;
   private readonly redact: (text: string) => string;
 
   constructor(private readonly options: StdioChildClientOptions) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
     this.stderrLimit = options.stderrLimit ?? DEFAULT_STDERR_LIMIT;
+    this.maxCatalogTools = options.maxCatalogTools ?? DEFAULT_MAX_CATALOG_TOOLS;
+    this.maxCatalogPages = options.maxCatalogPages ?? DEFAULT_MAX_CATALOG_PAGES;
+    if (!Number.isSafeInteger(this.maxCatalogTools) || this.maxCatalogTools < 1) {
+      throw new Error('maxCatalogTools must be a positive safe integer.');
+    }
+    if (!Number.isSafeInteger(this.maxCatalogPages) || this.maxCatalogPages < 1) {
+      throw new Error('maxCatalogPages must be a positive safe integer.');
+    }
     this.redact = options.redact ?? ((text) => secretPolicy.redact(text));
   }
 
@@ -192,6 +233,8 @@ export class StdioChildClient {
     this.stderrTail = '';
     this.stderrRawTail = '';
     this.buffer = '';
+    this.negotiatedProtocol = null;
+    this.serverToolsListChanged = false;
     this.currentPhase = 'spawn';
 
     let child: ChildProcessWithoutNullStreams;
@@ -234,16 +277,37 @@ export class StdioChildClient {
 
     try {
       this.currentPhase = 'initialize';
-      await this.request(
+      const initialized = (await this.request(
         'initialize',
         {
-          protocolVersion: '2024-11-05',
+          protocolVersion: LATEST_PROTOCOL_VERSION,
           capabilities: {},
-          clientInfo: { name: 'folderforge', version: '0.1.0' },
+          clientInfo: { name: 'folderforge', version: readFolderForgeVersion() },
         },
         this.requestTimeoutMs,
         'initialize'
-      );
+      )) as ChildInitializeResult;
+      const negotiated = initialized?.protocolVersion;
+      if (
+        typeof negotiated !== 'string' ||
+        !SUPPORTED_PROTOCOL_VERSIONS.some((version) => version === negotiated)
+      ) {
+        throw this.fail(
+          'initialize',
+          `child selected unsupported protocol version: ${String(negotiated)}`,
+          { kind: 'unsupported_protocol_version' }
+        );
+      }
+      const capabilities =
+        initialized.capabilities && typeof initialized.capabilities === 'object'
+          ? (initialized.capabilities as Record<string, unknown>)
+          : {};
+      const toolsCapability =
+        capabilities.tools && typeof capabilities.tools === 'object'
+          ? (capabilities.tools as Record<string, unknown>)
+          : {};
+      this.negotiatedProtocol = negotiated;
+      this.serverToolsListChanged = toolsCapability.listChanged === true;
       this.notify('notifications/initialized', {});
       this.initialized = true;
       this.currentPhase = 'runtime';
@@ -274,6 +338,8 @@ export class StdioChildClient {
     const wasStopping = this.stopping;
     this.child = null;
     this.initialized = false;
+    this.negotiatedProtocol = null;
+    this.serverToolsListChanged = false;
     if (wasStopping) return;
     const error = this.fail(phase, `child process exited${code === null ? '' : ` with code ${code}`}`, {
       exitCode: code,
@@ -290,16 +356,31 @@ export class StdioChildClient {
       const line = this.buffer.slice(0, idx).trim();
       this.buffer = this.buffer.slice(idx + 1);
       if (!line) continue;
-      let msg: { id?: number; result?: unknown; error?: { message?: string } };
+      let msg: {
+        id?: number;
+        method?: string;
+        result?: unknown;
+        error?: { message?: string };
+      };
       try {
-        msg = JSON.parse(line) as { id?: number; result?: unknown; error?: { message?: string } };
+        msg = JSON.parse(line) as typeof msg;
       } catch {
         this.fail(this.currentPhase, 'Malformed JSON-RPC received from child stdout.', {
           kind: 'malformed_json_rpc',
         });
         return;
       }
-      if (typeof msg.id !== 'number' || !this.pending.has(msg.id)) continue;
+      if (msg.id === undefined && msg.method === 'notifications/tools/list_changed') {
+        if (this.serverToolsListChanged) this.options.onToolsListChanged?.();
+        continue;
+      }
+      if (
+        msg.method !== undefined ||
+        typeof msg.id !== 'number' ||
+        !this.pending.has(msg.id)
+      ) {
+        continue;
+      }
       const pending = this.pending.get(msg.id)!;
       this.pending.delete(msg.id);
       if (msg.error) pending.reject(
@@ -356,17 +437,65 @@ export class StdioChildClient {
     });
   }
 
-  async listTools(timeoutMs = this.requestTimeoutMs): Promise<
-    Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>
-  > {
-    const res = (await this.request('tools/list', {}, timeoutMs, 'tools/list')) as {
-      tools?: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> }>;
-    };
-    if (!res || !Array.isArray(res.tools)) {
-      throw this.fail('tools/list', 'tools/list returned an invalid result.', { kind: 'tools_list_failure' });
+  async listTools(timeoutMs = this.requestTimeoutMs): Promise<ChildToolDescriptor[]> {
+    const tools: ChildToolDescriptor[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+
+    for (let page = 1; ; page += 1) {
+      const res = (await this.request(
+        'tools/list',
+        cursor === undefined ? {} : { cursor },
+        timeoutMs,
+        'tools/list'
+      )) as { tools?: unknown; nextCursor?: unknown };
+      if (
+        !res ||
+        !Array.isArray(res.tools) ||
+        !res.tools.every(
+          (tool): tool is ChildToolDescriptor =>
+            Boolean(tool) &&
+            typeof tool === 'object' &&
+            typeof (tool as ChildToolDescriptor).name === 'string' &&
+            (tool as ChildToolDescriptor).name.length > 0
+        )
+      ) {
+        throw this.fail('tools/list', 'tools/list returned an invalid result.', {
+          kind: 'tools_list_failure',
+        });
+      }
+      tools.push(...res.tools);
+      if (tools.length > this.maxCatalogTools) {
+        throw this.fail(
+          'tools/list',
+          `child catalog exceeded ${this.maxCatalogTools} tools`,
+          { kind: 'tools_list_limit_exceeded' }
+        );
+      }
+      if (res.nextCursor === undefined) {
+        this.currentPhase = 'runtime';
+        return tools;
+      }
+      if (typeof res.nextCursor !== 'string' || res.nextCursor.length === 0) {
+        throw this.fail('tools/list', 'tools/list returned an invalid nextCursor.', {
+          kind: 'tools_list_failure',
+        });
+      }
+      if (seenCursors.has(res.nextCursor)) {
+        throw this.fail('tools/list', `tools/list repeated cursor: ${res.nextCursor}`, {
+          kind: 'tools_list_pagination_cycle',
+        });
+      }
+      if (page >= this.maxCatalogPages) {
+        throw this.fail(
+          'tools/list',
+          `child catalog exceeded ${this.maxCatalogPages} pages`,
+          { kind: 'tools_list_limit_exceeded' }
+        );
+      }
+      seenCursors.add(res.nextCursor);
+      cursor = res.nextCursor;
     }
-    this.currentPhase = 'runtime';
-    return res.tools;
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -375,6 +504,14 @@ export class StdioChildClient {
 
   isReady(): boolean {
     return this.initialized && this.child !== null;
+  }
+
+  protocolVersion(): string | null {
+    return this.negotiatedProtocol;
+  }
+
+  supportsToolsListChanged(): boolean {
+    return this.serverToolsListChanged;
   }
 
   pid(): number | undefined {
@@ -403,6 +540,8 @@ export class StdioChildClient {
     this.stopping = true;
     this.child = null;
     this.initialized = false;
+    this.negotiatedProtocol = null;
+    this.serverToolsListChanged = false;
     this.currentPhase = 'shutdown';
     for (const pending of this.pending.values()) pending.reject(new Error('child stopped'));
     this.pending.clear();
@@ -445,6 +584,10 @@ export class StdioChildClient {
       occurredAt: new Date().toISOString(),
     };
     this.lastFailure = diagnostic;
+    if (options.terminate !== false) {
+      this.negotiatedProtocol = null;
+      this.serverToolsListChanged = false;
+    }
     this.options.onDiagnostic?.(diagnostic);
     const error = new ChildMcpError(
       `${this.options.adapter} adapter failed during ${phase}: ${message}`,

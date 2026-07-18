@@ -218,9 +218,12 @@ The "too many tools" problem is well-trodden; recurring patterns:
 `notifications/tools/list_changed`: a server can tell the client its tool list
 changed and the client re-pulls `tools/list`. This enables an _alternative_
 "dynamic surfacing" approach (equip/unequip a family, then notify) as used by
-hypertool. We note it as a **future option** but do not depend on it now: the
-current server declares `capabilities: { tools: {} }` (no `listChanged`), and not
-all clients honor the notification. Option B works on every client without it.
+hypertool. We note parent-to-client dynamic surfacing as a **future option** but
+do not depend on it now: the current FolderForge server declares
+`capabilities: { tools: {} }` (no `listChanged`), and not all clients honor the
+notification. Option B works on every client without it. Separately, the child
+client now honors an advertised child `tools.listChanged` capability to invalidate
+its cached sub-tool catalog; that does not change the parent-visible tool surface.
 
 ## Recommendation — Option B (`list_tools` + `call_tool`), opt-in per adapter
 
@@ -248,9 +251,10 @@ namespaced tools; unflagged adapters are unchanged.
 3. **`list_tools` ranking - substring in v1; BM25 relevance delivered post-v1.**
    v1 shipped with substring filtering only; optional free-text `query` BM25
    ranking was added afterwards (see Delivered enhancements).
-4. **`list_changed` path — out of scope for v1.** Option B needs no notification;
-   dynamic surfacing via `tools/list_changed` is revisited as a separate
-   enhancement (see Future work).
+4. **Parent `list_changed` path — out of scope for v1.** Option B needs no parent
+   notification; dynamic FolderForge-to-client surfacing is revisited separately.
+   Child-to-FolderForge catalog invalidation was delivered post-v1 and is capability
+   negotiated (see Delivered enhancements).
 
 ## Delivery plan (small steps) - COMPLETE
 
@@ -281,17 +285,23 @@ Steps are sequenced so each is independently reviewable and CI-green.
   100+-tool child: assert only 2 tools advertised, `list_tools` filters, and a
   CRITICAL sub-op is approval-gated (governance not bypassed).
 - **[x] Step 8 — Docs.** New section in `docs/adapters.md` + this file's "chosen"
-  status; note the `list_changed` and semantic-ranking follow-ups as future work.
+  status; note semantic ranking, child cache invalidation, and parent dynamic
+  surfacing as separate follow-ups.
 
 ### Future work (explicitly out of scope for v1)
 
-- Dynamic `tools/list_changed` "equip a family" surfacing (needs `listChanged`
-  capability + client support).
+- Dynamic parent `tools/list_changed` "equip a family" surfacing (needs the
+  FolderForge server to advertise `listChanged` plus compatible client support).
 - Sharing the facade mechanism across adapters (Option C style folding) if a
   client can't drive the two-step flow.
 
 ### Delivered enhancements (post-v1)
 
+- **Child protocol negotiation and catalog invalidation.** FolderForge requests the
+  latest protocol from its installed official SDK, accepts only SDK-supported
+  fallback versions, follows bounded cursor pagination, and invalidates the cached
+  child catalog only when the child advertised `tools.listChanged`. Cyclic or
+  oversized catalogs fail closed.
 - **Semantic/BM25 ranking in `list_tools`.** `list_tools` accepts an optional
   free-text `query`. When set, the (substring-pre-filtered) catalog is ranked by
   a dependency-free BM25 over each sub-tool's `name` + `description` (name field

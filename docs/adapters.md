@@ -42,9 +42,12 @@ Each adapter (`AdapterDef`) has:
 1. On startup, `ChildMcpRegistry` reads enabled adapters from config.
 2. Adapters start **lazily** - the child process is spawned on first use (or first
    tool discovery), not eagerly, to avoid paying their cost when unused.
-3. The child's tools are discovered via `tools/list`, **namespaced** with the
-   adapter name and a `__` separator (e.g. `serena__find_symbol`), and
-   re-exported through the main registry.
+3. FolderForge initializes with the latest protocol version supported by its
+   installed official MCP SDK, accepts only SDK-supported fallback versions, then
+   follows every cursor page returned by `tools/list`. Discovery fails closed on
+   malformed cursors, cursor cycles, more than 1,000 pages, or more than 10,000
+   tools. Discovered tools are **namespaced** with the adapter name and a `__`
+   separator (e.g. `serena__find_symbol`) and re-exported through the main registry.
 4. Calls are still wrapped by the FolderForge policy + audit pipeline before
    being forwarded to the child.
 5. On shutdown, `stopAll()` terminates every spawned child.
@@ -98,8 +101,12 @@ client's tool cap (~50), set `facade: true`. The adapter then advertises exactly
 Governance is per sub-op, not per dispatcher: a `CRITICAL` sub-op stays denied in
 safe mode and approval-gated elsewhere even when reached through the facade, and
 the audit trail records the real sub-tool name. The catalog is cached on first
-`list_tools` and refreshable. See [`mcp-facade.md`](./mcp-facade.md) for the full
-design, options considered, and future work (`list_changed`).
+`list_tools`; when a child advertises `capabilities.tools.listChanged`, its
+`notifications/tools/list_changed` invalidates that cache and the next access
+re-discovers every bounded cursor page. FolderForge does not trust unadvertised
+list-change notifications. See [`mcp-facade.md`](./mcp-facade.md) for the facade
+design and the separate future option of notifying parent MCP clients when the
+FolderForge-visible surface itself changes.
 
 ## Rich results and child errors
 

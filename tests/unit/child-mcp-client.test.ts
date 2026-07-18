@@ -3,12 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import {
   ChildMcpError,
   StdioChildClient,
   classifyChildFailure,
   type ChildMcpDiagnostic,
 } from '../../src/adapters/child-mcp/client.js';
+import { ChildMcpRegistry } from '../../src/adapters/child-mcp/registry.js';
 
 const fixture = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -17,15 +19,27 @@ const fixture = resolve(
   'diagnostic-mcp-server.mjs'
 );
 
+interface ClientOptions {
+  timeout?: number;
+  stderrLimit?: number;
+  pidFile?: string;
+  cwd?: string;
+  maxCatalogTools?: number;
+  maxCatalogPages?: number;
+  onToolsListChanged?: () => void;
+}
+
 const clients: StdioChildClient[] = [];
+const registries: ChildMcpRegistry[] = [];
 const tempRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(clients.splice(0).map((client) => client.stopAndWait(200)));
+  await Promise.all(clients.splice(0).map((child) => child.stopAndWait(200)));
+  for (const registry of registries.splice(0)) registry.stopAll();
   for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function client(mode: string, options: { timeout?: number; stderrLimit?: number; pidFile?: string; cwd?: string } = {}) {
+function client(mode: string, options: ClientOptions = {}): StdioChildClient {
   const instance = new StdioChildClient({
     adapter: 'playwright',
     command: process.execPath,
@@ -33,6 +47,15 @@ function client(mode: string, options: { timeout?: number; stderrLimit?: number;
     ...(options.cwd ? { cwd: options.cwd } : {}),
     requestTimeoutMs: options.timeout ?? 200,
     stderrLimit: options.stderrLimit ?? 16 * 1024,
+    ...(options.maxCatalogTools !== undefined
+      ? { maxCatalogTools: options.maxCatalogTools }
+      : {}),
+    ...(options.maxCatalogPages !== undefined
+      ? { maxCatalogPages: options.maxCatalogPages }
+      : {}),
+    ...(options.onToolsListChanged
+      ? { onToolsListChanged: options.onToolsListChanged }
+      : {}),
   });
   clients.push(instance);
   return instance;
@@ -61,17 +84,121 @@ async function waitForExit(pid: number): Promise<boolean> {
   return false;
 }
 
-describe('StdioChildClient diagnostics', () => {
-  it('completes initialize and tools/list successfully', async () => {
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolveWait) => setTimeout(resolveWait, ms));
+}
+
+describe('StdioChildClient diagnostics and protocol handling', () => {
+  it('requests and negotiates the SDK latest protocol version', async () => {
     const child = client('success');
     await child.start();
     const tools = await child.listTools();
 
     expect(child.isReady()).toBe(true);
+    expect(child.protocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+    expect(child.supportsToolsListChanged()).toBe(false);
     expect(tools.map((tool) => tool.name)).toEqual(['echo']);
     expect(child.diagnostic()).toBeNull();
   });
 
+  it('accepts a supported older protocol selected by the child', async () => {
+    const child = client('legacy-protocol');
+    await child.start();
+
+    expect(child.protocolVersion()).toBe('2024-11-05');
+    expect(child.isReady()).toBe(true);
+  });
+
+  it('rejects an unsupported protocol selected by the child', async () => {
+    const child = client('unsupported-protocol');
+    const diagnostic = await failure(() => child.start());
+
+    expect(diagnostic).toMatchObject({
+      phase: 'initialize',
+      kind: 'unsupported_protocol_version',
+    });
+    expect(child.isReady()).toBe(false);
+    expect(child.protocolVersion()).toBeNull();
+  });
+
+  it('follows tools/list cursor pagination until completion', async () => {
+    const child = client('paginated-tools');
+    await child.start();
+
+    const tools = await child.listTools();
+    expect(tools.map((tool) => tool.name)).toEqual([
+      'page-one',
+      'page-two',
+      'page-three',
+    ]);
+  });
+
+  it('fails closed when a child catalog exceeds the tool bound', async () => {
+    const child = client('paginated-tools', { maxCatalogTools: 2 });
+    await child.start();
+
+    const diagnostic = await failure(() => child.listTools());
+    expect(diagnostic).toMatchObject({
+      phase: 'tools/list',
+      kind: 'tools_list_limit_exceeded',
+    });
+    expect(child.isReady()).toBe(false);
+  });
+
+  it('fails closed when a child catalog exceeds the page bound', async () => {
+    const child = client('paginated-tools', { maxCatalogPages: 2 });
+    await child.start();
+
+    const diagnostic = await failure(() => child.listTools());
+    expect(diagnostic).toMatchObject({
+      phase: 'tools/list',
+      kind: 'tools_list_limit_exceeded',
+    });
+  });
+
+  it('detects a repeated tools/list cursor', async () => {
+    const child = client('pagination-cycle');
+    await child.start();
+
+    const diagnostic = await failure(() => child.listTools());
+    expect(diagnostic).toMatchObject({
+      phase: 'tools/list',
+      kind: 'tools_list_pagination_cycle',
+    });
+  });
+
+  it('ignores tools/list_changed when the child did not advertise the capability', async () => {
+    let changes = 0;
+    const child = client('unadvertised-list-change', {
+      onToolsListChanged: () => {
+        changes += 1;
+      },
+    });
+    await child.start();
+    await child.listTools();
+    await sleep(40);
+
+    expect(child.supportsToolsListChanged()).toBe(false);
+    expect(changes).toBe(0);
+  });
+
+  it('invalidates and refreshes the registry cache for advertised list changes', async () => {
+    const registry = new ChildMcpRegistry({
+      serena: {
+        enabled: true,
+        command: process.execPath,
+        args: [fixture, 'list-change'],
+        facade: true,
+      },
+    });
+    registries.push(registry);
+
+    const first = await registry.catalog('serena');
+    expect(first.map((tool) => tool.name)).toEqual(['echo-v1']);
+    await sleep(40);
+    const second = await registry.catalog('serena');
+    expect(second.map((tool) => tool.name)).toEqual(['echo-v2']);
+  });
 
   it.each([
     ['spawn', { message: 'spawn ENOENT', code: 'ENOENT' }, 'executable_not_found'],
@@ -136,8 +263,6 @@ describe('StdioChildClient diagnostics', () => {
   });
 
   it('classifies tools/list timeout separately from initialize', async () => {
-    // Give process startup a realistic budget under a fully parallel test run;
-    // keep the operation under test on its own short, deterministic timeout.
     const child = client('tools-list-timeout', { timeout: 500 });
     await child.start();
 

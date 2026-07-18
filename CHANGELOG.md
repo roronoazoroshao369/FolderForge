@@ -6,7 +6,14 @@ semantic versioning.
 
 ## [Unreleased]
 
-No changes have been recorded since 2.3.2.
+### Fixed
+
+- Negotiate child MCP protocol versions against the installed official SDK instead
+  of hard-coding the original protocol revision, while rejecting unsupported
+  server selections before advertising child tools.
+- Follow cursor-paginated child `tools/list` catalogs with cycle, page, and tool
+  bounds, and invalidate cached catalogs only for capability-advertised
+  `notifications/tools/list_changed` events.
 
 ## [2.3.2] - 2026-07-18
 

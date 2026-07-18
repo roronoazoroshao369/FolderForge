@@ -68,7 +68,7 @@ rl.on('line', (line) => {
   switch (method) {
     case 'initialize':
       reply(id, {
-        protocolVersion: '2024-11-05',
+        protocolVersion: params?.protocolVersion ?? '2024-11-05',
         capabilities: { tools: {} },
         serverInfo: { name: 'fake-mcp', version: '0.0.1' },
       });

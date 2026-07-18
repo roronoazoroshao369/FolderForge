@@ -36,6 +36,7 @@ interface AdapterEntry {
   client: StdioChildClient | null;
   lazyStarted: boolean;
   catalog: SubToolDescriptor[] | null;
+  catalogGeneration: number;
   launch: ResolvedAdapterLaunch | null;
   diagnostic: ChildMcpDiagnostic | null;
 }
@@ -99,6 +100,7 @@ export class ChildMcpRegistry {
       client: null,
       lazyStarted: false,
       catalog: null,
+      catalogGeneration: 0,
       launch: null,
       diagnostic: null,
     });
@@ -140,6 +142,12 @@ export class ChildMcpRegistry {
         onDiagnostic: (diagnostic) => {
           entry.diagnostic = diagnostic;
           entry.catalog = null;
+          entry.catalogGeneration += 1;
+        },
+        onToolsListChanged: () => {
+          entry.catalog = null;
+          entry.catalogGeneration += 1;
+          logger.info({ adapter: name }, 'Child MCP tool catalog invalidated');
         },
       });
     }
@@ -171,14 +179,20 @@ export class ChildMcpRegistry {
     if (!refresh && entry.catalog) return entry.catalog;
     const client = await this.ensure(name);
     try {
-      const tools = await client.listTools();
-      entry.catalog = tools.map((tool) => ({
-        name: tool.name,
-        ...(tool.description !== undefined ? { description: tool.description } : {}),
-        ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
-      }));
-      entry.diagnostic = null;
-      return entry.catalog;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const generation = entry.catalogGeneration;
+        const tools = await client.listTools();
+        const catalog = tools.map((tool) => ({
+          name: tool.name,
+          ...(tool.description !== undefined ? { description: tool.description } : {}),
+          ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
+        }));
+        if (entry.catalogGeneration !== generation) continue;
+        entry.catalog = catalog;
+        entry.diagnostic = null;
+        return entry.catalog;
+      }
+      throw new Error(`Adapter ${name} changed its tool catalog repeatedly during discovery.`);
     } catch (error) {
       entry.diagnostic = client.diagnostic() ?? entry.diagnostic;
       throw error;
