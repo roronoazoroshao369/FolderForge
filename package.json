@@ -63,7 +63,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@playwright/mcp": "^0.0.41",
+    "@playwright/mcp": "^0.0.78",
     "execa": "^9.0.0",
     "fast-glob": "^3.3.0",
     "ignore": "^6.0.0",
