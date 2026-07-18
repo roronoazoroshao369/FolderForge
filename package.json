@@ -66,7 +66,7 @@
     "@playwright/mcp": "^0.0.41",
     "execa": "^9.0.0",
     "fast-glob": "^3.3.0",
-    "ignore": "^6.0.0",
+    "ignore": "^7.0.6",
     "jose": "^6.2.3",
     "pino": "^9.0.0",
     "simple-git": "^3.25.0",
