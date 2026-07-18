@@ -6,7 +6,20 @@ semantic versioning.
 
 ## [Unreleased]
 
-No changes have been recorded since 2.3.0.
+No changes have been recorded since 2.3.1.
+
+## [2.3.1] - 2026-07-18
+
+### Fixed
+
+- Make Playwright adapter regression tests platform-neutral by validating resolved
+  package metadata and Node resolution semantics instead of Unix path substrings.
+- Make packed-package browser smoke tolerate macOS canonical `/private/var` paths
+  and npm hoisting while still proving the CLI comes from the installed
+  `@playwright/mcp` dependency tree.
+- Keep workflow approval/resume integration coverage deterministic on loaded
+  Windows runners by using a lightweight governed read step instead of unrelated
+  project-analysis subprocess work.
 
 ## [2.3.0] - 2026-07-18
 

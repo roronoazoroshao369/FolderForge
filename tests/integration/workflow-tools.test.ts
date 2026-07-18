@@ -29,12 +29,12 @@ describe('governed workflow tools', () => {
     const definition = {
       name: 'multi-role implementation',
       roles: {
-        planner: { allowedTools: ['project_analyze'] },
+        planner: { allowedTools: ['file_read'] },
         coder: { allowedTools: ['file_write'] },
         reviewer: { allowedTools: ['file_read'] },
       },
       steps: [
-        { id: 'analyze', role: 'planner', tool: 'project_analyze' },
+        { id: 'analyze', role: 'planner', tool: 'file_read', args: { path: 'package.json' } },
         {
           id: 'write', role: 'coder', tool: 'file_write', dependsOn: ['analyze'],
           args: { path: 'workflow-output.txt', content: 'hello workflow\n' },

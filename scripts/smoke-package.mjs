@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
@@ -19,6 +19,15 @@ let oauthAuthorizationServer;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isWithinPath(parent, candidate) {
+  const rel = relative(realpathSync(parent), realpathSync(candidate));
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+function isSamePath(left, right) {
+  return relative(realpathSync(left), realpathSync(right)) === '';
 }
 
 async function waitForHealth(url, child, getLogs) {
@@ -221,16 +230,14 @@ try {
     throw new Error(`Browser setup resolved an unexpected command: ${setupOutput}`);
   }
   const resolvedPlaywrightCli = setup.args[0];
-  const installedMcpPackage = JSON.parse(
-    readFileSync(join(temp, 'node_modules', '@playwright', 'mcp', 'package.json'), 'utf8')
-  );
-  const expectedPlaywrightRuntime = installedMcpPackage.dependencies?.playwright;
+  const resolverModule = await import(pathToFileURL(join(installedRoot, 'dist', 'adapters', 'child-mcp', 'resolve.js')).href);
+  const installedRuntime = resolverModule.resolvePlaywrightMcpRuntime();
   if (
     typeof resolvedPlaywrightCli !== 'string' ||
-    !resolvedPlaywrightCli.startsWith(temp) ||
-    !resolvedPlaywrightCli.includes(`${join('node_modules', 'playwright')}`) ||
+    !isWithinPath(temp, resolvedPlaywrightCli) ||
+    !isSamePath(resolvedPlaywrightCli, installedRuntime.playwrightCliPath) ||
     typeof setup.runtimeVersion !== 'string' ||
-    setup.runtimeVersion !== expectedPlaywrightRuntime ||
+    setup.runtimeVersion !== installedRuntime.playwrightVersion ||
     setupOutput.includes('npx')
   ) {
     throw new Error(`Browser setup did not use the @playwright/mcp-compatible package-local Playwright CLI: ${setupOutput}`);
@@ -239,7 +246,6 @@ try {
   // Verify the installed tarball resolves and handshakes the built-in adapter
   // entirely from its own dependency tree. The temp installation path contains
   // both spaces and Unicode, and npm is forced offline for the child process.
-  const resolverModule = await import(pathToFileURL(join(installedRoot, 'dist', 'adapters', 'child-mcp', 'resolve.js')).href);
   const clientModule = await import(pathToFileURL(join(installedRoot, 'dist', 'adapters', 'child-mcp', 'client.js')).href);
   const adapterLaunch = resolverModule.resolveAdapterLaunch('playwright', {
     enabled: true,
@@ -249,7 +255,8 @@ try {
   if (
     adapterLaunch.command !== process.execPath ||
     adapterLaunch.source !== 'package-local' ||
-    !adapterLaunch.args[0]?.startsWith(temp) ||
+    !adapterLaunch.args[0] ||
+    !isWithinPath(temp, adapterLaunch.args[0]) ||
     adapterLaunch.args.join(' ').includes('npx')
   ) {
     throw new Error(`Packed Playwright adapter did not resolve package-locally: ${JSON.stringify(adapterLaunch)}`);
@@ -297,20 +304,18 @@ try {
   }
   const globalSetupOutput = run(process.execPath, [globalCli, 'setup', 'browser', '--dry-run', '--json'], { cwd: temp }).stdout;
   const globalSetup = JSON.parse(globalSetupOutput);
-  const globalMcpPackage = JSON.parse(
-    readFileSync(join(globalInstalledRoot, 'node_modules', '@playwright', 'mcp', 'package.json'), 'utf8')
-  );
+  const globalResolver = await import(pathToFileURL(join(globalInstalledRoot, 'dist', 'adapters', 'child-mcp', 'resolve.js')).href);
+  const globalRuntime = globalResolver.resolvePlaywrightMcpRuntime();
   if (
     globalSetup.exitCode !== 0 ||
     typeof globalSetup.args?.[0] !== 'string' ||
-    !globalSetup.args[0].startsWith(globalPrefix) ||
-    !globalSetup.args[0].includes(`${join('node_modules', 'playwright')}`) ||
-    globalSetup.runtimeVersion !== globalMcpPackage.dependencies?.playwright ||
+    !isWithinPath(globalPrefix, globalSetup.args[0]) ||
+    !isSamePath(globalSetup.args[0], globalRuntime.playwrightCliPath) ||
+    globalSetup.runtimeVersion !== globalRuntime.playwrightVersion ||
     globalSetupOutput.includes('npx')
   ) {
     throw new Error(`Global package did not resolve the package-local Playwright runtime: ${globalSetupOutput}`);
   }
-  const globalResolver = await import(pathToFileURL(join(globalInstalledRoot, 'dist', 'adapters', 'child-mcp', 'resolve.js')).href);
   const globalClientModule = await import(pathToFileURL(join(globalInstalledRoot, 'dist', 'adapters', 'child-mcp', 'client.js')).href);
   const globalLaunch = globalResolver.resolveAdapterLaunch('playwright', {
     enabled: true,

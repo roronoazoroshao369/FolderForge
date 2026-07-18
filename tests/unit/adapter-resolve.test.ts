@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 import {
   LEGACY_GENERATED_PLAYWRIGHT_SPEC,
   PACKAGE_LOCAL_PLAYWRIGHT_COMMAND,
@@ -18,9 +20,10 @@ describe('child adapter launch resolution', () => {
     expect(launch.source).toBe('package-local');
     expect(launch.command).toBe(process.execPath);
     expect(launch.args.at(-1)).toBe('--isolated');
-    expect(launch.args[0]).toContain('@playwright/mcp');
+    expect(launch.args[0]).toBe(launch.cliPath);
     expect(existsSync(launch.args[0]!)).toBe(true);
     expect(launch.packageName).toBe('@playwright/mcp');
+    expect(JSON.parse(readFileSync(launch.packageJsonPath!, 'utf8')).name).toBe('@playwright/mcp');
   });
 
   it('migrates only the exact historical generated npx definition', () => {
@@ -69,10 +72,12 @@ describe('child adapter launch resolution', () => {
       dependencies?: { playwright?: string };
     };
 
+    const requireFromMcp = createRequire(runtime.mcpPackageJsonPath);
+
     expect(runtime.mcpVersion).toBeTruthy();
     expect(runtime.playwrightVersion).toBe(mcpPackage.dependencies?.playwright);
-    expect(runtime.playwrightPackageJsonPath).toContain(`${String.raw`node_modules/playwright`}`);
-    expect(runtime.playwrightCliPath).toContain(`${String.raw`node_modules/playwright`}`);
+    expect(runtime.playwrightPackageJsonPath).toBe(requireFromMcp.resolve('playwright/package.json'));
+    expect(runtime.playwrightCliPath).toBe(resolve(dirname(runtime.playwrightPackageJsonPath), 'cli.js'));
     expect(existsSync(runtime.playwrightCliPath)).toBe(true);
     expect(runtime.chromiumExecutablePath).toBeTruthy();
   });
