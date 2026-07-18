@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-07-18
+
 ### Added
 
 - Add child-adapter lifecycle status and health evidence for state, PID, startup
@@ -29,9 +31,15 @@ semantic versioning.
   unproductive respawn loops.
 - Never automatically replay a failed `tools/call`; recovery applies only to a
   later request so uncertain side effects cannot be duplicated.
+- Use the exact non-empty versioned changelog section as hosted release notes and
+  reject dirty worktrees, tag/package mismatches, or tags that do not target the
+  checked-out release commit before generating those notes.
 
 ### Fixed
 
+- Classify facade sub-tools before OAuth and policy so each logical operation uses
+  one governance pipeline with its real readonly/mutation contract, approval
+  fingerprint, quota key, `policy_explain` result, and audit identity.
 - Negotiate child MCP protocol versions against the installed official SDK instead
   of hard-coding the original protocol revision, while rejecting unsupported
   server selections before advertising child tools.
@@ -44,14 +52,6 @@ semantic versioning.
 - Answer child-initiated ping requests, reject malformed protocol frames, drain
   pending work on real connection failure, and prevent stale child exit events
   from clobbering a restarted process.
-
-## [2.3.2] - 2026-07-18
-
-### Fixed
-
-- Classify facade sub-tools before OAuth and policy so each logical operation uses
-  one governance pipeline with its real readonly/mutation contract, approval
-  fingerprint, quota key, `policy_explain` result, and audit identity.
 
 ## [2.3.1] - 2026-07-18
 
