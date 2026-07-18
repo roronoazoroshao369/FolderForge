@@ -2,13 +2,14 @@ name: release
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - package.json
-      - CHANGELOG.md
-      - .github/workflows/release.yml
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic version tag to release (for example v2.3.2)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,33 +17,38 @@ permissions:
 jobs:
   publish-github-release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - name: Check out tagged source
+        uses: actions/checkout@v5
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
-      - name: Create GitHub release for tagged package version
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Verify tag, package version, changelog, and exact commit
+        run: node scripts/verify-release-ref.mjs --tag "${RELEASE_TAG}"
+
+      - name: Create GitHub release for verified tag
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
-          version="$(node -p "require('./package.json').version")"
-          tag="v${version}"
+          version="${RELEASE_TAG#v}"
 
-          if ! git rev-parse --verify "${tag}^{commit}" >/dev/null 2>&1; then
-            echo "Tag ${tag} does not exist; nothing to publish."
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "GitHub release ${RELEASE_TAG} already exists."
             exit 0
           fi
 
-          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "GitHub release ${tag} already exists."
-            exit 0
-          fi
-
-          gh release create "${tag}" \
+          gh release create "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --title "FolderForge ${version}" \
