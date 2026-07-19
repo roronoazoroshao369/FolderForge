@@ -1,6 +1,6 @@
 {
   "name": "@musashishao/folderforge",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "keywords": [
     "mcp",
@@ -37,7 +37,14 @@
     "addons",
     "docs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "benchmarks",
+    "beta",
+    "scripts/benchmark-lib.mjs",
+    "scripts/run-benchmarks.mjs",
+    "scripts/validate-benchmark-results.mjs",
+    "scripts/compare-benchmarks.mjs",
+    "scripts/beta-evidence.mjs"
   ],
   "engines": {
     "node": ">=22.0.0"
@@ -67,7 +74,10 @@
     "quality:check": "npm run test:coverage && npm run test:fuzz && npm run test:stress && npm run smoke:inspector",
     "benchmark:validate": "node scripts/validate-benchmark-results.mjs",
     "benchmark:compare": "node scripts/compare-benchmarks.mjs",
-    "smoke:sandbox": "node scripts/smoke-sandbox.mjs"
+    "smoke:sandbox": "node scripts/smoke-sandbox.mjs",
+    "benchmark:run": "node scripts/run-benchmarks.mjs",
+    "beta:ingest": "node scripts/beta-evidence.mjs ingest",
+    "beta:report": "node scripts/beta-evidence.mjs report"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -79,6 +89,7 @@
     "pino": "^9.0.0",
     "pngjs": "7.0.0",
     "simple-git": "^3.25.0",
+    "tar": "^7.5.20",
     "yaml": "^2.5.0",
     "zod": "^3.23.0"
   },

@@ -99,6 +99,42 @@ try {
     throw new Error(`Inspector tools/call failed: ${JSON.stringify(called)}`);
   }
 
+  const resources = invoke(['--method', 'resources/list']);
+  if (
+    !Array.isArray(resources.resources) ||
+    !resources.resources.some((resource) => resource.uri === 'folderforge://workspace/status')
+  ) {
+    throw new Error(`Inspector resources/list did not expose workspace status: ${JSON.stringify(resources)}`);
+  }
+  const workspace = invoke([
+    '--method',
+    'resources/read',
+    '--uri',
+    'folderforge://workspace/status',
+  ]);
+  if (!JSON.stringify(workspace).includes(project)) {
+    throw new Error(`Inspector resources/read returned unexpected workspace state: ${JSON.stringify(workspace)}`);
+  }
+
+  const prompts = invoke(['--method', 'prompts/list']);
+  if (
+    !Array.isArray(prompts.prompts) ||
+    !prompts.prompts.some((prompt) => prompt.name === 'folderforge/deep-implementation-cycle')
+  ) {
+    throw new Error(`Inspector prompts/list did not expose the implementation prompt: ${JSON.stringify(prompts)}`);
+  }
+  const prompt = invoke([
+    '--method',
+    'prompts/get',
+    '--prompt-name',
+    'folderforge/deep-implementation-cycle',
+    '--prompt-args',
+    'objective=verify Inspector prompts',
+  ]);
+  if (!JSON.stringify(prompt).includes('Discover')) {
+    throw new Error(`Inspector prompts/get returned unexpected content: ${JSON.stringify(prompt)}`);
+  }
+
   console.log(
     JSON.stringify(
       {
@@ -106,6 +142,9 @@ try {
         inspector: '0.21.2',
         transport: 'stdio',
         advertisedTools: listed.tools.length,
+        advertisedResources: resources.resources.length,
+        advertisedPrompts: prompts.prompts.length,
+        methods: ['tools/list', 'tools/call', 'resources/list', 'resources/read', 'prompts/list', 'prompts/get'],
         toolCall: 'file_read',
         projectHasSpaces: project.includes(' '),
         projectHasUnicode: project.includes('ü'),

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/roronoazoroshao369/FolderForge/beta/schema/evidence.schema.json",
+  "title": "FolderForge beta evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "installationId", "version", "commit", "os", "nodeVersion", "client", "attemptType", "success", "finalCohort"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "installationId": { "type": "string", "minLength": 8, "maxLength": 256 },
+    "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "commit": { "type": "string", "minLength": 7, "maxLength": 64 },
+    "os": { "enum": ["ubuntu", "macos", "windows"] },
+    "nodeVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "client": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "attemptType": { "enum": ["clean-install", "upgrade"] },
+    "success": { "type": "boolean" },
+    "finalCohort": { "type": "boolean" },
+    "externalPlugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageId", "validated", "sandboxReviewed"],
+      "properties": {
+        "packageId": { "type": "string", "minLength": 2, "maxLength": 256 },
+        "validated": { "type": "boolean" },
+        "sandboxReviewed": { "type": "boolean" }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "status", "dataLoss", "releaseBlocking", "regressionTestAdded"],
+      "properties": {
+        "severity": { "enum": ["none", "low", "medium", "high", "critical"] },
+        "status": { "enum": ["open", "resolved"] },
+        "dataLoss": { "type": "boolean" },
+        "releaseBlocking": { "type": "boolean" },
+        "regressionTestAdded": { "type": "boolean" }
+      }
+    },
+    "docsExercisedByExternal": { "type": "boolean" },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeToFirstToolMs": { "type": "integer", "minimum": 0 },
+        "approvalInterruptions": { "type": "integer", "minimum": 0 },
+        "childRecoveryMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "notes": { "type": "string", "maxLength": 2000 }
+  }
+}

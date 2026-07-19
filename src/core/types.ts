@@ -55,6 +55,16 @@ export interface HttpAuthConfig {
 export interface ToolPrincipal {
   id: string;
   role: "agent" | "admin" | "system";
+  /** Optional fine-grained RBAC roles in addition to the coarse control-plane role. */
+  roles?: string[];
+  /** Optional organization boundary supplied by trusted auth claims or local context. */
+  organizationId?: string;
+  /** Optional verified team/group memberships for fine-grained RBAC. */
+  teamIds?: string[];
+  /** Stable hash-derived project identity for policy and audit correlation. */
+  projectId?: string;
+  /** Connection/session identity; never used as the sole authentication factor. */
+  sessionId?: string;
   authMode?: HttpAuthMode | "stdio";
   /** OAuth scopes only; static token principals intentionally remain unscoped. */
   scopes?: string[];
@@ -128,6 +138,8 @@ export interface PolicyConfig {
   approvalTtlMs: number;
   /** Explicit autonomous-agent escape hatch for isolated environments. */
   allowCriticalInDanger: boolean;
+  /** Additional project-relative policy files or directories. */
+  files?: string[];
 }
 
 export interface TerminalConfig {

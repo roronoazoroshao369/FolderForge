@@ -21,7 +21,9 @@ import { executeDoctorCli } from "./doctor/index.js";
 import { executeBrowserSetupCli } from "./setup/browser.js";
 import { executeChatGptCli } from "./chatgpt/cli.js";
 import type { OAuthHttpAuthConfig, ToolPrincipal } from "./core/types.js";
-import { STDIO_AGENT_PRINCIPAL } from "./core/principal.js";
+import { STDIO_AGENT_PRINCIPAL, withExecutionContext } from "./core/principal.js";
+import { executeDistributedCli } from './distributed/cli.js';
+import { executePluginSdkCli } from './plugins/sdk-cli.js';
 
 const VERSION = readFolderForgeVersion();
 
@@ -262,6 +264,9 @@ function printHelp(): void {
       "  setup browser          Install package-compatible Playwright Chromium (explicit opt-in)",
       "  connect chatgpt        Configure Auth0 OAuth and connect FolderForge to ChatGPT",
       "  chatgpt <command>      status|doctor|repair|start|stop|disconnect",
+      "  distributed serve      Start the authenticated remote-worker coordinator API",
+      "  worker init|run        Create a worker identity or run an allowlisted remote worker",
+      "  plugin <command>       init|validate|test|pack|keygen|sign plugin SDK workflow",
       "",
       "Options:",
       "  -p, --project <dir>      Project root to activate (default: cwd)",
@@ -302,6 +307,16 @@ function printHelp(): void {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (argv[0] === "distributed" || argv[0] === "worker") {
+    await executeDistributedCli(argv);
+    return;
+  }
+  if (argv[0] === "plugin") {
+    const result = await executePluginSdkCli(argv.slice(1));
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
   if (argv[0] === "doctor") {
     const result = await executeDoctorCli(argv.slice(1));
     process.stdout.write(result.output);
@@ -520,7 +535,8 @@ async function main(): Promise<void> {
       name: config.server.name,
       version: VERSION,
       roots: config.workspace.allowedDirectories,
-      principal,
+      principal: withExecutionContext(principal, container.projectRoot()),
+      container,
     });
   // A primary server instance for stdio + lifecycle (shutdown). The HTTP
   // transport mints its own per-request server via `makeServer` (a shared
@@ -601,6 +617,7 @@ async function main(): Promise<void> {
     await Promise.allSettled([
       server.close(),
       container.adapters.stopAllAndWait(1_500),
+      container.browserEmulation.close(),
     ]);
     process.exit(0);
   };

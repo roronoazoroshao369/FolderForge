@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "installationId": "participant-generated-random-id",
+  "version": "2.5.0",
+  "commit": "abcdef1234567890",
+  "os": "ubuntu",
+  "nodeVersion": "24.0.0",
+  "client": "example-mcp-client",
+  "attemptType": "clean-install",
+  "success": true,
+  "finalCohort": false,
+  "docsExercisedByExternal": true,
+  "metrics": {
+    "timeToFirstToolMs": 45000,
+    "approvalInterruptions": 1
+  },
+  "notes": "Use only reviewed, non-sensitive notes. Never include credentials, source code, screenshots, or audit logs."
+}

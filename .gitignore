@@ -16,6 +16,16 @@ nohup.out
 # tracked for fixtures, but live audit/approval logs must not be committed.
 **/.folderforge/approvals.jsonl
 **/.folderforge/audit/
+
+# Distributed, marketplace, beta, artifact, and worker runtime state
+**/.folderforge/distributed/
+**/.folderforge/marketplace/
+**/.folderforge/beta/
+**/.folderforge/artifacts/
+**/.folderforge/mcp-tasks/
+**/.folderforge/worker-inputs/
+**/.folderforge/worker-identity/
+
 # Auto-generated default config (written on first run when none exists).
 .folderforge/config.yaml
 

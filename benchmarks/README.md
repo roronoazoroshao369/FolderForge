@@ -48,3 +48,16 @@ neutrality, reproduce at least one run independently, disclose conflicts and
 limitations, and link the exact commits, model versions, configuration, result
 files, and evidence bundle. Empty templates, simulated competitor data, and local
 unit-test counts must never be presented as comparative agent performance.
+
+
+## Execute the frozen suite
+
+Use `npm run benchmark:run -- ...` with a no-shell harness. The runner copies each
+fixture into a fresh workdir, runs every task the required number of times,
+records timeouts/failures rather than dropping them, stores bounded redacted raw
+evidence with SHA-256, and passes only a minimal portable environment unless an
+extra variable is named with `--env-allow`.
+
+See [`docs/benchmark-operations.md`](../docs/benchmark-operations.md) for the
+harness JSON contract and a complete command. Generated results still must pass
+`npm run benchmark:validate`; comparison rules do not change.

@@ -69,3 +69,34 @@ Beta can graduate only after:
 The issue templates `beta_feedback.yml` and `plugin_submission.yml` provide the
 intake structure. Opening GitHub Discussions, publishing an announcement, or
 inviting participants remains an operator-controlled public action.
+
+
+## Evidence tooling
+
+The repository includes a strict local intake/report tool. It does not upload or
+open the beta automatically.
+
+```bash
+node scripts/beta-evidence.mjs ingest   --project /path/to/project   --file reviewed-evidence.json
+
+node scripts/beta-evidence.mjs report --project /path/to/project
+```
+
+The input contract is `beta/schema/evidence.schema.json`; a non-sensitive example
+is in `beta/examples/evidence.example.json`.
+
+The intake tool:
+
+- hashes participant-generated installation IDs and external package IDs;
+- drops fields outside the bounded contract instead of storing attachments;
+- redacts common bearer/token/secret/password/API-key/JWT forms in notes;
+- writes mode-`0600` deduplicated records under `.folderforge/beta/evidence`;
+- never accepts source archives, screenshots, audit logs, or credentials.
+
+The report sets `graduated=true` only when every exit gate has evidence: at least
+30 successful unique installations, Ubuntu/macOS/Windows coverage, at least three
+independent clients, five validated+sandbox-reviewed external plugins, no open
+high/critical/data-loss issue, at least 95% final-cohort success, regression tests
+for every release blocker, and documentation exercised by an external person.
+Code cannot manufacture these external facts; public recruitment and evidence
+collection remain operator-controlled.

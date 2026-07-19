@@ -226,27 +226,23 @@ export class ToolRegistry {
         if (control?.signal?.aborted) {
             return { ok: false, error: "Tool call cancelled before execution." };
         }
-        const requesterId = control?.principal?.id ?? "agent:unknown";
+        const principal = control?.principal ?? { id: "agent:unknown", role: "agent" };
+        const identityDetail = principalAuditDetail(principal);
         this.container.audit.record({
             type: "tool_call",
             tool: name,
             risk,
             summary: summarizeArgs(name, governanceArgs, (value) => this.container.policy.secret.redactValue(value)),
-            detail: {
-                requesterId,
-                authMode: control?.principal?.authMode ?? "none",
-                ...(control?.principal?.oauthClientId
-                    ? { oauthClientId: control.principal.oauthClientId }
-                    : {}),
-            },
+            detail: identityDetail,
         });
-        const decision = this.container.policy.evaluate(name, risk, mutates, governanceArgs, requesterId);
+        const decision = this.container.policy.evaluate(name, risk, mutates, governanceArgs, principal);
         if (decision.kind === "deny") {
             this.container.audit.record({
                 type: "policy_deny",
                 tool: name,
                 risk,
                 summary: decision.reason,
+                detail: identityDetail,
             });
             return { ok: false, error: `Denied: ${decision.reason}` };
         }
@@ -256,7 +252,7 @@ export class ToolRegistry {
                 tool: name,
                 risk,
                 summary: decision.reason,
-                detail: { approvalId: decision.approvalId },
+                detail: { ...identityDetail, approvalId: decision.approvalId },
             });
             // Agent-facing protocol controls may report or render the request, but they
             // cannot resolve it. Resolution is confined to the authenticated admin plane.
@@ -276,6 +272,7 @@ export class ToolRegistry {
                 risk,
                 summary: rl.reason ?? "rate limited",
                 detail: {
+                    ...identityDetail,
                     retryAfterMs: rl.retryAfterMs,
                     windowCount: rl.windowCount,
                     dailyCount: rl.dailyCount,
@@ -300,6 +297,7 @@ export class ToolRegistry {
                 ok: result.ok,
                 durationMs: Date.now() - started,
                 summary: result.ok ? "ok" : (result.error ?? "error"),
+                detail: identityDetail,
             });
             return result;
         }
@@ -319,10 +317,24 @@ export class ToolRegistry {
                 ok: false,
                 durationMs: Date.now() - started,
                 summary: message,
+                detail: identityDetail,
             });
             return { ok: false, error: message };
         }
     }
+}
+function principalAuditDetail(principal) {
+    return {
+        requesterId: principal.id,
+        role: principal.role,
+        roles: principal.roles ?? [principal.role],
+        authMode: principal.authMode ?? "none",
+        ...(principal.organizationId ? { organizationId: principal.organizationId } : {}),
+        ...(principal.teamIds?.length ? { teamIds: principal.teamIds } : {}),
+        ...(principal.projectId ? { projectId: principal.projectId } : {}),
+        ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
+        ...(principal.oauthClientId ? { oauthClientId: principal.oauthClientId } : {}),
+    };
 }
 function boundSummaryValue(value, depth = 0) {
     if (depth >= 3)

@@ -14,6 +14,10 @@ import { registerAdapterRiskMap } from '../adapters/child-mcp/risk-map.js';
 import { logger } from './logger.js';
 import { WorkflowManager } from '../workflows/workflow-manager.js';
 import { ArtifactStore } from '../artifacts/artifact-store.js';
+import { DistributedCoordinator } from '../distributed/coordinator.js';
+import { MarketplaceManager } from '../marketplace/marketplace-manager.js';
+import { BrowserEmulationManager } from '../browser/emulation-manager.js';
+import { McpTaskManager } from '../server/mcp-task-manager.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -32,6 +36,10 @@ export class Container {
   readonly plugins: PluginManager;
   readonly workflows: WorkflowManager;
   readonly artifacts: ArtifactStore;
+  readonly distributed: DistributedCoordinator;
+  readonly marketplace: MarketplaceManager;
+  readonly browserEmulation: BrowserEmulationManager;
+  readonly mcpTasks: McpTaskManager;
   workspaceStartupError: string | null = null;
   /**
    * The tool registry. Assigned by `buildRegistry` right after construction so
@@ -46,10 +54,26 @@ export class Container {
     this.rateLimiter = new RateLimiter(config.rateLimit);
     this.workspace = new WorkspaceManager(config.workspace.allowedDirectories);
     this.audit = new AuditLog(config.workspace.defaultProject);
+    this.mcpTasks = new McpTaskManager(
+      config.workspace.defaultProject,
+      (text) => this.policy.secret.redact(text),
+      this.audit,
+    );
     this.processes = new ProcessManager();
     this.plugins = new PluginManager(config.workspace.defaultProject, readFolderForgeVersion());
     this.workflows = new WorkflowManager(config.workspace.defaultProject);
     this.artifacts = new ArtifactStore(config.workspace.defaultProject);
+    this.marketplace = new MarketplaceManager(
+      config.workspace.defaultProject,
+      readFolderForgeVersion(),
+      this.plugins,
+      { secretScan: (text) => this.policy.secret.scan(text) },
+    );
+    this.distributed = new DistributedCoordinator(config.workspace.defaultProject, {
+      artifactExists: (id) => {
+        try { this.artifacts.metadata(id); return true; } catch { return false; }
+      },
+    });
     const pluginAdapters: Array<{ name: string; def: import('./types.js').AdapterDef }> = [];
     for (const plugin of this.plugins.list().filter((entry) => entry.enabled)) {
       try {
@@ -61,6 +85,7 @@ export class Container {
       }
     }
     this.adapters = new ChildMcpRegistry(config.adapters, pluginAdapters);
+    this.browserEmulation = new BrowserEmulationManager(this.adapters);
     this.db = new DbManager();
     this.lsp = new LspManager(config.lsp);
     this.patchTransactions = new PatchTransactionManager();

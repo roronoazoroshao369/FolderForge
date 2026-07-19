@@ -6,7 +6,101 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-19
+
+This is a locally prepared release candidate. It has not been tagged, published
+to npm, or created as a hosted GitHub release.
+
+### Added
+
+- Add full MCP platform primitives alongside governed tools: bounded redacted
+  `resources/list|read|subscribe`, maintained `prompts/list|get`, standard
+  progress/cancellation propagation, and task-augmented `tools/call` with
+  `tasks/get|list|cancel|result` plus status notifications.
+- Add principal-bound durable MCP task records with redacted argument summaries,
+  SHA-256 fingerprints, bounded results, TTL cleanup, cancellation, pagination,
+  audit events, and explicit no-replay recovery after server restart.
+- Add restrictive policy-as-code from project-scoped YAML with deny/approval-only
+  effects, fail-closed schema validation, tool/risk/mutation/mode selectors, and
+  RBAC selectors for principal, role, organization, team, project, and session.
+- Add execution identity propagation across stdio, token, and OAuth sessions,
+  including verified organization/role claims, stable project/session IDs, and
+  end-to-end audit correlation without weakening approval bindings.
+- Add a first-party Plugin SDK CLI with dependency-free templates, production
+  manifest validation, real child-MCP handshake tests, deterministic packing,
+  protected Ed25519 key generation, CycloneDX/provenance generation, marketplace
+  scanning, and locally signed immutable package entries.
+- Add a durable single-coordinator remote-worker runtime with AES-256-GCM job
+  payloads, Ed25519 coordinator/worker identities, short-lived rotatable tokens,
+  capability matching, leases, acknowledgements, heartbeats, monotonic fencing,
+  cancellation, recovery, and explicit `idempotent`/`no-replay` behavior.
+- Add a TLS-required non-loopback worker API and `folderforge worker init|run`
+  CLI. Workers require an explicit tool allowlist, execute through their own
+  FolderForge governance pipeline, transfer only lease-bound artifacts, redact
+  bounded result artifacts, sign execution evidence, and reject control-plane
+  recursion.
+- Add a verified local marketplace with Ed25519 publisher trust and revocation,
+  immutable signed versions, package/manifest/SBOM/provenance/source digests,
+  bounded HTTPS/local index sync, local moderation, and disabled-only install.
+- Add quarantine extraction and scans for traversal, symlinks/hardlinks/devices,
+  archive and expanded-size abuse, lifecycle scripts, secrets, compatibility,
+  manifest, SBOM, provenance, and exact package integrity.
+- Add `browser_emulate`, `browser_emulation_status`, and `browser_flow_run` with
+  Playwright device/viewport/user-agent profiles, loopback HTTP/HTTPS CONNECT
+  shaping for offline/latency/bandwidth, governed fixed-action flows, and bounded
+  per-step evidence without arbitrary JavaScript.
+- Add a no-shell benchmark execution runner with clean fixture workdirs, timeout
+  capture, minimal environment inheritance, explicit env allowlisting, bounded
+  redacted logs, raw evidence SHA-256, and preservation of failed/malformed runs.
+- Add a strict beta evidence schema, hashed participant/plugin identifiers,
+  deduplicated mode-0600 intake, redacted notes, and a graduation report that
+  cannot pass without real OS/client/plugin/cohort/security/documentation evidence.
+- Extend `folderforge doctor` with read-only distributed coordinator schema/key-
+  permission checks and marketplace trust/index consistency checks.
+
+### Changed
+
+- Expand the native surface to 308 tools: 288 agent-facing and 20 admin-only;
+  `vibe-lite` remains capped at exactly 50 while pinning browser and process
+  lifecycle groups.
+- Export plugin manifest/integrity validators for marketplace quarantine while
+  keeping install/enable as separate governed operations.
+- Update ADR-0005 from deferred design to an implemented local reference runtime,
+  while retaining explicit external gates for active-active fleets and public
+  hosted marketplace claims.
+- Add the maintained `tar` runtime dependency for safe deterministic package
+  creation and bounded quarantine extraction.
+
+### Security
+
+- Require TLS for non-loopback worker control-plane binds; worker bearer tokens
+  and private keys are never exposed to the agent tool plane.
+- Block stale fencing tokens, automatic replay of acknowledged no-replay work,
+  worker execution outside its allowlist, admin/control-plane recursion, unsigned
+  marketplace entries, revoked publishers, immutable version conflicts, held or
+  yanked entries, and installation before a passing quarantine record.
+- Strip proxy/hop-by-hop credentials from emulated HTTP forwarding and avoid TLS
+  interception; benchmark harnesses no longer inherit the complete host
+  environment by default.
+
+### Fixed
+
+- Reject cancellation of terminal MCP tasks with the protocol-required invalid-
+  params error and attach the standard related-task metadata to task results.
+- Re-scan and verify quarantined plugin integrity immediately before marketplace
+  installation, preventing post-scan tampering from bypassing quarantine.
+- Bind distributed output artifacts to the exact active lease that uploaded them
+  before accepting and coordinator-signing completion evidence.
+- Persist and report lease-expiry recovery evidence from the same transaction
+  instead of pre-recovering and returning an empty result.
+- Ensure worker-side validation failures close the leased job as failed rather
+  than leaving an orphaned lease.
+- Preserve process lifecycle tools when the expanded browser surface is resolved
+  under the 50-tool `vibe-lite` cap.
+
 ## [2.4.0] - 2026-07-19
+
+This local release candidate was superseded by 2.5.0 and was not published to npm.
 
 ### Added
 

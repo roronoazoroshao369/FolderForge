@@ -39,7 +39,7 @@ export function securityTools() {
                     return { ok: false, error: `Unable to classify tool: ${toolName}` };
                 }
                 const governanceArgs = classification.governanceArgs ?? callArgs;
-                const explanation = ctx.container.policy.explain(classification.name, classification.risk, classification.mutates, governanceArgs);
+                const explanation = ctx.container.policy.explain(classification.name, classification.risk, classification.mutates, governanceArgs, ctx.control?.principal ?? { id: 'agent:unknown', role: 'agent' });
                 return {
                     ok: true,
                     data: {

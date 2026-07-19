@@ -188,7 +188,7 @@ function normalizePluginSandbox(value: unknown, filesystem: string): PluginSandb
   };
 }
 
-function validateManifest(raw: unknown, currentVersion: string): PluginManifest {
+export function validatePluginManifest(raw: unknown, currentVersion: string): PluginManifest {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Plugin manifest must be an object.');
   const value = raw as Record<string, unknown>;
   if (value.schemaVersion !== 1) throw new Error('Unsupported plugin schemaVersion; expected 1.');
@@ -252,7 +252,7 @@ function validateManifest(raw: unknown, currentVersion: string): PluginManifest 
   };
 }
 
-function pluginIntegrity(directory: string): PluginIntegrity {
+export function calculatePluginIntegrity(directory: string): PluginIntegrity {
   const hash = createHash('sha256');
   let files = 0;
   let bytes = 0;
@@ -324,7 +324,7 @@ export class PluginManager {
     integrity: { status: 'verified' | 'unverified'; actual: PluginIntegrity };
   } {
     const installed = this.require(id);
-    const actual = pluginIntegrity(installed.installDir);
+    const actual = calculatePluginIntegrity(installed.installDir);
     if (installed.integrity && !sameIntegrity(installed.integrity, actual)) {
       throw new Error(`Plugin integrity mismatch: ${id}. Reinstall or update from a trusted local package.`);
     }
@@ -347,7 +347,7 @@ export class PluginManager {
       cpSync(source, destination, { recursive: true, filter: (path) => basename(path) !== '.git' });
       const now = Date.now();
       const installed = this.toInstalled(
-        manifest, source, destination, enabled, now, now, pluginIntegrity(destination)
+        manifest, source, destination, enabled, now, now, calculatePluginIntegrity(destination)
       );
       const registry = this.readRegistry();
       registry.plugins.push(installed);
@@ -375,7 +375,7 @@ export class PluginManager {
     let oldMoved = false;
     try {
       cpSync(source, staging, { recursive: true, filter: (path) => basename(path) !== '.git' });
-      const integrity = pluginIntegrity(staging);
+      const integrity = calculatePluginIntegrity(staging);
       renameSync(current.installDir, backup);
       oldMoved = true;
       renameSync(staging, current.installDir);
@@ -508,7 +508,7 @@ export class PluginManager {
   private readManifest(directory: string): PluginManifest {
     const path = join(directory, MANIFEST_FILE);
     if (!existsSync(path)) throw new Error(`Missing ${MANIFEST_FILE}.`);
-    return validateManifest(JSON.parse(readFileSync(path, 'utf8')), this.currentVersion);
+    return validatePluginManifest(JSON.parse(readFileSync(path, 'utf8')), this.currentVersion);
   }
 
   private require(id: string): InstalledPlugin {

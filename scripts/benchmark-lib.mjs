@@ -8,8 +8,8 @@ export function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
 }
 
-export function loadManifest() {
-  const raw = readFileSync(TASK_MANIFEST);
+export function loadManifest(path = TASK_MANIFEST) {
+  const raw = readFileSync(path);
   const manifest = JSON.parse(raw.toString('utf8'));
   if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.tasks) || !manifest.tasks.length) {
     throw new Error('Invalid benchmark task manifest.');

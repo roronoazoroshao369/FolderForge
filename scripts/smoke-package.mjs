@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -142,6 +142,17 @@ try {
     'dist/dashboard/static/index.html',
     'dist/server/auth/oauth.js',
     'dist/chatgpt/cli.js',
+    'dist/distributed/coordinator.js',
+    'dist/distributed/http-server.js',
+    'dist/distributed/worker-runtime.js',
+    'dist/marketplace/marketplace-manager.js',
+    'dist/plugins/sdk-cli.js',
+    'dist/server/mcp-task-manager.js',
+    'dist/server/mcp-resources.js',
+    'dist/server/mcp-prompts.js',
+    'dist/policy/policy-as-code.js',
+    'dist/browser/network-proxy.js',
+    'dist/browser/emulation-manager.js',
     'addons/folderforge_bridge/plugin.cfg',
     'addons/folderforge_bridge/plugin.gd',
     'addons/folderforge_bridge/runtime_bridge.gd',
@@ -149,6 +160,15 @@ try {
     'docs/oauth.md',
     'docs/chatgpt-connect.md',
     'docs/adr-0004-oauth-resource-server.md',
+    'docs/distributed-workers.md',
+    'docs/marketplace.md',
+    'docs/browser-emulation-flows.md',
+    'docs/benchmark-operations.md',
+    'benchmarks/tasks/agent-evaluation.json',
+    'benchmarks/schema/result.schema.json',
+    'beta/schema/evidence.schema.json',
+    'scripts/run-benchmarks.mjs',
+    'scripts/beta-evidence.mjs',
   ]) {
     if (!packagedFiles.has(required)) {
       throw new Error(`Packed tarball is missing required file: ${required}`);
@@ -199,6 +219,8 @@ try {
     'setup browser',
     'connect chatgpt',
     'chatgpt <command>',
+    'distributed serve',
+    'worker init|run',
     '--http',
     '--tools-preset',
     '--policy',
@@ -363,6 +385,61 @@ try {
     throw new Error('Doctor created .folderforge state during a read-only package smoke.');
   }
 
+  const workerIdentityDir = join(temp, 'worker identity ünicode');
+  const workerInitOutput = runCli(['worker', 'init', '--output', workerIdentityDir, '--json']).stdout;
+  const workerInit = JSON.parse(workerInitOutput);
+  for (const requiredPath of [workerInit.privateKeyPath, workerInit.publicKeyPath, join(workerIdentityDir, 'worker.json'), join(workerIdentityDir, '.gitignore')]) {
+    if (typeof requiredPath !== 'string' || !existsSync(requiredPath)) {
+      throw new Error(`Packed worker init is missing an identity artifact: ${workerInitOutput}`);
+    }
+  }
+  if (!/^[a-f0-9]{64}$/.test(workerInit.publicKeyFingerprint ?? '')) {
+    throw new Error(`Packed worker init returned an invalid public-key fingerprint: ${workerInitOutput}`);
+  }
+  if (process.platform !== 'win32') {
+    const privateMode = statSync(workerInit.privateKeyPath).mode & 0o777;
+    if (privateMode !== 0o600) throw new Error(`Packed worker private key mode must be 0600, got ${privateMode.toString(8)}.`);
+  }
+
+  const pluginSource = join(temp, 'plugin sdk ünicode');
+  const pluginInitOutput = runCli([
+    'plugin',
+    'init',
+    pluginSource,
+    '--id',
+    'packed-sdk-demo',
+    '--name',
+    'Packed SDK Demo',
+    '--json',
+  ]).stdout;
+  const pluginInit = JSON.parse(pluginInitOutput);
+  if (!pluginInit.ok || !existsSync(join(pluginSource, 'folderforge.plugin.json'))) {
+    throw new Error(`Packed plugin init failed: ${pluginInitOutput}`);
+  }
+  const pluginValidateOutput = runCli(['plugin', 'validate', pluginSource, '--json']).stdout;
+  const pluginValidate = JSON.parse(pluginValidateOutput);
+  if (!pluginValidate.ok || pluginValidate.manifest?.id !== 'packed-sdk-demo') {
+    throw new Error(`Packed plugin validate failed: ${pluginValidateOutput}`);
+  }
+  const pluginTestOutput = runCli(['plugin', 'test', pluginSource, '--json']).stdout;
+  const pluginTest = JSON.parse(pluginTestOutput);
+  if (!pluginTest.ok || !pluginTest.tools?.includes('health') || !pluginTest.tools?.includes('echo')) {
+    throw new Error(`Packed plugin test failed: ${pluginTestOutput}`);
+  }
+  const pluginTarball = join(temp, 'packed-sdk-demo.tgz');
+  const pluginPackOutput = runCli([
+    'plugin',
+    'pack',
+    pluginSource,
+    '--out',
+    pluginTarball,
+    '--json',
+  ]).stdout;
+  const pluginPack = JSON.parse(pluginPackOutput);
+  if (!pluginPack.ok || !existsSync(pluginTarball) || !/^[a-f0-9]{64}$/.test(pluginPack.sha256 ?? '')) {
+    throw new Error(`Packed plugin pack failed: ${pluginPackOutput}`);
+  }
+
   if (!temp.includes(' ') || !temp.includes('ü')) {
     throw new Error(`Package smoke path did not preserve spaces and Unicode: ${temp}`);
   }
@@ -508,6 +585,9 @@ try {
         pathHasUnicode: temp.includes('ü'),
         playwrightAdapter: 'local + global package-local initialize/tools-list bounded-cleanup',
         oauth: 'packed-cli-startup / metadata / 401-challenge / signed-token-tools-list',
+        distributedWorker: 'packed-worker-init / Ed25519 identity / private-key mode',
+        pluginSdk: 'packed-init / validate / child-MCP test / deterministic pack',
+        operations: 'benchmark + beta schemas and executable scripts packaged',
       },
       null,
       2

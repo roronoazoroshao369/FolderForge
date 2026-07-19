@@ -20,6 +20,8 @@ import { agentTools } from './agent-tools.js';
 import { pluginTools } from './plugin-tools.js';
 import { workflowTools } from './workflow-tools.js';
 import { artifactTools } from './artifact-tools.js';
+import { distributedTools } from './distributed-tools.js';
+import { marketplaceTools } from './marketplace-tools.js';
 import { buildAdapterTools } from './adapter-tools.js';
 
 /**
@@ -47,6 +49,8 @@ export function buildRegistry(container: Container): ToolRegistry {
     ...pluginTools(),
     ...workflowTools(),
     ...artifactTools(),
+    ...distributedTools(),
+    ...marketplaceTools(),
     ...gameTools(),
   ]);
   // Expose the registry on the container so routing tools (workspace_route)
@@ -101,6 +105,9 @@ export const TASK_PRESETS: Record<string, string[]> = {
     'browser_screenshot',
     'browser_visual_compare',
     'browser_accessibility_audit',
+    'browser_flow_run',
+    'browser_emulate',
+    'browser_emulation_status',
     'browser_eval',
     'browser_close',
   ],
@@ -162,7 +169,7 @@ export const GROUP_PRESETS: Record<string, string[]> = {
   full: [
     'workspace', 'workflow', 'agent', 'file', 'search', 'terminal', 'process', 'git', 'build',
     'memory', 'security', 'code', 'browser', 'db', 'pkg', 'format', 'coverage', 'plugin',
-    'artifact', 'game',
+    'artifact', 'distributed', 'marketplace', 'game',
   ],
   // Godot game-dev focus: the coding essentials plus the `game` group, so an
   // agent can read/edit project files and drive the engine without the db /
@@ -188,7 +195,7 @@ export const PRESET_TOOL_CAP: Record<string, number> = {
  * browser wrapper from the advertised surface.
  */
 export const PRESET_PINNED_GROUPS: Record<string, string[]> = {
-  'vibe-lite': ['workflow', 'agent', 'browser'],
+  'vibe-lite': ['workflow', 'agent', 'browser', 'process'],
 };
 
 /**

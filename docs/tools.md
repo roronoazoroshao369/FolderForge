@@ -154,6 +154,23 @@ metadata. Successful browser screenshots are also persisted automatically while
 the original MCP image remains available to vision-capable clients. See
 [`artifacts.md`](./artifacts.md).
 
+
+### Distributed workers
+
+The `distributed` group contains 17 tools. Agent-visible operations submit,
+inspect, list, cancel/retry, and verify jobs. Worker identity, lease, heartbeat,
+completion, failure, and recovery operations are admin-only. Payloads are encrypted
+at rest; worker and coordinator evidence is signed; acknowledged `no-replay` work
+blocks after uncertain lease loss. See [`distributed-workers.md`](./distributed-workers.md).
+
+### Verified marketplace
+
+The `marketplace` group contains 12 tools for signed-index search/inspection,
+bounded sync, quarantine, disabled installation, packaging, publisher trust,
+revocation, export, and moderation. Filesystem scanning/signing and trust changes
+are admin-only. Import and quarantine never enable code. See
+[`marketplace.md`](./marketplace.md).
+
 Facade dispatch uses dynamic per-call classification before OAuth and policy. A
 selected sub-tool contributes its own identity, risk, mutation flag, approval
 arguments, quota key, and audit identity to one governance pipeline; the generic
@@ -166,7 +183,8 @@ dynamic, plugin-owned, or long-tail catalogs. See
 The stable native browser wrappers are `browser_open`, `browser_snapshot`,
 `browser_click`, `browser_type`, `browser_console`, `browser_network`,
 `browser_screenshot`, `browser_set_viewport`, `browser_visual_compare`,
-`browser_accessibility_audit`, `browser_close`, and `browser_eval`. They route to
+`browser_accessibility_audit`, `browser_emulation_status`, `browser_emulate`,
+`browser_flow_run`, `browser_close`, and `browser_eval`. They route to
 the configured Playwright child MCP while keeping FolderForge schemas, policy,
 audit, artifact persistence, and rich image delivery. Dynamic child tools
 may also be exposed namespaced as `<adapter>__<tool>` (e.g.
@@ -183,9 +201,9 @@ queries are LOW; writes/migrations are HIGH.
 | Preset | Groups | Notes |
 | --- | --- | --- |
 | `vibe` | workspace, workflow, agent, file, search, terminal, process, git, code, build | Full coding and governed-workflow surface (**71 tools** in the audited working tree). |
-| `vibe-lite` | workflow, agent, file, search, code, terminal, build, git, process, browser | Folder-scoped and hard-capped to **50 tools**. The complete workflow, agent, and browser groups are pinned; lower-level/default-disabled primitives are trimmed before cap resolution. Explicit `--tools-enable` names are retained. This is the only preset that does not force-add the workspace group. |
+| `vibe-lite` | workflow, agent, file, search, code, terminal, build, git, process, browser | Folder-scoped and hard-capped to **50 tools**. The complete workflow, agent, browser, and process-lifecycle groups are pinned; lower-level/default-disabled primitives are trimmed before cap resolution. Explicit `--tools-enable` names are retained. This is the only preset that does not force-add the workspace group. |
 | `readonly` | workspace, workflow, agent, file, search, code | Exploration-oriented surface (**42 tools**); mutating calls are still denied by readonly policy rather than by group membership alone. |
-| `full` | all native groups, including plugin, artifact, and game | Explicit opt-in to the full native surface (**276 tools** in the audited working tree). Dynamic child/plugin tools may add to this count. |
+| `full` | all native groups, including plugin, artifact, distributed, marketplace, and game | Explicit opt-in to the full native surface (**308 tools** in the audited working tree: 288 agent-facing and 20 admin-only). Dynamic child/plugin tools may add to this count. |
 
 ## Task presets
 

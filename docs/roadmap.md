@@ -7,10 +7,10 @@ Release history and production-readiness roadmap for FolderForge.
 
 ## Current stable track
 
-npm `latest` resolves to stable `2.0.0`, published on 2026-07-12 after the
-validated RC.2 line, complete local release gate, and Ubuntu/macOS/Windows ×
-Node 22/24 GitHub Actions matrix passed. Stable tagging and a hosted GitHub release
-remain separate operator-controlled actions.
+At the start of the local `2.5.0` candidate, npm `latest` resolves to `2.3.4`.
+The staged `2.5.0` work is not a public release: tagging, npm publication, and a
+hosted GitHub release remain separate operator-controlled actions after local and
+remote release evidence is complete.
 
 ## Prepared (2.1.0 — OAuth and authorization boundary)
 
@@ -484,15 +484,19 @@ layouts, and receive screenshots as MCP-native image content for vision review.
 
 ## Done (1.9 - local MCP plugin ecosystem)
 
-FolderForge can install and govern prepared local MCP packages through a validated manifest and hot lifecycle. Plugins use the existing child MCP facade, rich-result bridge, dynamic risk classification, policy, approval, rate limiting, and audit pipeline. Environment inheritance is disabled for installed plugins, only declared variables are passed, and enabled plugins survive restart. Remote marketplaces, signatures, provenance, and hard OS sandboxing remain explicitly deferred. See [`plugin-system.md`](./plugin-system.md).
+FolderForge can install and govern prepared local MCP packages through a validated manifest and hot lifecycle. Plugins use the existing child MCP facade, rich-result bridge, dynamic risk classification, policy, approval, rate limiting, and audit pipeline. Environment inheritance is disabled for installed plugins, only declared variables are passed, and enabled plugins survive restart. Later 2.4/2.5 work added Docker/Podman sandboxing and a verified local marketplace with signatures, provenance, SBOM, quarantine, and moderation. See [`plugin-system.md`](./plugin-system.md), [`sandbox.md`](./sandbox.md), and [`marketplace.md`](./marketplace.md).
 
 ## Done (2.0 - governed agent workflows)
 
 FolderForge now persists role-scoped plans, executes every step through the existing tool governance pipeline, pauses/resumes at approval boundaries, avoids replaying successful work, and emits reproducible bounded reports across restart. This completes the initial browser → coding runtime → plugin ecosystem → workflow control-plane goal. See [`workflows.md`](./workflows.md).
 
-## Next (post-1.0 ideas)
+## Done (2.5 - remote workers and verified distribution)
 
-- Distributed/shared rate limiting for multi-instance deployments.
+FolderForge now includes a single durable coordinator, short-lived Ed25519 worker identities, encrypted payloads, lease/fencing/no-replay recovery, lease-bound artifact transfer, signed completion evidence, a TLS-gated worker API/CLI, and a local verified marketplace with publisher revocation, immutable versions, quarantine scanning, moderation, and disabled install. Device/network browser emulation, composed governed UI flows, a benchmark execution harness, and non-falsifiable beta graduation reports are included.
+
+## Next (post-2.5 ideas)
+
+- Shared transactional state and distributed rate limiting for active-active coordinators.
 - Streaming over the MCP transport itself (incremental tool results) once the
   protocol stabilizes that path.
 - Expanded file/git/db integration tests (Q8) - broaden coverage beyond the

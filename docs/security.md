@@ -89,6 +89,39 @@ redact visual content or make it safe to publish. Treat artifacts as project dat
 delete sensitive evidence deliberately, and do not attach unreviewed artifacts to
 public beta or benchmark reports.
 
+## Distributed-worker boundary
+
+The dedicated worker API is separate from MCP HTTP. Loopback may use HTTP for
+local testing; non-loopback binds require an explicit TLS certificate and key.
+Workers use short-lived signed bearer tokens plus Ed25519 result signatures.
+Bearer tokens are never agent-visible, and worker private keys stay on the worker.
+Jobs use encrypted-at-rest payloads, leases, monotonic fencing, bounded heartbeats,
+and explicit `idempotent`/`no-replay` contracts. An acknowledged no-replay job
+with an uncertain outcome becomes blocked rather than silently executing twice.
+Remote workers execute only an explicit CLI allowlist through their own policy and
+audit pipeline; admin, `distributed_*`, and `marketplace_*` recursion is rejected.
+See [Distributed workers](distributed-workers.md).
+
+The current coordinator is single-writer durable state, not active-active
+consensus. Do not place it on an eventually consistent shared filesystem or claim
+multi-tenant workload isolation without external identity, host sandbox/VM,
+monitoring, and incident-response controls.
+
+## Marketplace boundary
+
+Marketplace metadata is immutable and Ed25519-signed by a locally trusted
+publisher. Sync accepts bounded HTTPS/local sources, verifies signatures and
+version conflicts, and never executes packages. Quarantine verifies package,
+manifest, SBOM, provenance, and source digests; rejects traversal, links, devices,
+nested archives, lifecycle scripts, secret findings, and extraction budgets; then
+installs only in disabled state. Publisher revocation and local security holds
+prevent further quarantine/install without rewriting signed evidence.
+
+Static/quarantine scanning is not proof that code is harmless. A public hosted
+marketplace additionally needs real publisher proofing, moderation, takedown,
+legal/licensing, vulnerability response, hosting availability, and external beta
+evidence. See [Verified marketplace](marketplace.md).
+
 ## Approvals
 
 HIGH/CRITICAL actions (and tools listed in `policy.requireApproval`) create a

@@ -73,6 +73,41 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'artifact_compare', mutates: true, risk: 'MEDIUM' },
   { name: 'artifact_delete', mutates: true, risk: 'HIGH' },
 
+
+
+  // --- verified plugin marketplace ---
+  { name: 'marketplace_list', mutates: false, risk: 'LOW' },
+  { name: 'marketplace_inspect', mutates: false, risk: 'LOW' },
+  { name: 'marketplace_scan', mutates: false, risk: 'LOW' },
+  { name: 'marketplace_sync', mutates: true, risk: 'HIGH' },
+  { name: 'marketplace_quarantine', mutates: true, risk: 'HIGH' },
+  { name: 'marketplace_install', mutates: true, risk: 'HIGH' },
+  { name: 'marketplace_export', mutates: true, risk: 'MEDIUM' },
+  { name: 'marketplace_package', mutates: true, risk: 'HIGH' },
+  { name: 'marketplace_publisher_add', mutates: true, risk: 'HIGH' },
+  { name: 'marketplace_publisher_revoke', mutates: true, risk: 'HIGH' },
+  { name: 'marketplace_publisher_list', mutates: false, risk: 'LOW' },
+  { name: 'marketplace_moderate', mutates: true, risk: 'HIGH' },
+
+  // --- distributed coordinator ---
+  { name: 'distributed_status', mutates: false, risk: 'LOW' },
+  { name: 'distributed_job_submit', mutates: true, risk: 'MEDIUM' },
+  { name: 'distributed_job_status', mutates: false, risk: 'LOW' },
+  { name: 'distributed_job_list', mutates: false, risk: 'LOW' },
+  { name: 'distributed_job_cancel', mutates: true, risk: 'HIGH' },
+  { name: 'distributed_job_retry', mutates: true, risk: 'HIGH' },
+  { name: 'distributed_completion_verify', mutates: false, risk: 'LOW' },
+  { name: 'distributed_recover', mutates: true, risk: 'MEDIUM' },
+  { name: 'distributed_worker_register', mutates: true, risk: 'HIGH' },
+  { name: 'distributed_worker_rotate', mutates: true, risk: 'HIGH' },
+  { name: 'distributed_worker_revoke', mutates: true, risk: 'HIGH' },
+  { name: 'distributed_worker_list', mutates: false, risk: 'LOW' },
+  { name: 'distributed_worker_lease', mutates: true, risk: 'MEDIUM' },
+  { name: 'distributed_worker_ack', mutates: true, risk: 'MEDIUM' },
+  { name: 'distributed_worker_heartbeat', mutates: true, risk: 'MEDIUM' },
+  { name: 'distributed_worker_complete', mutates: true, risk: 'MEDIUM' },
+  { name: 'distributed_worker_fail', mutates: true, risk: 'MEDIUM' },
+
   // --- files ---
   { name: 'file_read', mutates: false, risk: 'LOW' },
   { name: 'file_read_many', mutates: false, risk: 'LOW' },
@@ -168,6 +203,9 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'browser_set_viewport', mutates: true, risk: 'MEDIUM' },
   { name: 'browser_visual_compare', mutates: true, risk: 'MEDIUM' },
   { name: 'browser_accessibility_audit', mutates: false, risk: 'LOW' },
+  { name: 'browser_emulation_status', mutates: false, risk: 'LOW' },
+  { name: 'browser_emulate', mutates: true, risk: 'MEDIUM' },
+  { name: 'browser_flow_run', mutates: true, risk: 'MEDIUM' },
   { name: 'browser_close', mutates: true, risk: 'MEDIUM' },
   { name: 'browser_eval', mutates: true, risk: 'HIGH' },
 

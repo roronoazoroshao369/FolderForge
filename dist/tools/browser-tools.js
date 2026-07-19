@@ -278,6 +278,91 @@ async function routeToPlaywright(ctx, toolName, args) {
         ? persistBrowserImage(result, ctx, toolName, typeof args.filename === 'string' ? args.filename : undefined)
         : result;
 }
+const FLOW_ACTIONS = new Set([
+    'browser_open',
+    'browser_set_viewport',
+    'browser_snapshot',
+    'browser_click',
+    'browser_type',
+    'browser_console',
+    'browser_network',
+    'browser_screenshot',
+    'browser_visual_compare',
+    'browser_accessibility_audit',
+    'browser_close',
+]);
+function boundedFlowResult(result) {
+    const content = result.content?.map((block) => block.kind === 'image'
+        ? { kind: 'image', mimeType: block.mimeType, bytes: Buffer.byteLength(block.data, 'base64') }
+        : block);
+    const dataText = result.data === undefined ? '' : JSON.stringify(result.data);
+    return {
+        ok: result.ok,
+        ...(result.error ? { error: result.error.slice(0, 4000) } : {}),
+        ...(dataText.length <= 100_000
+            ? { data: result.data }
+            : { data: { truncated: true, bytes: Buffer.byteLength(dataText), preview: dataText.slice(0, 20_000) } }),
+        ...(content ? { content } : {}),
+    };
+}
+async function runBrowserFlow(args, ctx) {
+    const steps = args.steps;
+    if (!Array.isArray(steps) || steps.length < 1 || steps.length > 50) {
+        return { ok: false, error: 'browser_flow_run.steps must contain 1-50 steps.' };
+    }
+    const evidence = [];
+    const startedAt = Date.now();
+    for (let index = 0; index < steps.length; index += 1) {
+        if (ctx.control?.signal?.aborted)
+            return { ok: false, error: 'Browser flow cancelled.', data: { evidence } };
+        const raw = steps[index];
+        if (!isRecord(raw))
+            return { ok: false, error: `Browser flow step ${index + 1} must be an object.`, data: { evidence } };
+        const action = String(raw.action ?? '');
+        if (action === 'wait') {
+            const ms = Number(raw.ms ?? 0);
+            if (!Number.isSafeInteger(ms) || ms < 0 || ms > 30_000) {
+                return { ok: false, error: `Browser flow wait step ${index + 1} must be 0-30000ms.`, data: { evidence } };
+            }
+            await new Promise((resolveWait) => {
+                const timer = setTimeout(resolveWait, ms);
+                timer.unref();
+                ctx.control?.signal?.addEventListener('abort', () => { clearTimeout(timer); resolveWait(); }, { once: true });
+            });
+            const item = { index, name: raw.name ?? `wait-${index + 1}`, action, ok: !ctx.control?.signal?.aborted, durationMs: ms };
+            evidence.push(item);
+            ctx.container.audit.record({ type: 'process_event', tool: 'browser_flow_run:wait', ok: item.ok, durationMs: ms, summary: `step=${index + 1} wait=${ms}ms` });
+            if (!item.ok)
+                return { ok: false, error: 'Browser flow cancelled.', data: { evidence } };
+            continue;
+        }
+        if (!FLOW_ACTIONS.has(action)) {
+            return { ok: false, error: `Browser flow action is not allowed at step ${index + 1}: ${action}`, data: { evidence } };
+        }
+        const stepArgs = isRecord(raw.args) ? raw.args : {};
+        const stepStart = Date.now();
+        const result = await ctx.container.registry.callAgent(action, stepArgs, ctx.control);
+        const item = {
+            index,
+            name: raw.name ?? `${action}-${index + 1}`,
+            action,
+            durationMs: Date.now() - stepStart,
+            result: boundedFlowResult(result),
+        };
+        evidence.push(item);
+        if (!result.ok && raw.continueOnError !== true) {
+            return {
+                ok: false,
+                error: `Browser flow stopped at step ${index + 1} (${action}): ${result.error ?? 'unknown error'}`,
+                data: { completedSteps: index + 1, totalSteps: steps.length, durationMs: Date.now() - startedAt, evidence },
+            };
+        }
+    }
+    return {
+        ok: true,
+        data: { completedSteps: steps.length, totalSteps: steps.length, durationMs: Date.now() - startedAt, evidence },
+    };
+}
 function bTool(name, description, mutates, props, required = []) {
     return defineTool({
         name,
@@ -413,6 +498,100 @@ export function browserTools() {
                 }
                 return { ok: true, data: report };
             },
+        }),
+        defineTool({
+            name: 'browser_emulation_status',
+            description: 'Read the active device, viewport, user-agent, and loopback network-shaping profile.',
+            group: 'browser',
+            mutates: false,
+            risk: 'LOW',
+            inputSchema: { type: 'object', properties: {} },
+            outputSchema: { type: 'object', additionalProperties: true },
+            handler: async (_args, ctx) => ({ ok: true, data: ctx.container.browserEmulation.status() }),
+        }),
+        defineTool({
+            name: 'browser_emulate',
+            description: 'Restart the Playwright child with a bounded device/viewport/user-agent profile and optional loopback offline/latency/bandwidth shaping.',
+            group: 'browser',
+            mutates: true,
+            risk: 'MEDIUM',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    preset: { type: 'string', enum: ['desktop', 'mobile', 'tablet', 'slow3g', 'fast3g', 'offline', 'reset'] },
+                    device: { type: 'string', maxLength: 128 },
+                    viewport: {
+                        type: 'object',
+                        properties: {
+                            width: { type: 'integer', minimum: 1, maximum: 10000 },
+                            height: { type: 'integer', minimum: 1, maximum: 10000 },
+                        },
+                        required: ['width', 'height'],
+                        additionalProperties: false,
+                    },
+                    userAgent: { type: 'string', maxLength: 1024 },
+                    network: {
+                        type: 'object',
+                        properties: {
+                            offline: { type: 'boolean' },
+                            latencyMs: { type: 'integer', minimum: 0, maximum: 60000 },
+                            downloadBytesPerSecond: { type: 'integer', minimum: 0, maximum: 1073741824 },
+                            uploadBytesPerSecond: { type: 'integer', minimum: 0, maximum: 1073741824 },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+                additionalProperties: false,
+            },
+            outputSchema: { type: 'object', additionalProperties: true },
+            handler: async (args, ctx) => {
+                try {
+                    return { ok: true, data: await ctx.container.browserEmulation.apply(args) };
+                }
+                catch (error) {
+                    return { ok: false, error: `Browser emulation failed: ${String(error)}` };
+                }
+            },
+        }),
+        defineTool({
+            name: 'browser_flow_run',
+            description: 'Run a bounded composed UI flow. Every fixed browser action re-enters the governance/audit pipeline; arbitrary JavaScript is forbidden.',
+            group: 'browser',
+            mutates: true,
+            risk: 'MEDIUM',
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    steps: {
+                        type: 'array',
+                        minItems: 1,
+                        maxItems: 50,
+                        items: {
+                            type: 'object',
+                            properties: {
+                                name: { type: 'string', maxLength: 256 },
+                                action: {
+                                    type: 'string',
+                                    enum: [
+                                        'browser_open', 'browser_set_viewport', 'browser_snapshot', 'browser_click',
+                                        'browser_type', 'browser_console', 'browser_network', 'browser_screenshot',
+                                        'browser_visual_compare', 'browser_accessibility_audit', 'browser_close', 'wait',
+                                    ],
+                                },
+                                args: { type: 'object', additionalProperties: true },
+                                ms: { type: 'integer', minimum: 0, maximum: 30000 },
+                                continueOnError: { type: 'boolean' },
+                            },
+                            required: ['action'],
+                            additionalProperties: false,
+                        },
+                    },
+                },
+                required: ['steps'],
+                additionalProperties: false,
+            },
+            outputSchema: { type: 'object', additionalProperties: true },
+            handler: runBrowserFlow,
         }),
         bTool('browser_close', 'Close the browser session.', true, {}),
         bTool('browser_eval', 'Evaluate a JavaScript expression in the page context. HIGH risk.', true, { function: { type: 'string', description: 'A JavaScript function to evaluate.' } }, ['function']),

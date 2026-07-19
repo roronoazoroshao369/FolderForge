@@ -139,10 +139,17 @@ verified:
 - hot disable removed facade tools immediately;
 - uninstall removed copied files and registry metadata.
 
-## Deferred trust features
+## Verified distribution and remaining boundaries
 
-- cryptographic plugin signatures, verified publisher identity, revocation, and signed plugin provenance;
-- remote registry/marketplace and dependency resolution;
+FolderForge 2.5 adds a local verified marketplace/index with Ed25519 publisher
+identity, revocation, immutable signed versions, SBOM/provenance digests, bounded
+HTTPS/local sync, quarantine scanning, moderation, and disabled installation. See
+[`marketplace.md`](./marketplace.md).
+
+Still external or deferred:
+
+- public registry/package hosting and availability operations;
+- real-world publisher identity proofing, dispute, takedown, and appeal processes;
 - automatic compatibility migration;
-- stronger platform-specific sandbox profiles and independently attested runtime evidence;
+- independently attested worker/container host evidence;
 - plugin capability-change notifications to clients.

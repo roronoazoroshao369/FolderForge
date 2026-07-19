@@ -159,6 +159,7 @@ Milestone 1.9 adds a local package registry and hot lifecycle. Validated prepare
 1. **Done:** content-addressed local artifact storage with integrity, quotas, PNG comparison, and browser evidence.
 2. **Done:** optional digest-pinned Docker/Podman isolation with bounded mounts, network, capabilities, processes, CPU, memory, and tmpfs.
 3. **Done:** coverage, property/fuzz, heartbeat stress, MCP Inspector, and immutable benchmark-result gates.
-4. Add MCP capability-change notifications where supported by clients.
-5. Add signed/verified plugin distribution, publisher identity, revocation, and plugin provenance.
-6. Open a reviewed beta before any remote marketplace or distributed execution work; see ADR-0005.
+4. **Done:** signed immutable marketplace entries, Ed25519 publishers/revocation, SBOM/provenance binding, quarantine scanning, moderation, and disabled installation.
+5. **Done:** single-coordinator remote workers with short-lived identity, leases/fencing, no-replay blocking, artifact transfer, and signed evidence.
+6. Add MCP capability-change notifications where supported by clients.
+7. Collect reviewed external beta and comparative benchmark evidence before public-service claims; see ADR-0005.

@@ -80,7 +80,7 @@ a commit. It never stages or commits files.
 ## Presets
 
 The `agent` group is included in `vibe`, `vibe-lite`, `readonly`, `full`, and
-`godot`. In `vibe-lite`, all five agent tools and all ten browser wrappers are
+`godot`. In `vibe-lite`, all five agent tools and all fifteen browser wrappers are
 pinned under the 50-tool cap. Sixteen lower-value or superseded primitives are
 removed by default so the advertised surface remains exactly 50.
 

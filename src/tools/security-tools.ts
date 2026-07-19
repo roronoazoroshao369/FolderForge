@@ -47,7 +47,8 @@ export function securityTools(): ToolDefinition[] {
           classification.name,
           classification.risk,
           classification.mutates,
-          governanceArgs
+          governanceArgs,
+          ctx.control?.principal ?? { id: 'agent:unknown', role: 'agent' }
         );
         return {
           ok: true,

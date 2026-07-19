@@ -81,3 +81,17 @@ compatible runtime from FolderForge's installed package tree. See
 An unavailable optional Playwright child does not make non-browser tools fail.
 FolderForge records a structured diagnostic and removes unusable browser wrappers
 from the advertised surface. This is degraded operation, not browser readiness.
+
+
+## Distributed and marketplace compatibility
+
+The 2.5 reference coordinator/worker transport is tested on loopback with real
+artifact transfer and signed completion evidence. Non-loopback deployments must
+provide TLS files and separately validate certificate lifecycle, firewall, worker
+host isolation, and recovery in their target environment. The durable coordinator
+is single-writer per project state root.
+
+Marketplace package creation/quarantine uses the maintained `tar` runtime and is
+covered by traversal/link/archive/lifecycle/secret/digest tests. Public HTTPS
+hosting, publisher identity verification, and moderation operations are not
+created by the package and require deployment-specific acceptance evidence.

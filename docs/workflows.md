@@ -129,15 +129,15 @@ integrity/reproducibility identifier, not a cryptographic signature.
 
 The `workflow` group is included in `vibe`, `vibe-lite`, `readonly`, `full`, and
 `godot`. Policy still denies mutating lifecycle calls in modes that do not allow
-them. `vibe-lite` pins all seven workflow tools, all five agent tools, and all ten
-browser wrappers while preserving process start/read/tail/stop/list in a 50-tool
-surface.
+them. `vibe-lite` pins all seven workflow tools, all five agent tools, all fifteen
+browser wrappers, and process lifecycle tools in a 50-tool surface. Lower-priority
+primitives are trimmed deterministically before pinned groups.
 
 ## Live acceptance
 
 A source-built HTTP MCP server in `safe` mode verified:
 
-- 269 native tools and all seven workflow tools;
+- an earlier 269-tool candidate and all seven workflow tools; the current 2.5.0 native surface is 308 tools;
 - multi-role definition validation and persistence;
 - planner step completion followed by a `file_write` approval pause;
 - one-shot approval, resume, and exact non-replay (`planner attempts=1`);
@@ -151,5 +151,7 @@ A source-built HTTP MCP server in `safe` mode verified:
 
 This is deterministic orchestration, not autonomous reasoning. FolderForge does
 not generate plans, conceal chain-of-thought, or bypass a user's approval policy.
-Parallel execution, cryptographic run signing, distributed workers, and artifact
-blob storage remain future extensions.
+Workflow steps remain sequential and deterministic. A separate distributed-worker
+control plane now provides signed remote execution for explicitly submitted jobs;
+it does not silently parallelize or redistribute persisted workflow definitions.
+See [`distributed-workers.md`](./distributed-workers.md).

@@ -1227,6 +1227,56 @@ function checkState(projectRoot: string, now: number, findings: DoctorFinding[])
   }
 }
 
+
+function checkDistributedAndMarketplaceState(projectRoot: string, findings: DoctorFinding[]): void {
+  const distributedRoot = join(projectRoot, '.folderforge', 'distributed');
+  const coordinatorPath = join(distributedRoot, 'coordinator.json');
+  if (!existsSync(distributedRoot)) {
+    findings.push(finding('state.distributed', 'pass', 'info', 'Distributed coordinator state is absent.', distributedRoot));
+  } else {
+    try {
+      const store = readJson(coordinatorPath) as { schemaVersion?: unknown; nextFencingToken?: unknown; workers?: unknown; jobs?: unknown };
+      if (store.schemaVersion !== 1 || !Array.isArray(store.workers) || !Array.isArray(store.jobs) || !Number.isSafeInteger(store.nextFencingToken)) {
+        throw new Error('coordinator store schema is invalid');
+      }
+      const secretPaths = [join(distributedRoot, 'coordinator-private.pem'), join(distributedRoot, 'payload.key')];
+      const loose = process.platform === 'win32'
+        ? []
+        : secretPaths.filter((path) => existsSync(path) && (statSync(path).mode & 0o077) !== 0);
+      findings.push(loose.length
+        ? finding('state.distributed', 'fail', 'error', 'Distributed coordinator secret files have loose permissions.', loose.join(', '), 'Restrict coordinator-private.pem and payload.key to mode 0600.')
+        : finding('state.distributed', 'pass', 'info', 'Distributed coordinator state is readable and bounded.', `workers=${store.workers.length}; jobs=${store.jobs.length}; fencing=${store.nextFencingToken}`));
+    } catch (error) {
+      findings.push(finding('state.distributed', 'fail', 'error', 'Distributed coordinator state is corrupt or incomplete.', `${coordinatorPath}: ${errorText(error)}`, 'Restore the coordinator state and signing/encryption keys from a trusted backup.'));
+    }
+  }
+
+  const marketplaceRoot = join(projectRoot, '.folderforge', 'marketplace');
+  const indexPath = join(marketplaceRoot, 'index.json');
+  const publishersPath = join(marketplaceRoot, 'publishers.json');
+  if (!existsSync(marketplaceRoot)) {
+    findings.push(finding('state.marketplace', 'pass', 'info', 'Marketplace trust state is absent.', marketplaceRoot));
+  } else {
+    try {
+      const index = existsSync(indexPath) ? readJson(indexPath) as { schemaVersion?: unknown; entries?: unknown } : { schemaVersion: 1, entries: [] };
+      const publishers = existsSync(publishersPath) ? readJson(publishersPath) as { schemaVersion?: unknown; publishers?: unknown } : { schemaVersion: 1, publishers: [] };
+      if (index.schemaVersion !== 1 || !Array.isArray(index.entries) || publishers.schemaVersion !== 1 || !Array.isArray(publishers.publishers)) {
+        throw new Error('marketplace store schema is invalid');
+      }
+      const keys = new Set<string>();
+      for (const raw of index.entries) {
+        const entry = raw as { id?: unknown; version?: unknown };
+        const key = `${String(entry.id)}@${String(entry.version)}`;
+        if (keys.has(key)) throw new Error(`duplicate immutable marketplace version: ${key}`);
+        keys.add(key);
+      }
+      findings.push(finding('state.marketplace', 'pass', 'info', 'Marketplace trust/index state is readable.', `publishers=${publishers.publishers.length}; entries=${index.entries.length}`));
+    } catch (error) {
+      findings.push(finding('state.marketplace', 'fail', 'error', 'Marketplace trust/index state is corrupt.', `${marketplaceRoot}: ${errorText(error)}`, 'Restore the signed index and publisher trust store from reviewed evidence.'));
+    }
+  }
+}
+
 export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorReport> {
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
   const env = options.env ?? process.env;
@@ -1274,6 +1324,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   await checkAdapterReadiness(configResult.config, env, projectRoot, findings, options.adapterProbe);
   checkPlugins(projectRoot, env, findings);
   checkState(projectRoot, now, findings);
+  checkDistributedAndMarketplaceState(projectRoot, findings);
 
   return finalizeReport(projectRoot, findings, configResult.invocationInvalid, now);
 }

@@ -134,12 +134,24 @@ advertise unusable `browser_*` wrappers. See
 - **Workflows:** persistent role-scoped plans with checkpoints and bounded
   evidence.
 - **Artifacts and UI quality:** content-addressed evidence, screenshot baselines,
-  pixel comparison, and a bounded accessibility/contrast audit.
+  pixel comparison, bounded accessibility/contrast audit, device/network
+  emulation, and governed composed UI flows.
+- **Distributed workers:** TLS-gated remote worker API/CLI with short-lived
+  identity, encrypted jobs, leases/fencing, artifact transfer, no-replay blocking,
+  and signed completion evidence.
+- **Verified marketplace:** Ed25519 publishers, immutable signed entries,
+  SBOM/provenance binding, quarantine scans, moderation, and disabled installation.
 - **Optional integrations:** Playwright browser tools, databases, OAuth/ChatGPT,
   and a shipped Godot 4 addon.
 
 The exact CLI and tool reference lives in [the documentation index](docs/README.md)
-rather than this landing page.
+rather than this landing page. Operational guides:
+
+- [Browser emulation and flows](docs/browser-emulation-flows.md)
+- [Distributed workers](docs/distributed-workers.md)
+- [Verified marketplace](docs/marketplace.md)
+- [Benchmark operations](docs/benchmark-operations.md)
+- [Beta evidence and graduation](docs/beta-program.md)
 
 ## Safety model
 

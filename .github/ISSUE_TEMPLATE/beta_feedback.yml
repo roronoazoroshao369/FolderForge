@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: FolderForge version and commit
-      placeholder: "2.4.0-beta.1 / abcdef123456"
+      placeholder: "2.5.0-beta.1 / abcdef123456"
     validations:
       required: true
   - type: dropdown

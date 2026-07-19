@@ -5,7 +5,7 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { logger } from '../../core/logger.js';
 import type { HttpAuthMode, OAuthHttpAuthConfig, ToolPrincipal } from '../../core/types.js';
-import { agentPrincipalFromCredential } from '../../core/principal.js';
+import { agentPrincipalFromCredential, scopedSessionId } from '../../core/principal.js';
 import {
   buildBearerChallenge,
   createOAuthRuntime,
@@ -174,7 +174,13 @@ export async function startHttpTransport(
     res: ServerResponse,
     principal: ToolPrincipal
   ): Promise<void> => {
-    const server = makeMcpServer(principal);
+    const rawSession = req.headers['mcp-session-id'];
+    const sessionHint = Array.isArray(rawSession) ? rawSession[0] : rawSession;
+    const sessionPrincipal: ToolPrincipal = {
+      ...principal,
+      sessionId: scopedSessionId(principal.id, sessionHint),
+    };
+    const server = makeMcpServer(sessionPrincipal);
     const transport = new StreamableHTTPServerTransport(
       {} as ConstructorParameters<typeof StreamableHTTPServerTransport>[0]
     );

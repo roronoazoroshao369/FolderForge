@@ -9,6 +9,7 @@ export type AuditEventType =
   | 'approval_resolved'
   | 'workspace_activate'
   | 'process_event'
+  | 'task_event'
   | 'server_start';
 
 export interface AuditEvent {

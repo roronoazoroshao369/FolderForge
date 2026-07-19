@@ -19,10 +19,17 @@ material and historical records.
 | [ChatGPT connection](chatgpt-connect.md) | Operator | Guided Auth0/DCR lifecycle for ChatGPT connectors. |
 | [OAuth](oauth.md) | Operator | External authorization-server and protected-resource configuration. |
 | [Workflows](workflows.md) | User / Contributor | Persistent governed workflow usage. |
+| [MCP platform](mcp-platform.md) | User / Contributor | Resources, prompts, progress, cancellation, subscriptions, and principal-bound tasks. |
+| [Policy as code](policy-as-code.md) | User / Operator | Restrictive project policy, RBAC selectors, execution identity, and audit correlation. |
 | [AI coding runtime](ai-coding-runtime.md) | User / Contributor | Analyze, patch, verify, and report workflow. |
 | [Artifacts and browser quality](artifacts.md) | User / Contributor | Content-addressed evidence, visual comparison, and accessibility checks. |
+| [Browser emulation and flows](browser-emulation-flows.md) | User / Contributor | Device/network profiles and bounded governed UI flows. |
+| [Distributed workers](distributed-workers.md) | Operator / Contributor | Remote worker identity, leases, artifacts, replay policy, and signed evidence. |
+| [Verified marketplace](marketplace.md) | Operator / Plugin author | Publisher trust, immutable index, quarantine, moderation, and disabled install. |
+| [Plugin SDK](plugin-sdk.md) | Plugin author | Template, validate, test, deterministic pack, keygen, SBOM/provenance, and signing CLI. |
 | [Beta program](beta-program.md) | User / Maintainer | Entry, evidence, privacy, and graduation criteria for external beta testing. |
 | [Benchmark protocol](../benchmarks/README.md) | Contributor / Maintainer | Neutral tasks, immutable result validation, and publication rules. |
+| [Benchmark operations](benchmark-operations.md) | Contributor / Maintainer | No-shell harness execution, evidence, environment isolation, and result creation. |
 
 ## Reference
 
@@ -48,7 +55,7 @@ material and historical records.
 | --- | --- | --- |
 | [Architecture](architecture.md) | Contributor | Main components and data flow. |
 | [MCP plugin architecture](mcp-plugin-architecture.md) | Contributor | Plugin architecture. |
-| [Distributed workers and marketplace gates](adr-0005-distributed-workers-marketplace-gates.md) | Contributor / Maintainer | Required security and evidence gates before remote execution or distribution. |
+| [Distributed workers and marketplace ADR](adr-0005-distributed-workers-marketplace-gates.md) | Contributor / Maintainer | Implemented local architecture and remaining public-service gates. |
 | [Browser agent design](browser-agent-design.md) | Internal design | Browser design notes; not a current user contract. |
 
 ## Migration

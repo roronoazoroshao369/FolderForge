@@ -180,6 +180,25 @@ export class ChildMcpRegistry {
     isEnabled(name) {
         return this.entries.get(name)?.def.enabled ?? false;
     }
+    definition(name) {
+        const def = this.entries.get(name)?.def;
+        if (!def)
+            return null;
+        return {
+            ...def,
+            args: [...def.args],
+            ...(def.env ? { env: { ...def.env } } : {}),
+            ...(def.sandbox
+                ? {
+                    sandbox: {
+                        ...def.sandbox,
+                        ...(def.sandbox.args ? { args: [...def.sandbox.args] } : {}),
+                        ...(def.sandbox.mounts ? { mounts: def.sandbox.mounts.map((mount) => ({ ...mount })) } : {}),
+                    },
+                }
+                : {}),
+        };
+    }
     isFacade(name) {
         return this.entries.get(name)?.def.facade ?? false;
     }

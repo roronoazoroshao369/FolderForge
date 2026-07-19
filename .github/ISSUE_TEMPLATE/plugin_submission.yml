@@ -25,7 +25,7 @@ body:
     id: compatibility
     attributes:
       label: Declared FolderForge and MCP compatibility
-      placeholder: "FolderForge >=2.4.0; MCP 2025-03-26"
+      placeholder: "FolderForge >=2.5.0; MCP 2025-03-26"
     validations:
       required: true
   - type: dropdown
@@ -65,5 +65,5 @@ body:
           required: true
         - label: The package contains no credentials, telemetry secrets, or undeclared network behavior.
           required: true
-        - label: I understand this submission does not create a verified publisher identity or marketplace listing.
+        - label: I understand this submission is review evidence and does not automatically verify my identity, host package bytes, or publish a listing.
           required: true

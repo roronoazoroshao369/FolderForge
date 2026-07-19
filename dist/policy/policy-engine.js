@@ -5,6 +5,12 @@ import { ApprovalEngine } from './approvals.js';
 import { RISK_ORDER } from './risk.js';
 import { PolicyDeniedError, ApprovalRequiredError } from '../core/errors.js';
 import { resolve } from 'node:path';
+import { PolicyAsCode } from './policy-as-code.js';
+function normalizePrincipal(requester) {
+    return typeof requester === 'string'
+        ? { id: requester, role: 'agent' }
+        : requester;
+}
 /**
  * The PolicyEngine ties together path, command, secret policies, the risk
  * model, the policy mode, and the approval queue into a single decision point.
@@ -15,6 +21,7 @@ export class PolicyEngine {
     command;
     secret;
     approvals;
+    asCode;
     mode;
     requireApproval;
     constructor(config) {
@@ -22,6 +29,7 @@ export class PolicyEngine {
         this.path = new PathPolicy(config.workspace.allowedDirectories, config.workspace.deniedGlobs);
         this.command = new CommandPolicy(config.policy.blockedCommands);
         this.secret = new SecretPolicy(config.secretScan);
+        this.asCode = new PolicyAsCode(config.workspace.defaultProject, config.policy.files ?? []);
         // Persist approvals under the project's .folderforge dir so pending and
         // resolved requests survive restarts. Falls back to in-memory if unset.
         const persistPath = process.env.FOLDERFORGE_APPROVALS_PATH ||
@@ -50,6 +58,7 @@ export class PolicyEngine {
             blockedCommands: this.config.policy.blockedCommands,
             allowedDirectories: this.config.workspace.allowedDirectories,
             deniedGlobs: this.config.workspace.deniedGlobs,
+            policyAsCode: this.asCode.describe(),
         };
     }
     /**
@@ -59,44 +68,51 @@ export class PolicyEngine {
      * @param mutates whether the call mutates state
      * @param args original args (recorded on approval requests)
      */
-    evaluate(toolName, risk, mutates, args, requesterId = 'agent:unknown') {
-        // CRITICAL is denied in every mode except danger. In danger it normally
-        // still requires explicit approval, unless the operator enabled the
-        // autonomous-agent escape hatch for an isolated environment.
-        if (risk === 'CRITICAL') {
-            if (this.mode !== 'danger') {
-                return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
-            }
-            if (this.config.policy.allowCriticalInDanger) {
-                return { kind: 'allow', risk };
-            }
-            // An admin-approved allowance is bound to the requesting principal.
-            if (this.approvals.isSessionAllowed(toolName, requesterId) ||
-                this.approvals.consumeOnce(toolName, args, requesterId)) {
-                return { kind: 'allow', risk };
-            }
-            return this.toApproval(toolName, risk, args, 'CRITICAL action requires explicit approval.', requesterId);
+    evaluate(toolName, risk, mutates, args, requester = 'agent:unknown') {
+        const principal = normalizePrincipal(requester);
+        const requesterId = principal.id;
+        // Baseline hard-deny boundaries are evaluated before project policy. Policy
+        // files are intentionally unable to weaken either rule.
+        if (risk === 'CRITICAL' && this.mode !== 'danger') {
+            return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
         }
-        // readonly: any mutation is denied.
         if (this.mode === 'readonly' && mutates) {
             return { kind: 'deny', risk, reason: 'Workspace is in readonly mode; mutations are blocked.' };
         }
-        // Explicit approval list or HIGH risk -> approval.
-        const needsApproval = this.requireApproval.has(toolName) || RISK_ORDER[risk] >= RISK_ORDER.HIGH;
-        if (needsApproval) {
-            // danger mode intentionally bypasses approval gating for non-CRITICAL
-            // actions: the operator has opted into an "anything goes" mode.
-            if (this.mode === 'danger') {
-                return { kind: 'allow', risk };
-            }
-            if (this.approvals.isSessionAllowed(toolName, requesterId) ||
-                this.approvals.consumeOnce(toolName, args, requesterId)) {
-                return { kind: 'allow', risk };
-            }
-            return this.toApproval(toolName, risk, args, `${toolName} (${risk}) requires approval.`, requesterId);
+        const policyRule = this.asCode.evaluate({
+            tool: toolName,
+            risk,
+            mutates,
+            mode: this.mode,
+            principal,
+        });
+        if (policyRule?.effect === 'deny') {
+            return { kind: 'deny', risk, reason: policyRule.reason };
         }
-        // MEDIUM allowed in safe/dev/danger; audited by caller.
-        return { kind: 'allow', risk };
+        let needsApproval = false;
+        let approvalReason = '';
+        if (risk === 'CRITICAL') {
+            needsApproval = !this.config.policy.allowCriticalInDanger;
+            approvalReason = 'CRITICAL action requires explicit approval.';
+        }
+        else {
+            const baselineApproval = this.requireApproval.has(toolName) || RISK_ORDER[risk] >= RISK_ORDER.HIGH;
+            // Danger mode preserves the historical bypass for baseline non-CRITICAL
+            // gates. An explicit policy-as-code approval rule below still wins.
+            needsApproval = baselineApproval && this.mode !== 'danger';
+            approvalReason = `${toolName} (${risk}) requires approval.`;
+        }
+        if (policyRule?.effect === 'approval') {
+            needsApproval = true;
+            approvalReason = policyRule.reason;
+        }
+        if (!needsApproval)
+            return { kind: 'allow', risk };
+        if (this.approvals.isSessionAllowed(toolName, requesterId) ||
+            this.approvals.consumeOnce(toolName, args, requesterId)) {
+            return { kind: 'allow', risk };
+        }
+        return this.toApproval(toolName, risk, args, approvalReason, requesterId);
     }
     toApproval(toolName, risk, args, reason, requesterId) {
         const req = this.approvals.create(toolName, args, risk, reason, requesterId);
@@ -110,62 +126,104 @@ export class PolicyEngine {
      * decision logic and returns a structured, human-readable explanation so an
      * agent can reason about whether a call would be allowed, denied, or gated.
      */
-    explain(toolName, risk, mutates, args = {}) {
+    explain(toolName, risk, mutates, _args = {}, requester = 'agent:unknown') {
+        const principal = normalizePrincipal(requester);
         const factors = [];
-        let decision;
-        let reason;
+        if (risk === 'CRITICAL' && this.mode !== 'danger') {
+            factors.push('risk is CRITICAL', `mode is ${this.mode}`);
+            return {
+                decision: 'deny',
+                risk,
+                reason: `CRITICAL action blocked in ${this.mode} mode.`,
+                mode: this.mode,
+                mutates,
+                factors,
+            };
+        }
+        if (this.mode === 'readonly' && mutates) {
+            factors.push('mode is readonly and the tool mutates state');
+            return {
+                decision: 'deny',
+                risk,
+                reason: 'Workspace is in readonly mode; mutations are blocked.',
+                mode: this.mode,
+                mutates,
+                factors,
+            };
+        }
+        const policyRule = this.asCode.evaluate({
+            tool: toolName,
+            risk,
+            mutates,
+            mode: this.mode,
+            principal,
+        });
+        if (policyRule) {
+            factors.push(`matched policy rule ${policyRule.ruleId}`, `policy effect is ${policyRule.effect}`);
+        }
+        if (policyRule?.effect === 'deny') {
+            return {
+                decision: 'deny',
+                risk,
+                reason: policyRule.reason,
+                mode: this.mode,
+                mutates,
+                factors,
+            };
+        }
+        let needsApproval = false;
+        let reason = `${toolName} (${risk}) is allowed.`;
         if (risk === 'CRITICAL') {
             factors.push('risk is CRITICAL');
-            if (this.mode !== 'danger') {
-                decision = 'deny';
-                reason = `CRITICAL action blocked in ${this.mode} mode.`;
-            }
-            else if (this.config.policy.allowCriticalInDanger) {
-                decision = 'allow';
-                reason = 'CRITICAL action is allowed by the danger-mode autonomous-agent escape hatch.';
-                factors.push('mode is danger and allowCriticalInDanger is enabled');
-            }
-            else {
-                decision = 'approval';
-                reason = 'CRITICAL action requires explicit approval.';
-                factors.push('mode is danger (CRITICAL allowed only via approval)');
-            }
-        }
-        else if (this.mode === 'readonly' && mutates) {
-            factors.push('mode is readonly and the tool mutates state');
-            decision = 'deny';
-            reason = 'Workspace is in readonly mode; mutations are blocked.';
+            needsApproval = !this.config.policy.allowCriticalInDanger;
+            reason = needsApproval
+                ? 'CRITICAL action requires explicit approval.'
+                : 'CRITICAL action is allowed by the danger-mode autonomous-agent escape hatch.';
+            if (!needsApproval)
+                factors.push('allowCriticalInDanger is enabled');
         }
         else {
             const onApprovalList = this.requireApproval.has(toolName);
             const highRisk = RISK_ORDER[risk] >= RISK_ORDER.HIGH;
             if (onApprovalList)
-                factors.push(`tool is in requireApproval list`);
+                factors.push('tool is in requireApproval list');
             if (highRisk)
                 factors.push(`risk is ${risk} (>= HIGH)`);
-            if (onApprovalList || highRisk) {
-                if (this.mode === 'danger') {
-                    factors.push('mode is danger, so non-CRITICAL approval gates are bypassed');
-                    decision = 'allow';
-                    reason = `${toolName} (${risk}) is allowed in danger mode.`;
-                }
-                else if (this.approvals.isSessionAllowed(toolName)) {
-                    factors.push('a session-scoped approval is already active for this tool');
-                    decision = 'allow';
-                    reason = `${toolName} is allowed for this session.`;
-                }
-                else {
-                    decision = 'approval';
-                    reason = `${toolName} (${risk}) requires approval.`;
-                }
+            const baselineApproval = onApprovalList || highRisk;
+            needsApproval = baselineApproval && this.mode !== 'danger';
+            if (needsApproval)
+                reason = `${toolName} (${risk}) requires approval.`;
+            else if (baselineApproval) {
+                reason = `${toolName} (${risk}) is allowed in danger mode.`;
+                factors.push('danger mode bypasses the baseline non-CRITICAL approval gate');
             }
             else {
                 factors.push(`risk is ${risk} and allowed in ${this.mode} mode`);
-                decision = 'allow';
-                reason = `${toolName} (${risk}) is allowed.`;
             }
         }
-        return { decision, risk, reason, mode: this.mode, mutates, factors };
+        if (policyRule?.effect === 'approval') {
+            needsApproval = true;
+            reason = policyRule.reason;
+        }
+        if (needsApproval && this.approvals.isSessionAllowed(toolName, principal.id)) {
+            factors.push('a principal-bound session approval is already active');
+            return {
+                decision: 'allow',
+                risk,
+                reason: `${toolName} is allowed for this principal session.`,
+                mode: this.mode,
+                mutates,
+                factors,
+            };
+        }
+        return {
+            decision: needsApproval ? 'approval' : 'allow',
+            risk,
+            reason,
+            mode: this.mode,
+            mutates,
+            factors,
+        };
     }
     /** Convenience: throws unless the decision is allow. */
     enforce(decision) {

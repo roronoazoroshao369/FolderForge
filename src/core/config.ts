@@ -385,6 +385,11 @@ export function validateConfig(cfg: FolderForgeConfig): void {
   if (cfg.policy.approvalTtlMs <= 0) {
     errors.push(`policy.approvalTtlMs must be > 0 (got ${cfg.policy.approvalTtlMs})`);
   }
+  for (const [index, policyFile] of (cfg.policy.files ?? []).entries()) {
+    if (typeof policyFile !== 'string' || policyFile.trim().length === 0) {
+      errors.push(`policy.files[${index}] must be a non-empty project-relative path`);
+    }
+  }
   if (!['stdio', 'http'].includes(cfg.server.transport)) {
     errors.push(`server.transport must be "stdio" or "http" (got "${cfg.server.transport}")`);
   }

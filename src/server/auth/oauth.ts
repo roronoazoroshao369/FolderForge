@@ -410,9 +410,31 @@ export async function createOAuthRuntime(
       };
     },
     principalFor(token): ToolPrincipal {
+      const organizationId =
+        typeof token.payload.org_id === "string"
+          ? token.payload.org_id
+          : typeof token.payload.organization_id === "string"
+            ? token.payload.organization_id
+            : undefined;
+      const claimRoles = Array.isArray(token.payload.roles)
+        ? token.payload.roles.filter((role): role is string => typeof role === "string")
+        : [];
+      const rawTeams = Array.isArray(token.payload.team_ids)
+        ? token.payload.team_ids
+        : Array.isArray(token.payload.teams)
+          ? token.payload.teams
+          : Array.isArray(token.payload.groups)
+            ? token.payload.groups
+            : [];
+      const teamIds = rawTeams.filter(
+        (team): team is string => typeof team === "string" && team.trim().length > 0,
+      );
       return {
         id: oauthPrincipalId(issuer, token.subject, token.clientId),
         role: "agent",
+        roles: claimRoles.length > 0 ? [...new Set(claimRoles)] : ["agent"],
+        ...(organizationId ? { organizationId } : {}),
+        ...(teamIds.length > 0 ? { teamIds: [...new Set(teamIds)] } : {}),
         authMode: "oauth",
         oauthClientId: token.clientId,
         scopes: [...token.scopes],

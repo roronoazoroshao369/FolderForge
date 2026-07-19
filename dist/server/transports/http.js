@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { logger } from '../../core/logger.js';
-import { agentPrincipalFromCredential } from '../../core/principal.js';
+import { agentPrincipalFromCredential, scopedSessionId } from '../../core/principal.js';
 import { buildBearerChallenge, createOAuthRuntime, } from '../auth/oauth.js';
 /** True when the bind host is loopback-only and therefore safe without a token. */
 export function isLoopbackHost(host) {
@@ -102,7 +102,13 @@ export async function startHttpTransport(makeMcpServer, opts) {
     }
     const oauthRuntime = authMode === 'oauth' ? await createOAuthRuntime(opts.oauth) : undefined;
     const handleMcp = async (req, res, principal) => {
-        const server = makeMcpServer(principal);
+        const rawSession = req.headers['mcp-session-id'];
+        const sessionHint = Array.isArray(rawSession) ? rawSession[0] : rawSession;
+        const sessionPrincipal = {
+            ...principal,
+            sessionId: scopedSessionId(principal.id, sessionHint),
+        };
+        const server = makeMcpServer(sessionPrincipal);
         const transport = new StreamableHTTPServerTransport({});
         res.on('close', () => {
             void transport.close?.();
