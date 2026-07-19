@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-19
+
 ### Added
 
 - Add coverage thresholds, property/fuzz suites, repeated child-MCP heartbeat
