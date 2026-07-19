@@ -6,7 +6,11 @@ semantic versioning.
 
 ## [Unreleased]
 
-## [2.3.2] - 2026-07-18
+## [2.3.4] - 2026-07-19
+
+This release publishes the child-MCP production hardening and cross-platform
+release fixes prepared after the public `2.3.0` release. Versions `2.3.1` through
+`2.3.3` were local preparation versions and were not published to npm.
 
 ### Added
 
@@ -52,11 +56,6 @@ semantic versioning.
 - Answer child-initiated ping requests, reject malformed protocol frames, drain
   pending work on real connection failure, and prevent stale child exit events
   from clobbering a restarted process.
-
-## [2.3.1] - 2026-07-18
-
-### Fixed
-
 - Make Playwright adapter regression tests platform-neutral by validating resolved
   package metadata and Node resolution semantics instead of Unix path substrings.
 - Make packed-package browser smoke tolerate macOS canonical `/private/var` paths
