@@ -16,6 +16,8 @@ export interface ResolvedAdapterLaunch {
   packageVersion?: string;
   packageJsonPath?: string;
   cliPath?: string;
+  sandboxMode?: 'docker' | 'podman';
+  sandboxImage?: string;
 }
 
 export interface PackageCliResolution {

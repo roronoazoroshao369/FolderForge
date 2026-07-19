@@ -173,6 +173,36 @@ export interface SecretScanConfig {
   minLength: number;
 }
 
+export type ChildSandboxMode = 'process' | 'docker' | 'podman';
+
+export interface ChildSandboxMount {
+  /** Absolute host path exposed to the container runtime. */
+  source: string;
+  /** Absolute POSIX path inside the container. */
+  target: string;
+  mode: 'ro' | 'rw';
+}
+
+export interface ChildSandboxConfig {
+  mode: ChildSandboxMode;
+  /** Pre-existing image; container backends never pull automatically. */
+  image?: string;
+  /** Command executed inside the container. Required for docker/podman. */
+  command?: string;
+  /** Arguments executed inside the container. */
+  args?: string[];
+  workdir?: string;
+  network?: 'none' | 'bridge';
+  mounts?: ChildSandboxMount[];
+  readOnlyRoot?: boolean;
+  memoryMb?: number;
+  cpus?: number;
+  pidsLimit?: number;
+  tmpfsMb?: number;
+  /** Require image@sha256:... pinning. Defaults true. */
+  requireImageDigest?: boolean;
+}
+
 export interface AdapterDef {
   enabled: boolean;
   command: string;
@@ -182,6 +212,8 @@ export interface AdapterDef {
   cwd?: string;
   /** Whether to inherit the parent environment (defaults to true for built-ins). */
   inheritEnv?: boolean;
+  /** Optional OS/container isolation for this child MCP runtime. */
+  sandbox?: ChildSandboxConfig;
   /**
    * Facade mode. When true, this adapter is exposed through a two-tool facade
    * (`<adapter>__list_tools` + `<adapter>__call_tool`) instead of re-exporting

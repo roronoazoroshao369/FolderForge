@@ -26,6 +26,7 @@ import {
   type ChildTransportStats,
 } from '../adapters/child-mcp/client.js';
 import { resolveAdapterLaunch, resolvePlaywrightMcpRuntime } from '../adapters/child-mcp/resolve.js';
+import { applySandboxLaunch, sandboxSummary } from '../sandbox/launcher.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 export type DoctorSeverity = 'info' | 'warning' | 'error' | 'blocker';
@@ -667,10 +668,13 @@ function checkAdapters(config: FolderForgeConfig, env: NodeJS.ProcessEnv, findin
     }
 
     try {
-      const launch = resolveAdapterLaunch(name, def);
-      const executable = launch.source === 'package-local'
-        ? launch.command
-        : findExecutable(launch.command, env);
+      const launch = applySandboxLaunch(def, resolveAdapterLaunch(name, def));
+      const sandboxed = Boolean(def.sandbox && def.sandbox.mode !== 'process');
+      const executable = sandboxed
+        ? findExecutable(launch.command, env)
+        : launch.source === 'package-local'
+          ? launch.command
+          : findExecutable(launch.command, env);
       if (!executable) {
         findings.push(
           finding(
@@ -678,8 +682,10 @@ function checkAdapters(config: FolderForgeConfig, env: NodeJS.ProcessEnv, findin
             'fail',
             'error',
             `${name} adapter executable is unavailable.`,
-            `command=${launch.command}; source=${launch.source}`,
-            `Install ${launch.command} or update the adapter command.`
+            `command=${launch.command}; source=${launch.source}; sandbox=${JSON.stringify(sandboxSummary(def.sandbox))}`,
+            sandboxed
+              ? `Install ${launch.command} and make it available on PATH, or set sandbox.mode=process only for trusted code.`
+              : `Install ${launch.command} or update the adapter command.`
           )
         );
       } else {
@@ -689,16 +695,41 @@ function checkAdapters(config: FolderForgeConfig, env: NodeJS.ProcessEnv, findin
             `adapter.${name}`,
             unpinned ? 'warn' : 'pass',
             unpinned ? 'warning' : 'info',
-            launch.source === 'package-local'
-              ? `${name} adapter resolved from the FolderForge dependency tree.`
-              : unpinned
-                ? `${name} adapter uses an unpinned package reference.`
-                : `${name} adapter executable is available.`,
+            sandboxed
+              ? `${name} adapter container runtime is available.`
+              : launch.source === 'package-local'
+                ? `${name} adapter resolved from the FolderForge dependency tree.`
+                : unpinned
+                  ? `${name} adapter uses an unpinned package reference.`
+                  : `${name} adapter executable is available.`,
             `command=${launch.command}; args=${JSON.stringify(redactChildArgs(launch.args))}; source=${launch.source}` +
-              (launch.packageName ? `; package=${launch.packageName}@${launch.packageVersion}` : ''),
+              (launch.packageName ? `; package=${launch.packageName}@${launch.packageVersion}` : '') +
+              `; sandbox=${JSON.stringify(sandboxSummary(def.sandbox))}`,
             unpinned ? 'Pin the child MCP package version for repeatable installs and provenance review.' : ''
           )
         );
+
+        if (sandboxed && def.sandbox?.image) {
+          const image = runReadOnly(executable, ['image', 'inspect', def.sandbox.image], process.cwd(), env);
+          findings.push(
+            image.ok
+              ? finding(
+                  `adapter.${name}.sandbox-image`,
+                  'pass',
+                  'info',
+                  `${name} sandbox image is present locally.`,
+                  `runtime=${launch.command}; image=${def.sandbox.image}; pull=never`
+                )
+              : finding(
+                  `adapter.${name}.sandbox-image`,
+                  'fail',
+                  'error',
+                  `${name} sandbox image is unavailable locally.`,
+                  `runtime=${launch.command}; image=${def.sandbox.image}; exit=${image.status ?? 'spawn-error'}; ${image.stderr}`,
+                  `Preload the reviewed digest-pinned image with ${launch.command}; FolderForge will not pull it automatically.`
+                )
+          );
+        }
       }
     } catch (error) {
       findings.push(
@@ -715,7 +746,18 @@ function checkAdapters(config: FolderForgeConfig, env: NodeJS.ProcessEnv, findin
       );
     }
 
-    if (def.inheritEnv !== false) {
+    const containerSandbox = Boolean(def.sandbox && def.sandbox.mode !== 'process');
+    if (containerSandbox) {
+      findings.push(
+        finding(
+          `adapter.${name}.environment`,
+          'pass',
+          'info',
+          `${name} adapter forwards only explicitly configured environment keys into its container.`,
+          `sandbox=${def.sandbox!.mode}; allowlisted keys=${Object.keys(def.env ?? {}).sort().join(', ') || 'none'}`
+        )
+      );
+    } else if (def.inheritEnv !== false) {
       findings.push(
         finding(
           `adapter.${name}.environment`,
@@ -799,7 +841,7 @@ async function defaultAdapterReadinessProbe(
   env: NodeJS.ProcessEnv,
   projectRoot: string
 ): Promise<AdapterReadinessProbeResult> {
-  const launch = resolveAdapterLaunch(name, def);
+  const launch = applySandboxLaunch(def, resolveAdapterLaunch(name, def));
   let diagnostic: ChildMcpDiagnostic | null = null;
   const client = new StdioChildClient({
     adapter: name,
@@ -813,7 +855,9 @@ async function defaultAdapterReadinessProbe(
       npm_config_offline: 'true',
       NPM_CONFIG_OFFLINE: 'true',
     },
-    inheritEnv: def.inheritEnv !== false,
+    inheritEnv: def.sandbox && def.sandbox.mode !== 'process'
+      ? true
+      : def.inheritEnv !== false,
     requestTimeoutMs: 5_000,
     stderrLimit: 16 * 1024,
     onDiagnostic: (value) => {

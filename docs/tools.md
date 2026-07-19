@@ -143,7 +143,16 @@ The `workflow` group provides create/run/resume/status/list/cancel/report operat
 
 ### Local MCP plugins
 
-The `plugin` group provides `plugin_list`, `plugin_inspect`, `plugin_install`, `plugin_update`, `plugin_enable`, `plugin_disable`, `plugin_uninstall`, and `plugin_health`. Installed plugins default to a two-tool facade and declare per-sub-tool risk in their manifest. See [`plugin-system.md`](./plugin-system.md).
+The `plugin` group provides `plugin_list`, `plugin_inspect`, `plugin_install`, `plugin_update`, `plugin_enable`, `plugin_disable`, `plugin_uninstall`, and `plugin_health`. Installed plugins default to a two-tool facade and declare per-sub-tool risk in their manifest. Trusted packages may use process mode; digest-pinned Docker/Podman mode maps declared network/filesystem/env permissions to an enforceable bounded runtime. See [`plugin-system.md`](./plugin-system.md) and [`sandbox.md`](./sandbox.md).
+
+### Artifacts and UI evidence
+
+The `artifact` group provides `artifact_put`, `artifact_list`, `artifact_get`,
+`artifact_compare`, and `artifact_delete`. Objects use full SHA-256 identities,
+atomic bounded storage, integrity verification on read, and PNG pixel-diff
+metadata. Successful browser screenshots are also persisted automatically while
+the original MCP image remains available to vision-capable clients. See
+[`artifacts.md`](./artifacts.md).
 
 Facade dispatch uses dynamic per-call classification before OAuth and policy. A
 selected sub-tool contributes its own identity, risk, mutation flag, approval
@@ -156,9 +165,10 @@ dynamic, plugin-owned, or long-tail catalogs. See
 ### Browser & DB
 The stable native browser wrappers are `browser_open`, `browser_snapshot`,
 `browser_click`, `browser_type`, `browser_console`, `browser_network`,
-`browser_screenshot`, `browser_set_viewport`, `browser_close`, and
-`browser_eval`. They route to the configured Playwright child MCP while keeping
-FolderForge schemas, policy, audit, and rich image delivery. Dynamic child tools
+`browser_screenshot`, `browser_set_viewport`, `browser_visual_compare`,
+`browser_accessibility_audit`, `browser_close`, and `browser_eval`. They route to
+the configured Playwright child MCP while keeping FolderForge schemas, policy,
+audit, artifact persistence, and rich image delivery. Dynamic child tools
 may also be exposed namespaced as `<adapter>__<tool>` (e.g.
 `playwright__browser_navigate`, `serena__find_symbol`) - see `docs/adapters.md`.
 `db_*` tools (`db_connect`, `db_list_connections`, `db_list_tables`,
@@ -175,7 +185,7 @@ queries are LOW; writes/migrations are HIGH.
 | `vibe` | workspace, workflow, agent, file, search, terminal, process, git, code, build | Full coding and governed-workflow surface (**71 tools** in the audited working tree). |
 | `vibe-lite` | workflow, agent, file, search, code, terminal, build, git, process, browser | Folder-scoped and hard-capped to **50 tools**. The complete workflow, agent, and browser groups are pinned; lower-level/default-disabled primitives are trimmed before cap resolution. Explicit `--tools-enable` names are retained. This is the only preset that does not force-add the workspace group. |
 | `readonly` | workspace, workflow, agent, file, search, code | Exploration-oriented surface (**42 tools**); mutating calls are still denied by readonly policy rather than by group membership alone. |
-| `full` | all native groups, including plugin and game | Explicit opt-in to the full native surface (**269 tools** in the audited working tree). Dynamic child/plugin tools may add to this count. |
+| `full` | all native groups, including plugin, artifact, and game | Explicit opt-in to the full native surface (**276 tools** in the audited working tree). Dynamic child/plugin tools may add to this count. |
 
 ## Task presets
 

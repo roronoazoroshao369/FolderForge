@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "sandbox-benchmark",
+  "name": "Sandbox Benchmark Fixture",
+  "version": "1.0.0",
+  "description": "Fixture that reports container boundary evidence.",
+  "compatibility": {
+    "folderforge": ">=2.3.4",
+    "mcpProtocol": "2025-03-26"
+  },
+  "runtime": {
+    "command": "node",
+    "args": ["{pluginDir}/server.mjs"],
+    "facade": true,
+    "sandbox": {
+      "mode": "docker",
+      "image": "folderforge/sandbox-benchmark@sha256:REPLACE_WITH_LOCAL_IMAGE_DIGEST",
+      "memoryMb": 256,
+      "cpus": 0.5,
+      "pidsLimit": 64,
+      "tmpfsMb": 32
+    }
+  },
+  "permissions": {
+    "network": false,
+    "filesystem": "workspace",
+    "env": ["BENCHMARK_ALLOWED"]
+  },
+  "risk": {
+    "default": { "risk": "MEDIUM", "mutates": true },
+    "tools": {
+      "inspect_boundary": { "risk": "MEDIUM", "mutates": true }
+    }
+  }
+}

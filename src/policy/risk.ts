@@ -61,6 +61,8 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   browser_snapshot: 'LOW',
   browser_console: 'LOW',
   browser_network: 'LOW',
+  browser_accessibility_audit: 'LOW',
+  browser_visual_compare: 'MEDIUM',
   db_list_connections: 'LOW',
   db_list_tables: 'LOW',
   db_describe_table: 'LOW',
@@ -70,6 +72,11 @@ export const TOOL_RISK: Record<string, RiskLevel> = {
   approval_status: 'LOW',
   approval_approve: 'LOW',
   approval_deny: 'LOW',
+  artifact_list: 'LOW',
+  artifact_get: 'LOW',
+  artifact_put: 'MEDIUM',
+  artifact_compare: 'MEDIUM',
+  artifact_delete: 'HIGH',
 
   // game (Godot) - read tier (Step 1). All file/engine introspection only.
   game_get_godot_version: 'LOW',

@@ -1,0 +1,4 @@
+FROM node:24.4.1-alpine3.22
+WORKDIR /plugin
+USER 65532:65532
+ENTRYPOINT ["node"]

@@ -59,6 +59,36 @@ Anthropic, AWS, GitHub, Google, Slack tokens, private-key blocks, generic
 - terminal env redaction when `terminal.envPolicy: redact`;
 - output redaction before content leaves the server.
 
+## Child and plugin sandboxing
+
+Trusted adapters may continue to use `sandbox.mode: process`. Process mode is not
+host isolation: code executes with the current user's operating-system privileges,
+though plugin environment inheritance remains restricted.
+
+Docker and Podman modes wrap the child in a real container boundary with
+`--pull=never`, a digest-pinned image by default, dropped Linux capabilities,
+`no-new-privileges`, a read-only root filesystem, bounded PID/CPU/memory/tmpfs,
+and explicit bind mounts. Plugin files are read-only at `/plugin`; the project is
+mounted only when declared and then only at `/workspace`; networking is disabled
+unless declared. Only explicitly configured environment names are forwarded into
+the container. Invalid configuration blocks the adapter rather than falling back
+to process mode. `folderforge doctor` verifies the runtime and exact local image.
+
+This boundary reduces damage from plugin code but does not authenticate the image
+publisher, fix a vulnerable container runtime/kernel, or make unsafe writable
+mounts harmless. Use reviewed digest-pinned images, patched rootless runtimes where
+practical, and the smallest mount/network contract. See [Sandboxing](sandbox.md).
+
+## Artifact integrity and privacy
+
+Artifact objects are stored beneath `.folderforge/artifacts` under full SHA-256
+identities with atomic mode-`0600` metadata and object writes, directory quotas,
+and integrity verification on read. The directory is gitignored. Screenshots can
+still be returned inline to the active MCP client; storing an artifact does not
+redact visual content or make it safe to publish. Treat artifacts as project data,
+delete sensitive evidence deliberately, and do not attach unreviewed artifacts to
+public beta or benchmark reports.
+
 ## Approvals
 
 HIGH/CRITICAL actions (and tools listed in `policy.requireApproval`) create a

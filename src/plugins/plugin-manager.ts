@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { AdapterDef, RiskLevel } from '../core/types.js';
+import type { AdapterDef, ChildSandboxConfig, RiskLevel } from '../core/types.js';
 import type { SubOpRisk } from '../adapters/child-mcp/risk-map.js';
 
 const MANIFEST_FILE = 'folderforge.plugin.json';
@@ -20,6 +20,19 @@ const REGISTRY_FILE = 'registry.json';
 const MAX_FILES = 2000;
 const MAX_BYTES = 50 * 1024 * 1024;
 const RESERVED_IDS = new Set(['serena', 'playwright', 'desktopCommander', 'folderforge']);
+const SANDBOX_DIGEST = /@sha256:[a-f0-9]{64}$/i;
+
+export interface PluginSandboxManifest {
+  mode: 'process' | 'docker' | 'podman';
+  image?: string;
+  workdir?: string;
+  readOnlyRoot?: boolean;
+  memoryMb?: number;
+  cpus?: number;
+  pidsLimit?: number;
+  tmpfsMb?: number;
+  requireImageDigest?: boolean;
+}
 
 function removeTree(path: string): void {
   rmSync(path, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 });
@@ -36,6 +49,7 @@ export interface PluginManifest {
     command: string;
     args?: string[];
     facade?: boolean;
+    sandbox?: PluginSandboxManifest;
   };
   permissions?: {
     network?: boolean;
@@ -114,6 +128,66 @@ function normalizeRisk(value: unknown, fallback: SubOpRisk): SubOpRisk {
   };
 }
 
+function optionalBoundedNumber(
+  value: unknown,
+  label: string,
+  min: number,
+  max: number,
+  integer = true
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${label} must be a number from ${min} to ${max}.`);
+  }
+  if (integer && !Number.isSafeInteger(value)) throw new Error(`${label} must be an integer.`);
+  return value;
+}
+
+function normalizePluginSandbox(value: unknown, filesystem: string): PluginSandboxManifest | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('runtime.sandbox must be an object.');
+  }
+  const raw = value as Record<string, unknown>;
+  const mode = String(raw.mode ?? 'process') as PluginSandboxManifest['mode'];
+  if (!['process', 'docker', 'podman'].includes(mode)) {
+    throw new Error('runtime.sandbox.mode must be process, docker, or podman.');
+  }
+  if (mode === 'process') return { mode };
+  if (filesystem === 'external') {
+    throw new Error('Container-sandboxed plugins cannot request external filesystem access.');
+  }
+  const image = String(raw.image ?? '').trim();
+  if (!image || /\s|\0/.test(image)) throw new Error('runtime.sandbox.image is required.');
+  const requireImageDigest = raw.requireImageDigest !== false;
+  if (requireImageDigest && !SANDBOX_DIGEST.test(image)) {
+    throw new Error('runtime.sandbox.image must use image@sha256:<digest> pinning.');
+  }
+  const workdir = raw.workdir === undefined ? '/plugin' : String(raw.workdir);
+  if (!workdir.startsWith('/') || workdir.split('/').includes('..')) {
+    throw new Error('runtime.sandbox.workdir must be an absolute container path without .. segments.');
+  }
+  return {
+    mode,
+    image,
+    workdir,
+    readOnlyRoot: raw.readOnlyRoot !== false,
+    requireImageDigest,
+    ...(optionalBoundedNumber(raw.memoryMb, 'runtime.sandbox.memoryMb', 64, 65_536) !== undefined
+      ? { memoryMb: raw.memoryMb as number }
+      : {}),
+    ...(optionalBoundedNumber(raw.cpus, 'runtime.sandbox.cpus', 0.1, 64, false) !== undefined
+      ? { cpus: raw.cpus as number }
+      : {}),
+    ...(optionalBoundedNumber(raw.pidsLimit, 'runtime.sandbox.pidsLimit', 16, 4096) !== undefined
+      ? { pidsLimit: raw.pidsLimit as number }
+      : {}),
+    ...(optionalBoundedNumber(raw.tmpfsMb, 'runtime.sandbox.tmpfsMb', 8, 4096) !== undefined
+      ? { tmpfsMb: raw.tmpfsMb as number }
+      : {}),
+  };
+}
+
 function validateManifest(raw: unknown, currentVersion: string): PluginManifest {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Plugin manifest must be an object.');
   const value = raw as Record<string, unknown>;
@@ -148,6 +222,7 @@ function validateManifest(raw: unknown, currentVersion: string): PluginManifest 
   if (!Array.isArray(env) || !env.every((item) => typeof item === 'string' && /^[A-Z_][A-Z0-9_]*$/i.test(item))) {
     throw new Error('permissions.env must contain valid environment variable names.');
   }
+  const sandbox = normalizePluginSandbox(runtime.sandbox, String(filesystem));
   const riskRaw = (value.risk ?? {}) as Record<string, unknown>;
   const fallback = normalizeRisk(riskRaw.default, { risk: 'MEDIUM', mutates: true });
   const toolsRaw = (riskRaw.tools ?? {}) as Record<string, unknown>;
@@ -162,7 +237,12 @@ function validateManifest(raw: unknown, currentVersion: string): PluginManifest 
       folderforge,
       ...(typeof compatibility.mcpProtocol === 'string' ? { mcpProtocol: compatibility.mcpProtocol } : {}),
     },
-    runtime: { command: runtime.command, args: args as string[], facade: runtime.facade !== false },
+    runtime: {
+      command: runtime.command,
+      args: args as string[],
+      facade: runtime.facade !== false,
+      ...(sandbox ? { sandbox } : {}),
+    },
     permissions: {
       network: permissionsRaw.network === true,
       filesystem: filesystem as 'none' | 'workspace' | 'external',
@@ -352,31 +432,73 @@ export class PluginManager {
   adapter(id: string): { name: string; def: AdapterDef; riskDefault: SubOpRisk; riskMap: Record<string, SubOpRisk> } {
     const { installed, manifest } = this.inspect(id);
     const pluginDir = installed.installDir;
+    const sandboxManifest = manifest.runtime.sandbox;
+    const containerized = Boolean(sandboxManifest && sandboxManifest.mode !== 'process');
+    const hostSubstitute = (value: string): string =>
+      value.replaceAll('{pluginDir}', pluginDir).replaceAll('{projectRoot}', this.projectRoot);
+    const containerSubstitute = (value: string): string =>
+      value.replaceAll('{pluginDir}', '/plugin').replaceAll('{projectRoot}', '/workspace');
+
     let command = manifest.runtime.command;
-    if (command.startsWith('./')) {
-      command = resolve(pluginDir, command);
-      const rel = relative(pluginDir, command);
-      if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Relative runtime.command escapes the plugin directory.');
-      if (!existsSync(command)) throw new Error(`Plugin runtime command not found: ${command}`);
-    } else if (command.includes(sep) || command.includes('/')) {
-      throw new Error('runtime.command must be a bare executable name or a ./ path inside the plugin package.');
+    let args = manifest.runtime.args ?? [];
+    let sandbox: ChildSandboxConfig | undefined;
+    if (containerized && sandboxManifest) {
+      command = command.startsWith('./') ? `/plugin/${command.slice(2)}` : containerSubstitute(command);
+      if (command.includes('..') || command.includes('\0')) {
+        throw new Error('Container runtime.command must not contain NUL or .. segments.');
+      }
+      args = args.map(containerSubstitute);
+      const mounts: NonNullable<ChildSandboxConfig['mounts']> = [
+        { source: pluginDir, target: '/plugin', mode: 'ro' },
+      ];
+      if (manifest.permissions?.filesystem === 'workspace') {
+        mounts.push({ source: this.projectRoot, target: '/workspace', mode: 'rw' });
+      }
+      sandbox = {
+        mode: sandboxManifest.mode as 'docker' | 'podman',
+        image: sandboxManifest.image!,
+        command,
+        args,
+        workdir: sandboxManifest.workdir ?? '/plugin',
+        network: manifest.permissions?.network === true ? 'bridge' : 'none',
+        mounts,
+        readOnlyRoot: sandboxManifest.readOnlyRoot !== false,
+        requireImageDigest: sandboxManifest.requireImageDigest !== false,
+        ...(sandboxManifest.memoryMb !== undefined ? { memoryMb: sandboxManifest.memoryMb } : {}),
+        ...(sandboxManifest.cpus !== undefined ? { cpus: sandboxManifest.cpus } : {}),
+        ...(sandboxManifest.pidsLimit !== undefined ? { pidsLimit: sandboxManifest.pidsLimit } : {}),
+        ...(sandboxManifest.tmpfsMb !== undefined ? { tmpfsMb: sandboxManifest.tmpfsMb } : {}),
+      };
+    } else {
+      if (command.startsWith('./')) {
+        command = resolve(pluginDir, command);
+        const rel = relative(pluginDir, command);
+        if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Relative runtime.command escapes the plugin directory.');
+        if (!existsSync(command)) throw new Error(`Plugin runtime command not found: ${command}`);
+      } else if (command.includes(sep) || command.includes('/')) {
+        throw new Error('runtime.command must be a bare executable name or a ./ path inside the plugin package.');
+      }
+      args = args.map(hostSubstitute);
     }
-    const substitute = (value: string): string => value.replaceAll('{pluginDir}', pluginDir).replaceAll('{projectRoot}', this.projectRoot);
+
     const env: Record<string, string> = {
       PATH: process.env.PATH ?? '/usr/bin:/bin',
       ...(process.platform === 'win32' && process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
     };
-    for (const name of manifest.permissions?.env ?? []) if (process.env[name] !== undefined) env[name] = process.env[name]!;
+    for (const name of manifest.permissions?.env ?? []) {
+      if (process.env[name] !== undefined) env[name] = process.env[name]!;
+    }
     return {
       name: manifest.id,
       def: {
         enabled: true,
         command,
-        args: (manifest.runtime.args ?? []).map(substitute),
+        args,
         env,
         cwd: pluginDir,
         inheritEnv: false,
         facade: manifest.runtime.facade !== false,
+        ...(sandbox ? { sandbox } : {}),
       },
       riskDefault: manifest.risk?.default ?? { risk: 'MEDIUM', mutates: true },
       riskMap: manifest.risk?.tools ?? {},

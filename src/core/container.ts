@@ -13,6 +13,7 @@ import { readFolderForgeVersion } from './version.js';
 import { registerAdapterRiskMap } from '../adapters/child-mcp/risk-map.js';
 import { logger } from './logger.js';
 import { WorkflowManager } from '../workflows/workflow-manager.js';
+import { ArtifactStore } from '../artifacts/artifact-store.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -30,6 +31,7 @@ export class Container {
   readonly patchTransactions: PatchTransactionManager;
   readonly plugins: PluginManager;
   readonly workflows: WorkflowManager;
+  readonly artifacts: ArtifactStore;
   workspaceStartupError: string | null = null;
   /**
    * The tool registry. Assigned by `buildRegistry` right after construction so
@@ -47,6 +49,7 @@ export class Container {
     this.processes = new ProcessManager();
     this.plugins = new PluginManager(config.workspace.defaultProject, readFolderForgeVersion());
     this.workflows = new WorkflowManager(config.workspace.defaultProject);
+    this.artifacts = new ArtifactStore(config.workspace.defaultProject);
     const pluginAdapters: Array<{ name: string; def: import('./types.js').AdapterDef }> = [];
     for (const plugin of this.plugins.list().filter((entry) => entry.enabled)) {
       try {

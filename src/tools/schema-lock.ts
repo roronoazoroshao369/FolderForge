@@ -67,6 +67,11 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'workflow_list', mutates: false, risk: 'LOW' },
   { name: 'workflow_cancel', mutates: true, risk: 'MEDIUM' },
   { name: 'workflow_report', mutates: false, risk: 'LOW' },
+  { name: 'artifact_put', mutates: true, risk: 'MEDIUM' },
+  { name: 'artifact_list', mutates: false, risk: 'LOW' },
+  { name: 'artifact_get', mutates: false, risk: 'LOW' },
+  { name: 'artifact_compare', mutates: true, risk: 'MEDIUM' },
+  { name: 'artifact_delete', mutates: true, risk: 'HIGH' },
 
   // --- files ---
   { name: 'file_read', mutates: false, risk: 'LOW' },
@@ -161,6 +166,8 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'browser_type', mutates: true, risk: 'MEDIUM' },
   { name: 'browser_screenshot', mutates: true, risk: 'MEDIUM' },
   { name: 'browser_set_viewport', mutates: true, risk: 'MEDIUM' },
+  { name: 'browser_visual_compare', mutates: true, risk: 'MEDIUM' },
+  { name: 'browser_accessibility_audit', mutates: false, risk: 'LOW' },
   { name: 'browser_close', mutates: true, risk: 'MEDIUM' },
   { name: 'browser_eval', mutates: true, risk: 'HIGH' },
 

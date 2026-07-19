@@ -34,10 +34,11 @@ npm pack --dry-run
 git diff --check
 ```
 
-`release:check` runs typecheck, lint, unit/integration tests, build,
-documentation/version/link checks, production and full dependency audits,
-packed-package installation, CLI/doctor/browser-resolution checks, stdio MCP
-smoke, and authenticated HTTP MCP smoke.
+`release:check` runs typecheck, lint, unit/integration tests, coverage thresholds,
+property/fuzz checks, repeated child-MCP heartbeat stress, official MCP Inspector
+stdio conformance, build, documentation/version/link checks, production and full
+dependency audits, packed-package installation, CLI/doctor/browser-resolution
+checks, stdio MCP smoke, and authenticated HTTP MCP smoke.
 
 Review `npm pack --json --ignore-scripts` as well. The tarball must contain the
 CLI, production `dist`, dashboard assets, user documentation, examples, license,
@@ -88,6 +89,23 @@ gh release create "v${VERSION}" --verify-tag --title "FolderForge ${VERSION}" --
 Do not use generated release notes as a substitute for reviewing factual release
 notes. Do not retag an existing public version or rewrite release history.
 
+## Trusted npm publishing and attestations
+
+`.github/workflows/publish-npm.yml` is the only prepared automated npm publication
+path. It checks out an existing exact tag, uses Node 24 and a trusted-publishing-
+capable npm CLI, runs the full release gate, refuses an already-published version,
+packs the exact tarball, generates a CycloneDX SBOM, creates GitHub build and SBOM
+attestations, and publishes that same tarball through npm OIDC. It deliberately
+contains no long-lived `NODE_AUTH_TOKEN`.
+
+Before the first run, an npm organization/package administrator must configure a
+trusted publisher whose owner, repository, workflow filename, and protected
+GitHub environment exactly match the workflow. Protect the `npm-publish`
+environment with required reviewers. That external configuration and every
+workflow dispatch are public administrative actions and require explicit
+authorization. A prepared workflow file is not evidence that npm trusted
+publishing has been configured or exercised successfully.
+
 ## Current public-state limitation
 
 At the time this document was refreshed, npm `latest` was newer than the latest
@@ -97,6 +115,7 @@ and exact-commit CI evidence.
 
 ## Plugin trust limitation
 
-Local MCP plugins are executable packages. Declared network and filesystem
-permissions are review and audit metadata, not an operating-system sandbox. Do
-not enable untrusted plugin packages.
+Local MCP plugins are executable packages. Process mode remains trusted-code only.
+Docker/Podman mode enforces bounded mounts, network, capabilities, and resources,
+but it does not authenticate the image publisher or eliminate host/runtime
+vulnerabilities. Require digest-pinned reviewed images; see [Sandboxing](sandbox.md).

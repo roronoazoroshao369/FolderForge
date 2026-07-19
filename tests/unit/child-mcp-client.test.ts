@@ -468,6 +468,7 @@ describe('StdioChildClient diagnostics and protocol handling', () => {
     expect(stats.bytesReceived).toBeGreaterThan(0);
     expect(stats.bytesSent).toBeGreaterThan(0);
     expect(stats.pendingRequests).toBe(0);
+    expect(stats.pendingHeartbeatRequests).toBeLessThanOrEqual(1);
   });
 
   it('closes an idle child that stops answering heartbeat pings', async () => {
@@ -586,11 +587,12 @@ describe('StdioChildClient diagnostics and protocol handling', () => {
     const root = mkdtempSync(join(tmpdir(), 'folder forge ünicode-'));
     tempRoots.push(root);
     const pidFile = join(root, 'child.pid');
-    const child = client('initialize-timeout', { timeout: 80, pidFile, cwd: root });
+    const child = client('initialize-timeout', { timeout: 500, pidFile, cwd: root });
 
-    const diagnostic = await failure(() => child.start());
+    const start = child.start();
+    expect(await waitForFile(pidFile)).toBe(true);
+    const diagnostic = await failure(() => start);
     expect(diagnostic).toMatchObject({ phase: 'initialize', kind: 'initialize_timeout', timedOut: true });
-    expect(existsSync(pidFile)).toBe(true);
     const pid = Number(readFileSync(pidFile, 'utf8'));
     expect(await waitForExit(pid)).toBe(true);
   });

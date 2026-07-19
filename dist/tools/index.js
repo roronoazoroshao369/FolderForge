@@ -18,6 +18,7 @@ import { gameTools } from './game-tools.js';
 import { agentTools } from './agent-tools.js';
 import { pluginTools } from './plugin-tools.js';
 import { workflowTools } from './workflow-tools.js';
+import { artifactTools } from './artifact-tools.js';
 import { buildAdapterTools } from './adapter-tools.js';
 /**
  * Build the full tool registry with every group registered.
@@ -43,6 +44,7 @@ export function buildRegistry(container) {
         ...agentTools(),
         ...pluginTools(),
         ...workflowTools(),
+        ...artifactTools(),
         ...gameTools(),
     ]);
     // Expose the registry on the container so routing tools (workspace_route)
@@ -89,6 +91,8 @@ export const TASK_PRESETS = {
         'browser_console',
         'browser_network',
         'browser_screenshot',
+        'browser_visual_compare',
+        'browser_accessibility_audit',
         'browser_eval',
         'browser_close',
     ],
@@ -149,7 +153,7 @@ export const GROUP_PRESETS = {
     full: [
         'workspace', 'workflow', 'agent', 'file', 'search', 'terminal', 'process', 'git', 'build',
         'memory', 'security', 'code', 'browser', 'db', 'pkg', 'format', 'coverage', 'plugin',
-        'game',
+        'artifact', 'game',
     ],
     // Godot game-dev focus: the coding essentials plus the `game` group, so an
     // agent can read/edit project files and drive the engine without the db /
@@ -206,6 +210,8 @@ export const PRESET_DEFAULT_DISABLED = {
         'run_typecheck',
         'pkg_run',
         'git_reset',
+        'git_branch',
+        'git_checkout',
         'code_insert_before_symbol',
         'code_insert_after_symbol',
         'code_find_implementations',

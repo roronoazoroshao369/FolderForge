@@ -9,9 +9,12 @@ import { terminateChildProcessTree } from '../../core/process-tree.js';
 import { readFolderForgeVersion } from '../../core/version.js';
 import { SecretPolicy } from '../../policy/secret-policy.js';
 
+type PendingRequestKind = 'user' | 'heartbeat';
+
 interface PendingRequest {
   method: string;
   phase: ChildFailurePhase;
+  kind: PendingRequestKind;
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   cleanup: () => void;
@@ -159,7 +162,10 @@ export interface ChildTransportStats {
   requestsSent: number;
   responsesReceived: number;
   notificationsReceived: number;
+  /** Caller-visible requests only. Internal heartbeat pings are excluded. */
   pendingRequests: number;
+  /** Internal heartbeat pings currently awaiting a response. */
+  pendingHeartbeatRequests: number;
   heartbeatsSent: number;
 }
 
@@ -342,7 +348,10 @@ function nonNegativeSafeInteger(value: number, name: string): number {
   return value;
 }
 
-function emptyTransportStats(): Omit<ChildTransportStats, 'pendingRequests'> {
+function emptyTransportStats(): Omit<
+  ChildTransportStats,
+  'pendingRequests' | 'pendingHeartbeatRequests'
+> {
   return {
     bytesReceived: 0,
     bytesSent: 0,
@@ -771,7 +780,14 @@ export class StdioChildClient {
     this.heartbeatInFlight = true;
     this.transport.heartbeatsSent += 1;
     try {
-      await this.request('ping', {}, this.heartbeatTimeoutMs, 'runtime');
+      await this.dispatchRequest(
+        'ping',
+        {},
+        this.heartbeatTimeoutMs,
+        'runtime',
+        undefined,
+        'heartbeat'
+      );
     } catch (error) {
       if (this.child === child && this.isReady() && !this.stopping) {
         const timedOut = error instanceof ChildMcpError && error.diagnostic.timedOut;
@@ -791,6 +807,17 @@ export class StdioChildClient {
     timeoutMs = this.requestTimeoutMs,
     phase: ChildFailurePhase = 'runtime',
     signal?: AbortSignal
+  ): Promise<unknown> {
+    return this.dispatchRequest(method, params, timeoutMs, phase, signal, 'user');
+  }
+
+  private dispatchRequest(
+    method: string,
+    params: unknown,
+    timeoutMs: number,
+    phase: ChildFailurePhase,
+    signal: AbortSignal | undefined,
+    kind: PendingRequestKind
   ): Promise<unknown> {
     const child = this.child;
     if (!child) {
@@ -862,6 +889,7 @@ export class StdioChildClient {
       this.pending.set(id, {
         method,
         phase,
+        kind,
         cleanup,
         resolve: (value) => {
           cleanup();
@@ -1001,7 +1029,13 @@ export class StdioChildClient {
   }
 
   transportStats(): ChildTransportStats {
-    return { ...this.transport, pendingRequests: this.pending.size };
+    let pendingRequests = 0;
+    let pendingHeartbeatRequests = 0;
+    for (const pending of this.pending.values()) {
+      if (pending.kind === 'heartbeat') pendingHeartbeatRequests += 1;
+      else pendingRequests += 1;
+    }
+    return { ...this.transport, pendingRequests, pendingHeartbeatRequests };
   }
 
   async stopAndWait(timeoutMs = 1_000): Promise<void> {

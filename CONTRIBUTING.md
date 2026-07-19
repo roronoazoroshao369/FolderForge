@@ -25,7 +25,11 @@ Run:
 npm run typecheck
 npm run lint
 npm test
+npm run test:coverage
+npm run test:fuzz
+npm run test:stress
 npm run build
+npm run smoke:inspector
 npm run smoke:package
 npm run smoke:stdio
 npm run smoke:http
@@ -46,6 +50,11 @@ the exact revision.
 
 Do not include credentials, runtime state, audit logs, generated browser data,
 `node_modules`, or unrelated formatting churn.
+
+Benchmark contributions must preserve the neutral task manifest and publish all
+runs, including failures and outliers. Do not submit simulated competitor data,
+compare latency across different hardware, or present validation of a JSON result
+as independent proof that its evidence is true. See [benchmarks/README.md](benchmarks/README.md).
 
 ## Releases
 

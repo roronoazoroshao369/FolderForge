@@ -1,8 +1,10 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build and test output
 dist/
+coverage/
+benchmarks/results/
 
 # Logs
 *.log

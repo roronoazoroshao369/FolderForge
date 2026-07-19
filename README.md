@@ -129,9 +129,12 @@ advertise unusable `browser_*` wrappers. See
 - **Commands and builds:** shell, managed processes, tests, builds, formatting,
   coverage, and package-manager operations.
 - **Git:** status, diff, history, branches, commits, fetch/pull/push under policy.
-- **MCP composition:** namespace or facade child MCP servers and local plugins.
+- **MCP composition:** namespace or facade child MCP servers and local plugins,
+  with optional digest-pinned Docker/Podman isolation.
 - **Workflows:** persistent role-scoped plans with checkpoints and bounded
   evidence.
+- **Artifacts and UI quality:** content-addressed evidence, screenshot baselines,
+  pixel comparison, and a bounded accessibility/contrast audit.
 - **Optional integrations:** Playwright browser tools, databases, OAuth/ChatGPT,
   and a shipped Godot 4 addon.
 

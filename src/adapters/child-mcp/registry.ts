@@ -10,6 +10,7 @@ import {
   type ChildTransportStats,
 } from './client.js';
 import { resolveAdapterLaunch, type ResolvedAdapterLaunch } from './resolve.js';
+import { applySandboxLaunch, sandboxSummary } from '../../sandbox/launcher.js';
 import type { AdaptersConfig, AdapterDef } from '../../core/types.js';
 import { logger } from '../../core/logger.js';
 import { SecretPolicy } from '../../policy/secret-policy.js';
@@ -74,6 +75,7 @@ export interface AdapterStatus {
     source: 'custom' | 'package-local';
     packageName?: string;
     packageVersion?: string;
+    sandbox?: Record<string, unknown>;
   };
   diagnostic?: ChildMcpDiagnostic;
 }
@@ -177,7 +179,9 @@ function resolutionDiagnostic(name: string, def: AdapterDef, error: unknown): Ch
     phase: 'resolve',
     kind: /cannot find|could not resolve|missing/i.test(message)
       ? 'npm_package_resolution_failure'
-      : 'unknown',
+      : /sandbox|docker|podman|image|mount|memoryMb|pidsLimit|tmpfsMb|cpus/i.test(message)
+        ? 'invalid_adapter_arguments'
+        : 'unknown',
     exitCode: null,
     signal: null,
     spawnError: secretPolicy.redact(message),
@@ -217,7 +221,22 @@ function unexpectedDiagnostic(
 function createEntry(name: string, def: AdapterDef, now: number): AdapterEntry {
   return {
     name,
-    def: { ...def, args: [...def.args], ...(def.env ? { env: { ...def.env } } : {}) },
+    def: {
+      ...def,
+      args: [...def.args],
+      ...(def.env ? { env: { ...def.env } } : {}),
+      ...(def.sandbox
+        ? {
+            sandbox: {
+              ...def.sandbox,
+              ...(def.sandbox.args ? { args: [...def.sandbox.args] } : {}),
+              ...(def.sandbox.mounts
+                ? { mounts: def.sandbox.mounts.map((mount) => ({ ...mount })) }
+                : {}),
+            },
+          }
+        : {}),
+    },
     client: null,
     startPromise: null,
     lazyStarted: false,
@@ -453,7 +472,10 @@ export class ChildMcpRegistry {
 
   private createClient(entry: AdapterEntry): StdioChildClient {
     try {
-      entry.launch = resolveAdapterLaunch(entry.name, entry.def);
+      entry.launch = applySandboxLaunch(
+        entry.def,
+        resolveAdapterLaunch(entry.name, entry.def)
+      );
     } catch (error) {
       const diagnostic = resolutionDiagnostic(entry.name, entry.def, error);
       this.recordFailure(entry, diagnostic);
@@ -471,7 +493,11 @@ export class ChildMcpRegistry {
       args: launch.args,
       env: entry.def.env ?? {},
       ...(launch.cwd ? { cwd: launch.cwd } : {}),
-      inheritEnv: entry.def.inheritEnv !== false,
+      // Container runtimes need the host PATH to locate docker/podman. Only
+      // explicitly named --env keys cross into the sandboxed plugin process.
+      inheritEnv: entry.def.sandbox && entry.def.sandbox.mode !== 'process'
+        ? true
+        : entry.def.inheritEnv !== false,
       onDiagnostic: (diagnostic) => {
         if (!entry.stopped) this.recordFailure(entry, diagnostic);
       },
@@ -674,6 +700,7 @@ export class ChildMcpRegistry {
                 source: entry.launch.source,
                 ...(entry.launch.packageName ? { packageName: entry.launch.packageName } : {}),
                 ...(entry.launch.packageVersion ? { packageVersion: entry.launch.packageVersion } : {}),
+                sandbox: sandboxSummary(entry.def.sandbox),
               },
             }
           : {}),

@@ -12,13 +12,165 @@ const PW_MAP = {
     browser_close: 'browser_close',
     browser_eval: 'browser_evaluate',
 };
-function isLocalOrAllowed(url, ctx) {
+export const A11Y_AUDIT_FUNCTION = String.raw `() => {
+  const violations = [];
+  const selector = (element) => {
+    if (!(element instanceof Element)) return '';
+    if (element.id) return '#' + CSS.escape(element.id);
+    const parts = [];
+    let current = element;
+    while (current && current.nodeType === 1 && parts.length < 5) {
+      let part = current.tagName.toLowerCase();
+      const parent = current.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter((item) => item.tagName === current.tagName);
+        if (siblings.length > 1) part += ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')';
+      }
+      parts.unshift(part);
+      current = parent;
+    }
+    return parts.join(' > ');
+  };
+  const visible = (element) => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const accessibleName = (element) => {
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const value = labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ').trim();
+      if (value) return value;
+    }
+    const aria = element.getAttribute('aria-label')?.trim();
+    if (aria) return aria;
+    if (element instanceof HTMLInputElement && element.labels?.length) {
+      const value = Array.from(element.labels).map((label) => label.textContent || '').join(' ').trim();
+      if (value) return value;
+    }
+    const title = element.getAttribute('title')?.trim();
+    if (title) return title;
+    return (element.textContent || '').trim();
+  };
+  const parseRgb = (value) => {
+    const match = value.match(/rgba?\((\d+(?:\.\d+)?)[, ]+(\d+(?:\.\d+)?)[, ]+(\d+(?:\.\d+)?)(?:[, /]+([\d.]+))?\)/i);
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === undefined ? 1 : Number(match[4])] : null;
+  };
+  const luminance = (rgb) => {
+    const channels = rgb.slice(0, 3).map((channel) => {
+      const value = channel / 255;
+      return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const background = (element) => {
+    let current = element;
+    while (current) {
+      const color = parseRgb(getComputedStyle(current).backgroundColor);
+      if (color && color[3] > 0.01) return color;
+      current = current.parentElement;
+    }
+    return [255, 255, 255, 1];
+  };
+  const add = (rule, impact, message, element, actual) => violations.push({
+    rule,
+    impact,
+    message,
+    selector: selector(element),
+    ...(actual === undefined ? {} : { actual }),
+  });
+
+  if (!document.documentElement.lang.trim()) {
+    add('html-lang', 'serious', 'The html element must declare a language.', document.documentElement);
+  }
+  if (!document.title.trim()) {
+    add('document-title', 'serious', 'The document must have a non-empty title.', document.head || document.documentElement);
+  }
+
+  document.querySelectorAll('img').forEach((image) => {
+    if (image.getAttribute('role') === 'presentation' || image.getAttribute('aria-hidden') === 'true') return;
+    if (!image.hasAttribute('alt')) add('image-alt', 'critical', 'Image is missing an alt attribute.', image);
+  });
+
+  document.querySelectorAll('input:not([type="hidden"]), select, textarea').forEach((control) => {
+    if (!visible(control) || control.getAttribute('aria-hidden') === 'true') return;
+    if (!accessibleName(control)) add('form-label', 'critical', 'Form control has no accessible name.', control);
+  });
+
+  document.querySelectorAll('button, a[href], [role="button"], [role="link"]').forEach((control) => {
+    if (!visible(control) || control.getAttribute('aria-hidden') === 'true') return;
+    if (!accessibleName(control)) add('interactive-name', 'critical', 'Interactive element has no accessible name.', control);
+  });
+
+  const ids = new Map();
+  document.querySelectorAll('[id]').forEach((element) => {
+    const id = element.id;
+    if (!id) return;
+    const prior = ids.get(id);
+    if (prior) add('duplicate-id', 'serious', 'Document contains a duplicate id.', element, id);
+    else ids.set(id, element);
+  });
+
+  let previousHeading = 0;
+  document.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach((heading) => {
+    const level = Number(heading.tagName.slice(1));
+    if (previousHeading > 0 && level > previousHeading + 1) {
+      add('heading-order', 'moderate', 'Heading levels should not skip ranks.', heading, { previous: previousHeading, current: level });
+    }
+    previousHeading = level;
+  });
+
+  let contrastChecked = 0;
+  document.querySelectorAll('body *').forEach((element) => {
+    if (contrastChecked >= 500 || !visible(element)) return;
+    const text = Array.from(element.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent || '').join('').trim();
+    if (!text) return;
+    contrastChecked += 1;
+    const style = getComputedStyle(element);
+    const foreground = parseRgb(style.color);
+    const bg = background(element);
+    if (!foreground || foreground[3] < 0.99) return;
+    const light = Math.max(luminance(foreground), luminance(bg));
+    const dark = Math.min(luminance(foreground), luminance(bg));
+    const ratio = (light + 0.05) / (dark + 0.05);
+    const fontSize = Number.parseFloat(style.fontSize);
+    const fontWeight = Number.parseInt(style.fontWeight, 10) || 400;
+    const large = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+    const required = large ? 3 : 4.5;
+    if (ratio + 0.001 < required) {
+      add('color-contrast', 'serious', 'Text contrast is below the WCAG AA threshold.', element, {
+        ratio: Number(ratio.toFixed(2)),
+        required,
+        foreground: style.color,
+        background: getComputedStyle(element).backgroundColor,
+      });
+    }
+  });
+
+  const byImpact = violations.reduce((summary, violation) => {
+    summary[violation.impact] = (summary[violation.impact] || 0) + 1;
+    return summary;
+  }, {});
+  return JSON.stringify({
+    url: location.href,
+    title: document.title,
+    scanned: {
+      elements: document.querySelectorAll('*').length,
+      contrastTextNodes: contrastChecked,
+    },
+    summary: { violations: violations.length, byImpact },
+    violations,
+  });
+}`;
+function isRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function isLocalOrAllowed(url, _ctx) {
     try {
-        const u = new URL(url);
-        if (['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(u.hostname))
+        const parsed = new URL(url);
+        if (['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname))
             return true;
-        // Allow file:// for local fixtures.
-        if (u.protocol === 'file:')
+        if (parsed.protocol === 'file:')
             return true;
         return false;
     }
@@ -26,24 +178,105 @@ function isLocalOrAllowed(url, ctx) {
         return false;
     }
 }
-async function routeToPlaywright(ctx, toolName, args) {
-    if (toolName === 'browser_open' && typeof args.url === 'string') {
-        if (!isLocalOrAllowed(args.url, ctx) && ctx.container.policy.getMode() !== 'danger') {
-            return { ok: false, error: `External URL blocked by policy: ${args.url}. Only localhost is allowed by default.` };
-        }
-    }
+async function callPlaywright(ctx, childTool, args, label) {
     if (!ctx.container.adapters.isEnabled('playwright')) {
         return { ok: false, error: 'Playwright adapter is disabled. Enable adapters.playwright in config.' };
     }
     try {
         const client = await ctx.container.adapters.ensure('playwright');
-        const pwTool = PW_MAP[toolName] ?? toolName;
-        const result = await client.callTool(pwTool, args);
-        return childCallToToolResult(result, toolName);
+        const result = await client.callTool(childTool, args);
+        return childCallToToolResult(result, label);
     }
-    catch (err) {
-        return { ok: false, error: `Playwright call failed: ${String(err)}` };
+    catch (error) {
+        return { ok: false, error: `Playwright call failed: ${String(error)}` };
     }
+}
+function firstImage(result) {
+    return result.content?.find((block) => block.kind === 'image') ?? null;
+}
+export function persistBrowserImage(result, ctx, sourceTool, label) {
+    if (!result.ok)
+        return result;
+    const image = firstImage(result);
+    if (!image)
+        return result;
+    try {
+        const data = Buffer.from(image.data, 'base64');
+        const artifact = ctx.container.artifacts.put(data, image.mimeType, {
+            sourceTool,
+            ...(label ? { label } : {}),
+        });
+        return {
+            ...result,
+            data: isRecord(result.data)
+                ? { ...result.data, artifact }
+                : { childResult: result.data, artifact },
+        };
+    }
+    catch (error) {
+        return {
+            ok: false,
+            error: `Screenshot artifact persistence failed: ${String(error)}`,
+            data: result.data,
+            ...(result.content ? { content: result.content } : {}),
+        };
+    }
+}
+function stringCandidates(value, output, depth = 0) {
+    if (depth > 8 || output.length > 100)
+        return;
+    if (typeof value === 'string') {
+        output.push(value);
+        return;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value)
+            stringCandidates(item, output, depth + 1);
+        return;
+    }
+    if (isRecord(value)) {
+        for (const item of Object.values(value))
+            stringCandidates(item, output, depth + 1);
+    }
+}
+export function extractJsonReport(value) {
+    const candidates = [];
+    stringCandidates(value, candidates);
+    for (const candidate of candidates) {
+        const trimmed = candidate.trim();
+        const attempts = [trimmed];
+        const first = trimmed.indexOf('{');
+        const last = trimmed.lastIndexOf('}');
+        if (first >= 0 && last > first)
+            attempts.push(trimmed.slice(first, last + 1));
+        for (const attempt of attempts) {
+            try {
+                let parsed = JSON.parse(attempt);
+                if (typeof parsed === 'string')
+                    parsed = JSON.parse(parsed);
+                if (isRecord(parsed))
+                    return parsed;
+            }
+            catch {
+                // Continue through bounded candidates.
+            }
+        }
+    }
+    return null;
+}
+async function routeToPlaywright(ctx, toolName, args) {
+    if (toolName === 'browser_open' && typeof args.url === 'string') {
+        if (!isLocalOrAllowed(args.url, ctx) && ctx.container.policy.getMode() !== 'danger') {
+            return {
+                ok: false,
+                error: `External URL blocked by policy: ${args.url}. Only localhost is allowed by default.`,
+            };
+        }
+    }
+    const result = await callPlaywright(ctx, PW_MAP[toolName] ?? toolName, args, toolName);
+    return toolName === 'browser_screenshot'
+        ? persistBrowserImage(result, ctx, toolName, typeof args.filename === 'string' ? args.filename : undefined)
+        : result;
 }
 function bTool(name, description, mutates, props, required = []) {
     return defineTool({
@@ -55,6 +288,29 @@ function bTool(name, description, mutates, props, required = []) {
         handler: (args, ctx) => routeToPlaywright(ctx, name, args),
     });
 }
+const screenshotProperties = {
+    type: {
+        type: 'string',
+        enum: ['png', 'jpeg'],
+        description: 'Image format. Defaults to png.',
+    },
+    filename: {
+        type: 'string',
+        description: 'Optional output filename used by the Playwright child server.',
+    },
+    element: {
+        type: 'string',
+        description: 'Human-readable target description. Requires ref.',
+    },
+    ref: {
+        type: 'string',
+        description: 'Exact target ref from browser_snapshot. Requires element.',
+    },
+    fullPage: {
+        type: 'boolean',
+        description: 'Capture the full scrollable page. Cannot be combined with an element target.',
+    },
+};
 export function browserTools() {
     return [
         bTool('browser_open', 'Navigate the browser to a URL (localhost only by default).', true, { url: { type: 'string', description: 'The URL to navigate to.' } }, ['url']),
@@ -62,74 +318,103 @@ export function browserTools() {
         bTool('browser_click', 'Click an element on the page. Take a browser_snapshot first to obtain the element ref.', true, {
             element: {
                 type: 'string',
-                description: 'Human-readable description of the element (e.g. "Submit button"), used for logging.',
+                description: 'Human-readable description of the element, used for logging.',
             },
             ref: {
                 type: 'string',
-                description: 'Exact element ref from the latest browser_snapshot (e.g. "e12").',
+                description: 'Exact element ref from the latest browser_snapshot.',
             },
         }, ['element', 'ref']),
         bTool('browser_type', 'Type text into an editable element. Take a browser_snapshot first to obtain the element ref.', true, {
-            element: {
-                type: 'string',
-                description: 'Human-readable description of the field (e.g. "Email textbox"), used for logging.',
-            },
-            ref: {
-                type: 'string',
-                description: 'Exact element ref from the latest browser_snapshot (e.g. "e5").',
-            },
+            element: { type: 'string', description: 'Human-readable description of the field.' },
+            ref: { type: 'string', description: 'Exact element ref from browser_snapshot.' },
             text: { type: 'string', description: 'Text to type into the element.' },
-            submit: {
-                type: 'boolean',
-                description: 'Press Enter after typing (submit the form). Optional.',
-            },
-            slowly: {
-                type: 'boolean',
-                description: 'Type one character at a time to trigger key handlers/autocomplete. Optional.',
-            },
+            submit: { type: 'boolean', description: 'Press Enter after typing.' },
+            slowly: { type: 'boolean', description: 'Type one character at a time.' },
         }, ['element', 'ref', 'text']),
         bTool('browser_console', 'Read browser console messages.', false, {}),
         bTool('browser_network', 'List network requests made by the page.', false, {}),
-        bTool('browser_screenshot', 'Capture the current viewport, full page, or one referenced element and return an MCP image block for vision-capable clients.', true, {
-            type: {
-                type: 'string',
-                enum: ['png', 'jpeg'],
-                description: 'Image format. Defaults to png.',
+        bTool('browser_screenshot', 'Capture the viewport, page, or element; return an MCP image and persist a content-addressed artifact.', true, screenshotProperties),
+        bTool('browser_set_viewport', 'Resize the browser viewport for responsive UI testing.', true, {
+            width: { type: 'integer', minimum: 1, maximum: 10000, description: 'Viewport width.' },
+            height: { type: 'integer', minimum: 1, maximum: 10000, description: 'Viewport height.' },
+        }, ['width', 'height']),
+        defineTool({
+            name: 'browser_visual_compare',
+            description: 'Capture a PNG, store it, and compare it with a baseline artifact using deterministic pixel metrics.',
+            group: 'browser',
+            mutates: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    baselineId: { type: 'string', pattern: '^art_[a-f0-9]{64}$' },
+                    threshold: { type: 'integer', minimum: 0, maximum: 255, default: 0 },
+                    storeDiff: { type: 'boolean', default: true },
+                    element: screenshotProperties.element,
+                    ref: screenshotProperties.ref,
+                    fullPage: screenshotProperties.fullPage,
+                },
+                required: ['baselineId'],
             },
-            filename: {
-                type: 'string',
-                description: 'Optional output filename used by the Playwright child server.',
-            },
-            element: {
-                type: 'string',
-                description: 'Human-readable target description. Requires ref.',
-            },
-            ref: {
-                type: 'string',
-                description: 'Exact target ref from browser_snapshot. Requires element.',
-            },
-            fullPage: {
-                type: 'boolean',
-                description: 'Capture the full scrollable page. Cannot be combined with an element target.',
+            handler: async (args, ctx) => {
+                const screenshotArgs = { type: 'png' };
+                for (const key of ['element', 'ref', 'fullPage']) {
+                    if (args[key] !== undefined)
+                        screenshotArgs[key] = args[key];
+                }
+                const captured = persistBrowserImage(await callPlaywright(ctx, 'browser_take_screenshot', screenshotArgs, 'browser_visual_compare'), ctx, 'browser_visual_compare', `Visual comparison against ${String(args.baselineId ?? '')}`);
+                if (!captured.ok)
+                    return captured;
+                const artifact = isRecord(captured.data) && isRecord(captured.data.artifact)
+                    ? captured.data.artifact
+                    : null;
+                if (!artifact || typeof artifact.id !== 'string') {
+                    return { ok: false, error: 'Visual comparison screenshot did not produce an artifact.', data: captured.data };
+                }
+                try {
+                    const comparison = ctx.container.artifacts.comparePng(String(args.baselineId ?? ''), artifact.id, {
+                        threshold: Number(args.threshold ?? 0),
+                        storeDiff: args.storeDiff !== false,
+                    });
+                    return {
+                        ok: comparison.comparable,
+                        data: { artifact, comparison, childResult: captured.data },
+                        ...(captured.content ? { content: captured.content } : {}),
+                        ...(!comparison.comparable ? { error: comparison.reason ?? 'Images are not comparable.' } : {}),
+                    };
+                }
+                catch (error) {
+                    return {
+                        ok: false,
+                        error: `Visual comparison failed: ${String(error)}`,
+                        data: { artifact, childResult: captured.data },
+                        ...(captured.content ? { content: captured.content } : {}),
+                    };
+                }
             },
         }),
-        bTool('browser_set_viewport', 'Resize the browser viewport for responsive UI testing.', true, {
-            width: {
-                type: 'integer',
-                minimum: 1,
-                maximum: 10000,
-                description: 'Viewport width in CSS pixels.',
+        defineTool({
+            name: 'browser_accessibility_audit',
+            description: 'Run a bounded read-only DOM audit for names, labels, language, headings, duplicate IDs, and WCAG AA contrast.',
+            group: 'browser',
+            mutates: false,
+            inputSchema: { type: 'object', properties: {} },
+            handler: async (_args, ctx) => {
+                const raw = await callPlaywright(ctx, 'browser_evaluate', { function: A11Y_AUDIT_FUNCTION }, 'browser_accessibility_audit');
+                if (!raw.ok)
+                    return raw;
+                const report = extractJsonReport(raw.data ?? raw.content);
+                if (!report) {
+                    return {
+                        ok: false,
+                        error: 'Accessibility audit returned no parseable structured report.',
+                        data: { childResult: raw.data },
+                    };
+                }
+                return { ok: true, data: report };
             },
-            height: {
-                type: 'integer',
-                minimum: 1,
-                maximum: 10000,
-                description: 'Viewport height in CSS pixels.',
-            },
-        }, ['width', 'height']),
+        }),
         bTool('browser_close', 'Close the browser session.', true, {}),
-        bTool('browser_eval', 'Evaluate a JavaScript expression in the page context. HIGH risk.', true, {
-            function: { type: 'string', description: 'A JavaScript function body to evaluate in the page.' },
-        }, ['function']),
+        bTool('browser_eval', 'Evaluate a JavaScript expression in the page context. HIGH risk.', true, { function: { type: 'string', description: 'A JavaScript function to evaluate.' } }, ['function']),
     ];
 }

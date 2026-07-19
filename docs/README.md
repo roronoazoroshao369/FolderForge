@@ -20,6 +20,9 @@ material and historical records.
 | [OAuth](oauth.md) | Operator | External authorization-server and protected-resource configuration. |
 | [Workflows](workflows.md) | User / Contributor | Persistent governed workflow usage. |
 | [AI coding runtime](ai-coding-runtime.md) | User / Contributor | Analyze, patch, verify, and report workflow. |
+| [Artifacts and browser quality](artifacts.md) | User / Contributor | Content-addressed evidence, visual comparison, and accessibility checks. |
+| [Beta program](beta-program.md) | User / Maintainer | Entry, evidence, privacy, and graduation criteria for external beta testing. |
+| [Benchmark protocol](../benchmarks/README.md) | Contributor / Maintainer | Neutral tasks, immutable result validation, and publication rules. |
 
 ## Reference
 
@@ -28,6 +31,7 @@ material and historical records.
 | [Tools](tools.md) | User / Contributor | Native tool groups and behavior. |
 | [Adapters](adapters.md) | User / Contributor | Child MCP configuration, facades, lifecycle, and diagnostics. |
 | [Plugin system](plugin-system.md) | User / Contributor | Local plugin packaging and trust boundaries. |
+| [Sandboxing](sandbox.md) | Operator / Plugin author | Docker/Podman isolation, image pinning, mounts, resources, and diagnostics. |
 | [MCP facade](mcp-facade.md) | Contributor | Large child-server facade contract. |
 
 ## Security
@@ -44,6 +48,7 @@ material and historical records.
 | --- | --- | --- |
 | [Architecture](architecture.md) | Contributor | Main components and data flow. |
 | [MCP plugin architecture](mcp-plugin-architecture.md) | Contributor | Plugin architecture. |
+| [Distributed workers and marketplace gates](adr-0005-distributed-workers-marketplace-gates.md) | Contributor / Maintainer | Required security and evidence gates before remote execution or distribution. |
 | [Browser agent design](browser-agent-design.md) | Internal design | Browser design notes; not a current user contract. |
 
 ## Migration

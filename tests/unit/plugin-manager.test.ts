@@ -22,6 +22,32 @@ function writePlugin(source: string, version = '1.0.0', range = '^1.6.0'): void 
   }, null, 2));
 }
 
+function writeSandboxPlugin(source: string, overrides: Record<string, unknown> = {}): void {
+  mkdirSync(source, { recursive: true });
+  writeFileSync(join(source, 'server.mjs'), 'process.stdin.resume();\n');
+  writeFileSync(join(source, 'folderforge.plugin.json'), JSON.stringify({
+    schemaVersion: 1,
+    id: 'sandbox-plugin',
+    name: 'Sandbox Plugin',
+    version: '1.0.0',
+    compatibility: { folderforge: '^1.6.0' },
+    runtime: {
+      command: 'node',
+      args: ['{pluginDir}/server.mjs', '{projectRoot}/input.txt'],
+      facade: true,
+      sandbox: {
+        mode: 'docker',
+        image: `example/plugin@sha256:${'a'.repeat(64)}`,
+        memoryMb: 256,
+        cpus: 0.5,
+      },
+    },
+    permissions: { network: false, filesystem: 'workspace', env: ['PLUGIN_ALLOWED'] },
+    risk: { default: { risk: 'MEDIUM', mutates: true } },
+    ...overrides,
+  }, null, 2));
+}
+
 describe('PluginManager', () => {
   let root: string;
   let source: string;
@@ -110,5 +136,58 @@ describe('PluginManager', () => {
     writePlugin(linked);
     symlinkSync(join(linked, 'server.mjs'), join(linked, 'alias.mjs'));
     expect(() => new PluginManager(root, '1.6.0').install(linked)).toThrow(/symlinks/);
+  });
+
+  it('maps a sandboxed plugin onto read-only plugin and governed workspace mounts', () => {
+    const sandboxSource = join(root, 'sandbox-source');
+    writeSandboxPlugin(sandboxSource);
+    const manager = new PluginManager(root, '1.6.0');
+    const installed = manager.install(sandboxSource, false);
+    const adapter = manager.adapter('sandbox-plugin');
+
+    expect(adapter.def).toMatchObject({
+      command: 'node',
+      args: ['/plugin/server.mjs', '/workspace/input.txt'],
+      cwd: installed.installDir,
+      inheritEnv: false,
+      sandbox: {
+        mode: 'docker',
+        command: 'node',
+        args: ['/plugin/server.mjs', '/workspace/input.txt'],
+        workdir: '/plugin',
+        network: 'none',
+        memoryMb: 256,
+        cpus: 0.5,
+      },
+    });
+    expect(adapter.def.sandbox?.mounts).toEqual([
+      { source: installed.installDir, target: '/plugin', mode: 'ro' },
+      { source: root, target: '/workspace', mode: 'rw' },
+    ]);
+  });
+
+  it('rejects unpinned sandbox images and external filesystem requests', () => {
+    const unpinned = join(root, 'sandbox-unpinned');
+    writeSandboxPlugin(unpinned, {
+      runtime: {
+        command: 'node',
+        args: ['./server.mjs'],
+        sandbox: { mode: 'docker', image: 'example/plugin:latest' },
+      },
+    });
+    expect(() => new PluginManager(root, '1.6.0').install(unpinned, false))
+      .toThrow(/image.*sha256/i);
+
+    const external = join(root, 'sandbox-external');
+    writeSandboxPlugin(external, {
+      runtime: {
+        command: 'node',
+        args: ['./server.mjs'],
+        sandbox: { mode: 'podman', image: `example/plugin@sha256:${'b'.repeat(64)}` },
+      },
+      permissions: { filesystem: 'external' },
+    });
+    expect(() => new PluginManager(root, '1.6.0').install(external, false))
+      .toThrow(/cannot request external filesystem/i);
   });
 });

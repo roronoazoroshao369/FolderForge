@@ -31,13 +31,13 @@ Status: implemented, committed, and pushed on `main`; release pending.
 - [x] Add unit, regression, build, and live HTTP MCP verification.
 - [x] Document architecture and implementation issues.
 
-Deferred browser enhancements:
+Post-foundation browser progress:
 
-- screenshot artifact/resource store;
-- visual regression and pixel diff;
-- accessibility/contrast scanner;
-- device/network emulation presets;
-- composed, auditable UI test flows.
+- [x] content-addressed screenshot artifact store with integrity and quotas;
+- [x] deterministic visual regression and pixel-diff evidence;
+- [x] fixed bounded accessibility and contrast audit;
+- [ ] device/network emulation presets;
+- [ ] composed, auditable UI test flows.
 
 ## Milestone 1.8 — AI coding runtime
 
@@ -68,7 +68,7 @@ Status: implemented, live-tested, committed, and pushed on `main`; release pendi
 - [x] Enabled-plugin restart persistence and full-preset advertisement.
 - [x] Unit, integration, source-built HTTP MCP, restart, and package-distribution verification.
 
-Remote registries, signatures, publisher provenance, and OS-level network/filesystem sandbox enforcement remain deferred trust-layer work. See [`plugin-system.md`](./plugin-system.md).
+Digest-pinned Docker/Podman enforcement is now available for local plugins. Remote registries, verified publisher identity, revocation, and signed plugin provenance remain deferred trust-layer work. See [`plugin-system.md`](./plugin-system.md) and [`sandbox.md`](./sandbox.md).
 
 ## Milestone 2.0 — Governed agent workflows
 

@@ -52,8 +52,26 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Coverage regression gate
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm run test:coverage
+
+      - name: Property and fuzz checks
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm run test:fuzz
+
+      - name: Child MCP heartbeat stress
+        if: matrix.node == 22 && (matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest')
+        env:
+          FOLDERFORGE_STRESS_RUNS: '25'
+        run: npm run test:stress
+
       - name: Build
         run: npm run build
+
+      - name: MCP Inspector conformance
+        if: matrix.node == 22 && (matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest')
+        run: node scripts/smoke-inspector.mjs
 
       - name: Pack, install tarball, and smoke CLI
         run: npm run smoke:package

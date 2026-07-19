@@ -30,6 +30,10 @@ Each adapter (`AdapterDef`) has:
   value `package:@playwright/mcp` is an internal package-local marker, not a shell
   executable;
 - `env` - optional extra environment (subject to secret redaction);
+- `sandbox` - optional `process`, `docker`, or `podman` launch policy. Container
+  modes require a digest-pinned local image by default, never pull automatically,
+  and apply explicit mounts, network, capabilities, UID/GID, PID, CPU, memory,
+  read-only-root, and tmpfs controls. See [`sandbox.md`](./sandbox.md);
 - `facade` - optional (default `false`). When `true`, the adapter is exposed
   through a **two-tool facade** (`<adapter>__list_tools` +
   `<adapter>__call_tool`) instead of re-exporting every child tool flatly.
@@ -92,10 +96,10 @@ limit:
 An oversized outbound call is rejected without killing an otherwise healthy
 connection. Invalid child protocol output, stdout flooding, or heartbeat failure
 closes the connection and enters the registry recovery policy. FolderForge also
-terminates the child process tree during shutdown. These controls are transport
-and lifecycle safeguards, not an operating-system CPU/RSS sandbox: deployments
-that require hard memory or CPU quotas must provide them through containers,
-cgroups, job objects, or another host-level isolation mechanism.
+terminates the child process tree during shutdown. In `process` mode these remain
+transport/lifecycle safeguards rather than host isolation. Optional Docker/Podman
+mode adds enforced CPU/RAM/PID/tmpfs, mount, network, capability, and read-only
+root controls; see [`sandbox.md`](./sandbox.md) for its exact boundary.
 
 `folderforge doctor` performs a bounded `initialize` plus complete `tools/list`
 probe for every enabled child adapter. Successful evidence includes negotiated

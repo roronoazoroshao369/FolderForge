@@ -559,7 +559,7 @@ export class StdioChildClient {
         this.heartbeatInFlight = true;
         this.transport.heartbeatsSent += 1;
         try {
-            await this.request('ping', {}, this.heartbeatTimeoutMs, 'runtime');
+            await this.dispatchRequest('ping', {}, this.heartbeatTimeoutMs, 'runtime', undefined, 'heartbeat');
         }
         catch (error) {
             if (this.child === child && this.isReady() && !this.stopping) {
@@ -575,6 +575,9 @@ export class StdioChildClient {
         }
     }
     request(method, params, timeoutMs = this.requestTimeoutMs, phase = 'runtime', signal) {
+        return this.dispatchRequest(method, params, timeoutMs, phase, signal, 'user');
+    }
+    dispatchRequest(method, params, timeoutMs, phase, signal, kind) {
         const child = this.child;
         if (!child) {
             return Promise.reject(this.requestFailure(phase, 'child not started'));
@@ -630,6 +633,7 @@ export class StdioChildClient {
             this.pending.set(id, {
                 method,
                 phase,
+                kind,
                 cleanup,
                 resolve: (value) => {
                     cleanup();
@@ -726,7 +730,15 @@ export class StdioChildClient {
         return this.lastFailure ? { ...this.lastFailure, args: [...this.lastFailure.args] } : null;
     }
     transportStats() {
-        return { ...this.transport, pendingRequests: this.pending.size };
+        let pendingRequests = 0;
+        let pendingHeartbeatRequests = 0;
+        for (const pending of this.pending.values()) {
+            if (pending.kind === 'heartbeat')
+                pendingHeartbeatRequests += 1;
+            else
+                pendingRequests += 1;
+        }
+        return { ...this.transport, pendingRequests, pendingHeartbeatRequests };
     }
     async stopAndWait(timeoutMs = 1_000) {
         if (!Number.isFinite(timeoutMs) || timeoutMs < 1) {

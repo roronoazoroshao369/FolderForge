@@ -3,8 +3,10 @@
 The 2.0 candidate supports prepared local MCP packages without creating a
 second execution or governance path. Installed plugins become child MCP adapters
 and use the same facade, policy, approval, audit, rate-limit, and rich-content
-bridges as built-in adapters. This is a local, explicitly trusted package flow;
-it is not a public marketplace or an untrusted-code sandbox.
+bridges as built-in adapters. This remains a local package flow rather than a
+public marketplace. Trusted plugins may run directly as host processes; plugins
+that declare Docker or Podman use an enforceable container boundary with bounded
+mounts, network, process, memory, CPU, and temporary storage.
 
 ## Package format
 
@@ -75,17 +77,18 @@ registry-write, or activation failure.
 
 ## Environment and process isolation
 
-Plugin children run with their package directory as `cwd`. They do not inherit
-the parent process environment. Only a minimal executable path and manifest
-`permissions.env` allowlist are passed. This prevents unrelated tokens and
-secrets from leaking automatically into third-party MCP servers.
+Process-mode plugin children run with their package directory as `cwd`. They do
+not inherit the full parent environment; only a minimal executable path and the
+manifest `permissions.env` allowlist are passed. Process mode still executes with
+the current user's host privileges and is only appropriate for trusted code.
 
-The manifest's network/filesystem permissions are review and audit metadata;
-they are **not** enforced by an OS sandbox. A prepared package executes local
-code with the current user's privileges, subject to FolderForge's child-process
-environment filtering and governance at the MCP call boundary. Do not install
-untrusted executable code. Hard filesystem/network isolation, signed provenance,
-and remote distribution remain future trust-layer work.
+Docker and Podman modes enforce the declared boundary. The plugin package is
+mounted read-only at `/plugin`; `filesystem: "workspace"` adds a bounded writable
+`/workspace` mount; `network: false` disables container networking; capabilities
+are dropped; the root filesystem is read-only; and CPU, memory, PID, and tmpfs
+limits are applied. Images are digest-pinned and never pulled automatically.
+`folderforge doctor` verifies the runtime and local image before readiness. See
+[Sandboxing](sandbox.md) for the exact contract and remaining host-kernel limits.
 
 ## Trust evaluation
 
@@ -93,10 +96,10 @@ and remote distribution remain future trust-layer work.
 | --- | --- | --- | --- |
 | Package integrity hash | **Enforced for new installs/updates** | Copied package bytes have not changed since installation | Publisher identity, authenticity, or safety of the original bytes |
 | Package lock / pinning | **Evidence-only** | A copied lockfile and prepared dependencies are included in the package digest | FolderForge does not resolve/install dependencies or guarantee registry reproducibility |
-| Provenance | **Not provided** | None | No signed build provenance or source-to-artifact attestation |
-| Publisher identity | **Not provided** | None | A local directory name/manifest id is not a verified publisher |
-| Permission review | **Validated and surfaced** | Declared network/filesystem/env intent is reviewable; env inheritance is allowlisted | Network/filesystem declarations are not OS-enforced |
-| Sandbox | **Not provided** | MCP calls still pass policy/approval/risk/audit governance | Plugin code runs with the current OS user's privileges |
+| Provenance | **Prepared for FolderForge releases; not yet a plugin publisher contract** | The npm publishing workflow can attest the FolderForge tarball and SBOM | A local plugin directory still has no publisher attestation |
+| Publisher identity | **Not provided for plugins** | None | A local directory name/manifest id is not a verified publisher |
+| Permission review | **Validated; enforced in container mode** | Env forwarding is allowlisted; container network/filesystem intent maps to runtime flags and mounts | Process mode retains host-user privileges; container engines still depend on the host kernel/runtime |
+| Sandbox | **Optional Docker/Podman enforcement** | Read-only root/plugin mount, bounded workspace mount, disabled/bridge network, dropped capabilities, no-new-privileges, and resource limits | It does not prove image authorship or eliminate container-runtime vulnerabilities |
 
 A bare external `runtime.command` (for example `node`) is resolved from the host
 `PATH` and is outside the package digest. A `./` runtime path and all copied
@@ -138,8 +141,8 @@ verified:
 
 ## Deferred trust features
 
-- cryptographic signatures, verified publisher identity, and signed build provenance;
+- cryptographic plugin signatures, verified publisher identity, revocation, and signed plugin provenance;
 - remote registry/marketplace and dependency resolution;
-- OS/container sandbox enforcement for network/filesystem permissions;
 - automatic compatibility migration;
+- stronger platform-specific sandbox profiles and independently attested runtime evidence;
 - plugin capability-change notifications to clients.

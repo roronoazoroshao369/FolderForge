@@ -56,10 +56,18 @@
     "verify": "npm run typecheck && npm run lint && npm test && npm run build",
     "smoke:package": "node scripts/smoke-package.mjs",
     "smoke:http": "node scripts/smoke-http.mjs",
-    "release:check": "npm run verify && npm run docs:check && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:stdio && npm run smoke:http",
+    "release:check": "npm run verify && npm run quality:check && npm run docs:check && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:stdio && npm run smoke:http",
     "prepublishOnly": "npm run release:check",
     "smoke:stdio": "node scripts/smoke-stdio.mjs",
-    "docs:check": "node scripts/check-docs.mjs"
+    "docs:check": "node scripts/check-docs.mjs",
+    "test:coverage": "vitest run --coverage",
+    "test:fuzz": "vitest run tests/fuzz/core.fuzz.test.ts",
+    "test:stress": "node scripts/stress-child-mcp.mjs",
+    "smoke:inspector": "npm run build && node scripts/smoke-inspector.mjs",
+    "quality:check": "npm run test:coverage && npm run test:fuzz && npm run test:stress && npm run smoke:inspector",
+    "benchmark:validate": "node scripts/validate-benchmark-results.mjs",
+    "benchmark:compare": "node scripts/compare-benchmarks.mjs",
+    "smoke:sandbox": "node scripts/smoke-sandbox.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -69,12 +77,17 @@
     "ignore": "^6.0.0",
     "jose": "^6.2.3",
     "pino": "^9.0.0",
+    "pngjs": "7.0.0",
     "simple-git": "^3.25.0",
     "yaml": "^2.5.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector": "0.21.2",
     "@types/node": "^22.0.0",
+    "@types/pngjs": "6.0.5",
+    "@vitest/coverage-v8": "^4.1.10",
+    "fast-check": "^4.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^4.1.10"

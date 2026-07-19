@@ -154,10 +154,11 @@ A new plugin integration is complete only when it has:
 
 Milestone 1.9 adds a local package registry and hot lifecycle. Validated prepared packages compile into the existing child-adapter/facade path; they do not create a plugin-specific governance bypass. The runtime supports compatibility checks, bounded/symlink-free copying, env allowlisting, dynamic adapter/risk registration, health checks, and enabled-state restoration. See [`plugin-system.md`](./plugin-system.md).
 
-## Next architecture slices
+## Architecture progress and next slices
 
-1. Add resource/blob storage for very large artifacts that should not be inline.
-2. Add MCP capability-change notifications where supported by clients.
-3. Add signed/verified plugin distribution and publisher provenance.
-4. Add enforceable filesystem/network/process isolation for untrusted plugins.
-5. Add benchmark and context-budget gates for flat, wrapper, and facade exposure.
+1. **Done:** content-addressed local artifact storage with integrity, quotas, PNG comparison, and browser evidence.
+2. **Done:** optional digest-pinned Docker/Podman isolation with bounded mounts, network, capabilities, processes, CPU, memory, and tmpfs.
+3. **Done:** coverage, property/fuzz, heartbeat stress, MCP Inspector, and immutable benchmark-result gates.
+4. Add MCP capability-change notifications where supported by clients.
+5. Add signed/verified plugin distribution, publisher identity, revocation, and plugin provenance.
+6. Open a reviewed beta before any remote marketplace or distributed execution work; see ADR-0005.

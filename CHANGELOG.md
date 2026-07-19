@@ -6,6 +6,51 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add coverage thresholds, property/fuzz suites, repeated child-MCP heartbeat
+  stress, and official MCP Inspector stdio conformance to local and targeted CI
+  release gates.
+- Add a manual npm trusted-publishing workflow using GitHub OIDC, exact-tag
+  verification, an exact packed tarball, CycloneDX SBOM generation, build/SBOM
+  attestations, protected-environment review, and post-publish registry checks.
+- Add optional digest-pinned Docker/Podman isolation for child MCP adapters and
+  plugins with no automatic image pull, read-only root/plugin mounts, bounded
+  workspace mounts, disabled-by-default network, dropped capabilities,
+  no-new-privileges, PID/CPU/RAM/tmpfs limits, and doctor image readiness checks.
+- Add a content-addressed artifact store with SHA-256 identities, atomic bounded
+  storage, integrity verification, quotas, list/get/delete tools, and deterministic
+  PNG comparison with optional diff artifacts.
+- Persist browser screenshots as artifacts while preserving MCP-native image
+  content, and add `browser_visual_compare` plus a fixed bounded
+  `browser_accessibility_audit` for names, labels, language, headings, duplicate
+  IDs, and approximate WCAG AA contrast checks.
+- Add an immutable benchmark task/result protocol, real web-quality and sandbox
+  fixtures, result validation/comparison scripts, external-beta intake templates,
+  beta entry/exit criteria, and ADR-0005 gates for later distributed workers and
+  a plugin marketplace.
+
+### Changed
+
+- Separate caller-visible pending child requests from internal heartbeat requests
+  in transport metrics so heartbeat observation is deterministic without hiding
+  internal liveness work.
+- Keep `vibe-lite` at exactly 50 tools while pinning the expanded browser quality
+  surface and preserving process lifecycle; lower-priority Git branch/checkout
+  primitives remain available in broader presets or explicit configuration.
+- Treat process-mode plugins as trusted local code and map declared plugin
+  permissions to enforceable container runtime flags only when Docker/Podman mode
+  is selected; invalid sandbox configuration fails closed instead of degrading to
+  process mode.
+
+### Fixed
+
+- Remove the Node 22 heartbeat test race where metrics could be sampled while an
+  internal ping was pending, and make initialize-timeout process-cleanup evidence
+  wait for a deterministic child-start handshake rather than a scheduler sleep.
+- Fix benchmark CLI argument resolution so file arrays do not pass callback
+  indices into variadic `path.resolve`.
+
 ## [2.3.4] - 2026-07-19
 
 This release publishes the child-MCP production hardening and cross-platform

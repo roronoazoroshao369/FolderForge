@@ -32,8 +32,10 @@ implement FE
 | `browser_type` | Fill an input and optionally submit | MEDIUM |
 | `browser_console` | Read console messages | LOW |
 | `browser_network` | Read network requests | LOW |
-| `browser_screenshot` | Capture viewport, full page, or an element | MEDIUM |
+| `browser_screenshot` | Capture and persist viewport, full page, or element evidence | MEDIUM |
 | `browser_set_viewport` | Resize for responsive testing | MEDIUM |
+| `browser_visual_compare` | Capture and compare a PNG against an artifact baseline | MEDIUM |
+| `browser_accessibility_audit` | Run the fixed bounded DOM and contrast audit | LOW |
 | `browser_close` | Close the browser session | MEDIUM |
 | `browser_eval` | Evaluate JavaScript in the page | HIGH |
 
@@ -100,17 +102,20 @@ It verified:
 
 - FolderForge transports the image correctly, but a client may need to reconnect
   or refresh its MCP tool namespace after upgrading the server.
-- Automated visual-diff, accessibility scanning, and UX scoring are not yet
-  native tools. Agents can already review screenshots and semantic snapshots,
-  but baseline comparison and rule-based audits remain roadmap work.
-- Large screenshots are inline base64. A future artifact/resource store should be
-  used for very large or long-lived assets.
+- Screenshots still remain inline for immediate MCP rendering, but every successful
+  screenshot is also persisted in the bounded content-addressed artifact store.
+- Pixel comparison is deterministic but intentionally simple; it does not perform
+  perceptual layout matching or automatic masking of dynamic regions.
+- The fixed accessibility audit is a fast regression check, not complete WCAG
+  certification or assistive-technology testing. See [Artifacts and browser
+  quality](artifacts.md).
 
 ## Next browser slices
 
-1. Add deterministic screenshot artifact IDs and optional resource retrieval.
-2. Add visual baseline comparison with diff metadata.
-3. Add an accessibility scanner and contrast checks.
-4. Add browser context/device presets and network throttling.
-5. Add a composed browser test-flow tool only after primitives remain the source
+1. Add device/context presets and network throttling.
+2. Add optional dynamic-region masks and perceptual comparison while preserving
+   raw pixel evidence.
+3. Add keyboard/focus-flow checks and integration with a maintained full-rule
+   accessibility engine.
+4. Add a composed browser test-flow tool only after primitives remain the source
    of truth and every step stays auditable.

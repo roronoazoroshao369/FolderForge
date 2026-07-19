@@ -1,0 +1,69 @@
+name: Plugin beta submission
+description: Submit a prepared local MCP plugin for compatibility and sandbox review.
+title: "[Plugin beta]: "
+labels: [plugin, beta]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Submissions are reviews, not automatic marketplace publication. Do not attach secrets or proprietary packages. Security vulnerabilities must be reported privately.
+  - type: input
+    id: repository
+    attributes:
+      label: Public source repository and exact commit
+      placeholder: "owner/repo @ abcdef123456"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: compatibility
+    attributes:
+      label: Declared FolderForge and MCP compatibility
+      placeholder: "FolderForge >=2.4.0; MCP 2025-03-26"
+    validations:
+      required: true
+  - type: dropdown
+    id: sandbox
+    attributes:
+      label: Runtime isolation
+      options: [Docker with digest-pinned image, Podman with digest-pinned image, Process mode (trusted local code only)]
+    validations:
+      required: true
+  - type: textarea
+    id: permissions
+    attributes:
+      label: Network, filesystem, and environment permissions
+      description: Explain why every requested permission is necessary.
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Per-tool risk classification
+      description: List LOW/MEDIUM/HIGH/CRITICAL tools and mutation behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Validation evidence
+      description: Include plugin digest, doctor output, tests, and MCP initialize/tools-list smoke.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Author confirmation
+      options:
+        - label: The submitted source and prepared package are redistributable for review.
+          required: true
+        - label: The package contains no credentials, telemetry secrets, or undeclared network behavior.
+          required: true
+        - label: I understand this submission does not create a verified publisher identity or marketplace listing.
+          required: true

@@ -26,6 +26,10 @@ runs:
 6. Stdio MCP initialize, `tools/list`, and governed file-read smoke.
 7. Authenticated HTTP MCP initialize, list, and call smoke.
 
+Ubuntu/Node 22 additionally enforces coverage thresholds and property/fuzz checks.
+Ubuntu/Node 22 and Windows/Node 22 run repeated heartbeat stress plus official MCP
+Inspector stdio `tools/list`/`tools/call` conformance. These targeted jobs protect
+the runtime versions and platforms that exposed the original scheduling race.
 Dependency audits run once on Ubuntu/Node 22 to avoid repeating the same registry
 query across all six jobs.
 
