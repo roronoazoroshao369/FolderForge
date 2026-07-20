@@ -1,11 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const inspectorCwd = mkdtempSync(join(tmpdir(), 'folderforge-inspector-cwd-'));
 const project = mkdtempSync(join(tmpdir(), 'folderforge inspector ünicode-'));
 const inspectorCli = join(
   root,
@@ -36,10 +35,9 @@ function invoke(methodArgs) {
     [inspectorCli, target[0], ...methodArgs, '--', ...target.slice(1)],
     {
       // Inspector 0.21.2 resolves its package identity incorrectly when the
-      // caller's parent directory happens to contain a package.json. A separate
-      // ASCII-only temp cwd selects the intended metadata path without coupling
-      // Inspector's own startup to the Unicode/space project under test.
-      cwd: inspectorCwd,
+      // caller's parent directory happens to contain a package.json. A temp
+      // project cwd selects the package's intended top-level metadata path.
+      cwd: project,
       env: {
         ...process.env,
         FOLDERFORGE_APPROVALS_PATH: join(project, '.folderforge', 'approvals-inspector.jsonl'),
@@ -118,7 +116,11 @@ try {
     '--uri',
     'folderforge://workspace/status',
   ]);
-  if (!JSON.stringify(workspace).includes(project)) {
+  const workspaceContent = workspace.contents?.find(
+    (content) => content.uri === 'folderforge://workspace/status' && typeof content.text === 'string'
+  );
+  const workspaceState = workspaceContent ? JSON.parse(workspaceContent.text) : null;
+  if (resolve(String(workspaceState?.current?.projectRoot ?? '')) !== resolve(project)) {
     throw new Error(`Inspector resources/read returned unexpected workspace state: ${JSON.stringify(workspace)}`);
   }
 
@@ -165,5 +167,4 @@ try {
   throw error;
 } finally {
   rmSync(project, { recursive: true, force: true });
-  rmSync(inspectorCwd, { recursive: true, force: true });
 }
