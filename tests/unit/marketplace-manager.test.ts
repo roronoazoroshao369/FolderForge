@@ -71,7 +71,7 @@ describe('marketplace trust, quarantine, and install', () => {
   let publisherKeys: ReturnType<typeof keys>;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'folderforge-marketplace-'));
+    root = mkdtempSync(join(tmpdir(), 'folderforge marketplace ünicode-'));
     plugins = new PluginManager(root, '2.5.0');
     marketplace = new MarketplaceManager(root, '2.5.0', plugins, {
       now: () => 1_800_000_000_000,

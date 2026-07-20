@@ -91,6 +91,8 @@ to npm, or created as a hosted GitHub release.
   installation, preventing post-scan tampering from bypassing quarantine.
 - Bind distributed output artifacts to the exact active lease that uploaded them
   before accepting and coordinator-signing completion evidence.
+- Resolve marketplace `file://` package URLs with Node's platform-native URL
+  conversion so Windows drive-letter paths, spaces, and Unicode remain valid.
 - Persist and report lease-expiry recovery evidence from the same transaction
   instead of pre-recovering and returning an empty result.
 - Ensure worker-side validation failures close the leased job as failed rather

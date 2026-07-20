@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as tar from 'tar';
 import {
   calculatePluginIntegrity,
@@ -229,7 +229,7 @@ export function verifyMarketplaceEntry(entry: MarketplaceEntry, publicKeyPem: st
 
 function normalizeFileUrlOrPath(value: string): { kind: 'file'; path: string } | { kind: 'https'; url: URL } {
   if (/^https:\/\//i.test(value)) return { kind: 'https', url: new URL(value) };
-  if (/^file:\/\//i.test(value)) return { kind: 'file', path: resolve(new URL(value).pathname) };
+  if (/^file:\/\//i.test(value)) return { kind: 'file', path: fileURLToPath(new URL(value)) };
   if (/^[a-z]+:\/\//i.test(value)) throw new Error('Marketplace URLs must use HTTPS or file://.');
   return { kind: 'file', path: resolve(value) };
 }
