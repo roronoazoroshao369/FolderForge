@@ -63,6 +63,10 @@ function invoke(methodArgs) {
   }
 }
 
+function githubCommandEscape(value) {
+  return String(value).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+}
+
 try {
   writeFileSync(join(project, 'hello ünicode.txt'), 'FolderForge Inspector conformance smoke\n');
   writeFileSync(
@@ -155,6 +159,10 @@ try {
       2
     )
   );
+} catch (error) {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  console.error(`::error title=MCP Inspector conformance::${githubCommandEscape(detail)}`);
+  throw error;
 } finally {
   rmSync(project, { recursive: true, force: true });
   rmSync(inspectorCwd, { recursive: true, force: true });
