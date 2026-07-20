@@ -93,6 +93,8 @@ to npm, or created as a hosted GitHub release.
   before accepting and coordinator-signing completion evidence.
 - Resolve marketplace `file://` package URLs with Node's platform-native URL
   conversion so Windows drive-letter paths, spaces, and Unicode remain valid.
+- Isolate MCP Inspector's own working directory from the Unicode/space project
+  fixture so Windows Node 22 can complete conformance without weakening path checks.
 - Persist and report lease-expiry recovery evidence from the same transaction
   instead of pre-recovering and returning an empty result.
 - Ensure worker-side validation failures close the leased job as failed rather
