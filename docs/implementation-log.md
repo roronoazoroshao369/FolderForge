@@ -117,6 +117,24 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Regression coverage: terminal gate, secret redaction, owner boundary, file and
   manifest verification, content tamper rejection, and workflow attachment.
 
+### FF-047 — Operators could not freeze writes and contain live work from one view
+
+- Severity: high for incident response
+- Status: fixed and locally verified
+- Root cause: status, approvals, workflows, processes, Workspace Capsules, and
+  isolations had separate endpoints, while policy mode was runtime-only and no
+  durable emergency write-freeze existed. The registry also had no safe active
+  invocation inventory.
+- Fix: add Mission Control snapshot/UI, process-local active-call metadata without
+  raw values, integrity-checked persistent write freeze, restart restoration,
+  prior-mode recovery, and exact dashboard containment endpoints. The internal
+  operator role bypasses only the readonly baseline for pause/cancel, stop/kill,
+  and rollback/discard; all other governance remains active.
+- Regression coverage: restart and explicit-readonly restoration, state tamper,
+  exact role/action allowlist, active-call value non-retention, ordinary mutation
+  denial during freeze, blocked policy change, and successful managed-process stop
+  through the dashboard while frozen.
+
 ## Milestone 1.7 — Browser intelligence foundation
 
 ### FF-001 — Screenshot image was flattened into JSON text

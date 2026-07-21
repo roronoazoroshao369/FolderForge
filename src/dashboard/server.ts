@@ -32,6 +32,7 @@ import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";
 import { ApprovalResolutionError } from "../policy/approvals.js";
 import { logger } from "../core/logger.js";
+import { MISSION_CONTROL_OPERATOR_ROLE } from "../operator/mission-control.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -456,6 +457,7 @@ async function runOperatorTool(
   const actionPrincipal: ToolPrincipal = {
     ...principal,
     id: `${principal.id}:operator-action`,
+    roles: [...new Set([...(principal.roles ?? [principal.role]), MISSION_CONTROL_OPERATOR_ROLE])],
     sessionId: `${principal.id}:dashboard-session`,
   };
   let result = await registry.call(tool, args, { principal: actionPrincipal });
@@ -478,6 +480,77 @@ async function runOperatorTool(
     result = await registry.call(tool, args, { principal: actionPrincipal });
   }
   return result;
+}
+
+function missionControlSnapshot(
+  container: Container,
+  registry: ToolRegistry,
+  principal: ToolPrincipal,
+): Record<string, unknown> {
+  const tasks = container.workflows.list(principal, 100);
+  const capsules = container.capsules.list();
+  const isolations = container.isolation.list();
+  const processes = container.processes.list();
+  const approvals = container.policy.approvals.pending();
+  const activeCalls = registry.listActiveCalls();
+  const recentActivity = container.audit
+    .recent(100)
+    .filter((event) =>
+      [
+        'tool_call',
+        'tool_result',
+        'tool_error',
+        'policy_deny',
+        'process_event',
+        'task_event',
+      ].includes(event.type),
+    )
+    .slice(0, 50);
+  const activeCapsules = capsules.filter(
+    (capsule) => !capsule.revokedAt && Date.parse(capsule.expiresAt) > Date.now(),
+  );
+  const proofPackCount = tasks.reduce(
+    (count, task) => count + task.proofPacks.length,
+    0,
+  );
+  return redactSensitive({
+    generatedAt: new Date().toISOString(),
+    control: container.missionControl.describe(),
+    workspace: {
+      root: container.projectRoot(),
+      active: container.workspace.getActive(),
+      startupError: container.workspaceStartupError,
+    },
+    summary: {
+      activeCalls: activeCalls.length,
+      authorizedSessions: activeCapsules.length,
+      tasks: tasks.length,
+      runningTasks: tasks.filter((task) => task.state === 'running').length,
+      pausedTasks: tasks.filter((task) => task.state === 'paused').length,
+      pendingApprovals: approvals.length,
+      managedProcesses: processes.length,
+      activeProcesses: processes.filter((process) => process.status === 'running').length,
+      isolations: isolations.length,
+      proofPacks: proofPackCount,
+    },
+    activeCalls,
+    authorizedSessions: activeCapsules.map((capsule) => ({
+      id: capsule.id,
+      principalId: capsule.principalId,
+      clientId: capsule.clientId,
+      sessionId: capsule.sessionId,
+      taskId: capsule.taskId,
+      profile: capsule.profile,
+      workspaceRoot: capsule.workspaceRoot,
+      expiresAt: capsule.expiresAt,
+      usage: capsule.usage,
+    })),
+    tasks,
+    approvals,
+    processes,
+    isolations,
+    recentActivity,
+  }) as Record<string, unknown>;
 }
 
 async function handle(
@@ -513,11 +586,104 @@ async function handle(
       policy: container.policy.describe(),
       capsules: container.capsules.describe(),
       isolation: container.isolation.describe(),
+      missionControl: container.missionControl.describe(),
       tools: {
         active: registry.listActive().length,
         total: registry.listAll().length,
       },
     });
+  }
+
+  if (method === "GET" && path === "/mission-control") {
+    return sendJson(
+      res,
+      200,
+      missionControlSnapshot(container, registry, principal),
+    );
+  }
+
+  if (method === "POST" && path === "/mission-control/write-freeze") {
+    const body = await readJsonBody(req);
+    if (typeof body?.enabled !== 'boolean') {
+      return sendJson(res, 400, {
+        error: 'invalid_write_freeze',
+        message: 'enabled must be a boolean.',
+      });
+    }
+    const before = container.missionControl.describe();
+    const control = container.missionControl.setWriteFreeze(
+      body.enabled,
+      principal.id,
+    );
+    container.audit.record({
+      type: 'policy_change',
+      summary: body.enabled
+        ? 'mission_control_write_freeze_enabled'
+        : 'mission_control_write_freeze_disabled',
+      detail: { actorId: principal.id, before, after: control },
+    });
+    return sendJson(res, 200, { control });
+  }
+
+  const missionTaskMatch = /^\/mission-control\/tasks\/([^/]+)\/(pause|cancel)$/.exec(path);
+  if (method === "POST" && missionTaskMatch) {
+    const id = decodeURIComponent(missionTaskMatch[1]!);
+    const action = missionTaskMatch[2]!;
+    const body = await readJsonBody(req);
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      action === 'pause' ? 'workflow_pause' : 'workflow_cancel',
+      {
+        id,
+        ...(action === 'pause' && typeof body?.reason === 'string'
+          ? { reason: body.reason }
+          : {}),
+      },
+    );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const missionProcessMatch = /^\/mission-control\/processes\/([^/]+)\/(stop|kill)$/.exec(path);
+  if (method === "POST" && missionProcessMatch) {
+    const sessionId = decodeURIComponent(missionProcessMatch[1]!);
+    const action = missionProcessMatch[2]!;
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      action === 'stop' ? 'process_stop' : 'process_kill',
+      { sessionId },
+    );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const missionCapsuleMatch = /^\/mission-control\/capsules\/([^/]+)\/revoke$/.exec(path);
+  if (method === "POST" && missionCapsuleMatch) {
+    const id = decodeURIComponent(missionCapsuleMatch[1]!);
+    const capsule = container.capsules.revoke(id, principal.id);
+    if (!capsule) return sendJson(res, 404, { error: 'capsule_not_found', id });
+    container.audit.record({
+      type: 'policy_change',
+      summary: `mission_control_capsule_revoked:${id}`,
+      detail: { actorId: principal.id, capsuleId: id },
+    });
+    return sendJson(res, 200, { capsule });
+  }
+
+  const missionIsolationMatch = /^\/mission-control\/isolations\/([^/]+)\/(rollback|discard)$/.exec(path);
+  if (method === "POST" && missionIsolationMatch) {
+    const id = decodeURIComponent(missionIsolationMatch[1]!);
+    const action = missionIsolationMatch[2]!;
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      action === 'rollback' ? 'isolation_rollback' : 'isolation_discard',
+      { id },
+    );
+    return sendJson(res, result.ok ? 200 : 409, result);
   }
 
   if (method === "GET" && path === "/chatgpt/status") {
@@ -732,7 +898,14 @@ async function handle(
     if (!["readonly", "safe", "dev", "danger"].includes(mode)) {
       return sendJson(res, 400, { error: "invalid_policy_mode", mode });
     }
-    container.policy.setMode(mode);
+    try {
+      container.missionControl.setPolicyMode(mode, principal.id);
+    } catch (error) {
+      return sendJson(res, 409, {
+        error: 'policy_mode_blocked',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
     container.audit.record({
       type: "policy_change",
       summary: `mode=${mode}`,

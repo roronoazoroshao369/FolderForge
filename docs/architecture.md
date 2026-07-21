@@ -52,8 +52,10 @@ agent (Claude Desktop / Codex / ...)
 
 A second, independent HTTP server serves the local dashboard
 (`src/dashboard/server.ts`), which reads the same `Container` to render status,
-audit, processes, and approvals. The dashboard is the **fallback** approval UI
-when the MCP client does not advertise the `elicitation` capability.
+audit, processes, approvals, active calls, Workspace Capsules, durable tasks,
+isolations, and Proof Pack references. The dashboard is the **fallback** approval
+UI when the MCP client does not advertise the `elicitation` capability and the
+local Mission Control surface for bounded containment actions.
 
 ## Modules
 
@@ -74,7 +76,8 @@ when the MCP client does not advertise the `elicitation` capability.
 | Task runtime | `src/workflows/*` | Durable owner-bound plans, pause/resume, handoff, bounded evidence |
 | Proof packs | `src/proof/*` | Secret-redacted immutable task evidence and integrity verification |
 | Adapters | `src/adapters/child-mcp/*` | Proxy child MCP servers (Serena, Playwright) |
-| Dashboard | `src/dashboard/*` | Local read/approve control plane UI |
+| Operator state | `src/operator/*` | Persistent write-freeze and exact containment allowlist |
+| Dashboard | `src/dashboard/*` | Local read/approve/Mission Control admin UI |
 
 ## Design principles
 
@@ -121,3 +124,19 @@ step without replay; targeted handoff transfers ownership with a one-time token.
 verification. It writes redacted JSON, Markdown, diffs, approvals, task audit
 events, and an integrity manifest beneath the denied control-plane directory.
 See [`task-runtime-and-proof-packs.md`](./task-runtime-and-proof-packs.md).
+
+
+## Mission Control boundary
+
+`MissionControlState` persists an integrity-checked write-freeze decision beneath
+the denied `.folderforge` control-plane directory. A frozen runtime restores
+`readonly` on restart. Normal agent calls cannot bypass it. The dashboard creates
+a server-owned operator role that can bypass only the baseline readonly check for
+an exact allowlist of pause, cancel, stop, kill, rollback, and discard actions;
+all remaining policy, approval, audit, capsule, rate-limit, and handler checks
+still run through `ToolRegistry`.
+
+The registry also exposes a process-local active-call inventory containing tool,
+risk, principal/session/task metadata, start time, and argument keys only. Raw
+argument values are never retained by Mission Control. See
+[`mission-control.md`](./mission-control.md).

@@ -143,6 +143,8 @@ advertise unusable `browser_*` wrappers. See
   with optional digest-pinned Docker/Podman isolation.
 - **Workflows:** persistent role-scoped plans with checkpoints and bounded
   evidence.
+- **Mission Control:** local active-call/session/task/process/isolation view with
+  persistent write freeze and governed containment actions.
 - **Artifacts and UI quality:** content-addressed evidence, screenshot baselines,
   pixel comparison, bounded accessibility/contrast audit, device/network
   emulation, and governed composed UI flows.

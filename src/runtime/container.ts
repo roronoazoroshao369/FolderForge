@@ -24,6 +24,7 @@ import { McpTaskManager } from '../server/mcp-task-manager.js';
 import { WorkspaceCapsuleManager } from '../capsule/workspace-capsule-manager.js';
 import { WorktreeManager } from '../isolation/worktree-manager.js';
 import { ProofPackManager } from '../proof/proof-pack-manager.js';
+import { MissionControlState } from '../operator/mission-control.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -49,6 +50,7 @@ export class Container {
   readonly capsules: WorkspaceCapsuleManager;
   readonly isolation: WorktreeManager;
   readonly proofPacks: ProofPackManager;
+  readonly missionControl: MissionControlState;
   workspaceStartupError: string | null = null;
   /**
    * Narrow routing contract assigned by `buildRegistry` after construction.
@@ -58,6 +60,10 @@ export class Container {
   constructor(config: FolderForgeConfig) {
     this.config = config;
     this.policy = new PolicyEngine(config);
+    this.missionControl = new MissionControlState(
+      config.workspace.defaultProject,
+      this.policy,
+    );
     this.rateLimiter = new RateLimiter(config.rateLimit);
     this.workspace = new WorkspaceManager(config.workspace.allowedDirectories);
     this.audit = new AuditLog(config.workspace.defaultProject, config.audit);

@@ -282,6 +282,80 @@
         align-items: center;
         gap: 8px;
       }
+      .mission-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .mission-metric {
+        padding: 11px 12px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: #0d131b;
+      }
+      .mission-metric strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--fg);
+        font: 20px var(--mono);
+      }
+      .mission-metric span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .mission-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: #0d131b;
+      }
+      .mission-toolbar.frozen {
+        border-color: #71302d;
+        background: #281313;
+      }
+      .mission-toolbar .state {
+        display: grid;
+        gap: 3px;
+      }
+      .mission-toolbar .state strong {
+        font-size: 13px;
+      }
+      .mission-toolbar .state span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .mission-sections {
+        display: grid;
+        gap: 14px;
+      }
+      .mission-section {
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        overflow: hidden;
+      }
+      .mission-section h3 {
+        margin: 0;
+        padding: 9px 11px;
+        color: var(--muted);
+        background: #0d131b;
+        border-bottom: 1px solid var(--border);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+      }
+      .mission-section .content {
+        max-height: 260px;
+        overflow: auto;
+      }
+      #mission-control-panel .body {
+        max-height: none;
+      }
       .startup-error {
         color: var(--danger);
       }
@@ -468,6 +542,10 @@
         <h2>Approval queue <span class="refresh" id="approvals-count"></span></h2>
         <div class="body" id="approvals">…</div>
       </section>
+      <section class="wide" id="mission-control-panel">
+        <h2>Mission Control <span class="refresh" id="mission-control-checked"></span></h2>
+        <div class="body" id="mission-control">…</div>
+      </section>
       <section class="wide">
         <h2>Overall status <span class="refresh" id="last-checked"></span></h2>
         <div class="body" id="chatgpt-overall">…</div>
@@ -530,7 +608,9 @@
         `<span class="pill ${prefix}-${esc(status)}">${esc(status || "-")}</span>`;
       const risk = (level) => pill(level || "-", "risk");
       let latestChatGpt = null;
+      let latestMissionControl = null;
       let actionRunning = false;
+      let missionActionRunning = false;
       let toastTimer;
 
       function toast(message, isError = false) {
@@ -560,6 +640,122 @@
           );
         }
         return body;
+      }
+
+      function missionTable(headers, rows, emptyMessage) {
+        if (!rows.length) return `<div class="empty" style="padding:11px">${esc(emptyMessage)}</div>`;
+        return `<table><thead><tr>${headers.map((header) => `<th>${esc(header)}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table>`;
+      }
+
+      function missionButton(label, path, mode = "", body = {}) {
+        return `<button class="${mode}" data-mission-path="${esc(path)}" data-mission-label="${esc(label)}" data-mission-body="${esc(JSON.stringify(body))}" ${missionActionRunning ? "disabled" : ""}>${esc(label)}</button>`;
+      }
+
+      function bindMissionActions() {
+        document
+          .querySelectorAll("button[data-mission-path]")
+          .forEach((button) =>
+            button.addEventListener("click", async () => {
+              const path = button.dataset.missionPath;
+              if (!path) return;
+              let body = {};
+              try {
+                body = JSON.parse(button.dataset.missionBody || "{}");
+              } catch {
+                body = {};
+              }
+              missionActionRunning = true;
+              renderMissionControl(latestMissionControl);
+              try {
+                await requestJson(path, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify(body),
+                });
+                toast(`${button.dataset.missionLabel || "Mission Control action"} completed.`);
+                await refreshControlPlane();
+              } catch (error) {
+                toast(error.message, true);
+              } finally {
+                missionActionRunning = false;
+                renderMissionControl(latestMissionControl);
+              }
+            }),
+          );
+      }
+
+      function renderMissionControl(data) {
+        if (!data) return;
+        latestMissionControl = data;
+        const el = document.getElementById("mission-control");
+        const summary = data.summary || {};
+        const control = data.control || {};
+        const frozen = Boolean(control.writeFreeze);
+        const metrics = [
+          [summary.activeCalls || 0, "active calls"],
+          [summary.authorizedSessions || 0, "authorized sessions"],
+          [summary.runningTasks || 0, "running tasks"],
+          [summary.pausedTasks || 0, "paused tasks"],
+          [summary.pendingApprovals || 0, "pending approvals"],
+          [summary.activeProcesses || 0, "active processes"],
+          [summary.isolations || 0, "isolations"],
+          [summary.proofPacks || 0, "Proof Packs"],
+        ];
+        const activeCalls = data.activeCalls || [];
+        const sessions = data.authorizedSessions || [];
+        const tasks = data.tasks || [];
+        const processes = data.processes || [];
+        const isolations = data.isolations || [];
+        const activity = data.recentActivity || [];
+
+        el.innerHTML = `
+          <div class="mission-toolbar ${frozen ? "frozen" : ""}">
+            <div class="state">
+              <strong>${frozen ? "Write freeze active" : "Writes governed normally"}</strong>
+              <span>Effective policy: ${esc(control.effectivePolicyMode || "-")}${control.previousPolicyMode ? ` · restores ${esc(control.previousPolicyMode)}` : ""}</span>
+            </div>
+            ${missionButton(frozen ? "Disable freeze" : "Freeze writes", "/mission-control/write-freeze", frozen ? "primary" : "danger", { enabled: !frozen })}
+          </div>
+          <div class="mission-summary">${metrics.map(([value, label]) => `<div class="mission-metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`).join("")}</div>
+          <div class="mission-sections">
+            <div class="mission-section"><h3>Active tool calls</h3><div class="content">${missionTable(
+              ["Tool", "Risk", "Principal", "Task", "Started", "Argument keys"],
+              activeCalls.map((call) => `<tr><td class="mono">${esc(call.tool)}</td><td>${risk(call.risk)}</td><td class="mono">${esc(call.principalId)}</td><td class="mono">${esc(call.taskId || "-")}</td><td class="mono">${esc(call.startedAt ? new Date(call.startedAt).toLocaleTimeString() : "-")}</td><td class="mono">${esc((call.argKeys || []).join(", ") || "-")}</td></tr>`),
+              "No active tool calls.",
+            )}</div></div>
+            <div class="mission-section"><h3>Authorized sessions / Workspace Capsules</h3><div class="content">${missionTable(
+              ["Principal", "Client / session", "Profile", "Task", "Expires", "Action"],
+              sessions.map((session) => `<tr><td class="mono">${esc(session.principalId)}</td><td class="mono">${esc(session.clientId || "-")}<br>${esc(session.sessionId || "-")}</td><td>${esc(session.profile)}</td><td class="mono">${esc(session.taskId || "-")}</td><td class="mono">${esc(session.expiresAt ? new Date(session.expiresAt).toLocaleString() : "-")}</td><td>${missionButton("Revoke", `/mission-control/capsules/${encodeURIComponent(session.id)}/revoke`, "danger")}</td></tr>`),
+              "No active Workspace Capsules.",
+            )}</div></div>
+            <div class="mission-section"><h3>Durable tasks</h3><div class="content">${missionTable(
+              ["Task", "State", "Objective", "Current step", "Proof", "Containment"],
+              tasks.map((task) => {
+                const terminal = ["completed", "failed", "cancelled"].includes(task.state);
+                return `<tr><td class="mono">${esc(task.id)}</td><td>${esc(task.state)}</td><td>${esc(task.task?.objective || task.name || "-")}</td><td class="mono">${esc(task.currentStepId || "-")}</td><td>${esc((task.proofPacks || []).length)}</td><td>${terminal ? "-" : `${missionButton("Pause", `/mission-control/tasks/${encodeURIComponent(task.id)}/pause`, "primary") } ${missionButton("Cancel", `/mission-control/tasks/${encodeURIComponent(task.id)}/cancel`, "danger")}`}</td></tr>`;
+              }),
+              "No durable tasks.",
+            )}</div></div>
+            <div class="mission-section"><h3>Managed processes</h3><div class="content">${missionTable(
+              ["Session", "Status", "PID", "Command", "Containment"],
+              processes.map((process) => `<tr><td class="mono">${esc(process.sessionId)}</td><td>${esc(process.status)}</td><td class="mono">${esc(process.pid ?? "-")}</td><td class="mono">${esc(process.command)}</td><td>${process.status === "running" ? `${missionButton("Stop", `/mission-control/processes/${encodeURIComponent(process.sessionId)}/stop`, "primary")} ${missionButton("Kill", `/mission-control/processes/${encodeURIComponent(process.sessionId)}/kill`, "danger")}` : "-"}</td></tr>`),
+              "No managed processes.",
+            )}</div></div>
+            <div class="mission-section"><h3>Task isolations</h3><div class="content">${missionTable(
+              ["Isolation", "Task", "State", "Branch", "Containment"],
+              isolations.map((isolation) => `<tr><td class="mono">${esc(isolation.id)}</td><td class="mono">${esc(isolation.taskId)}</td><td>${esc(isolation.state)}</td><td class="mono">${esc(isolation.branch)}</td><td>${["applied", "applying"].includes(isolation.state) ? missionButton("Rollback", `/mission-control/isolations/${encodeURIComponent(isolation.id)}/rollback`, "primary") : ["active", "rolled_back"].includes(isolation.state) ? missionButton("Discard", `/mission-control/isolations/${encodeURIComponent(isolation.id)}/discard`, "danger") : "-"}</td></tr>`),
+              "No managed isolations.",
+            )}</div></div>
+            <div class="mission-section"><h3>Recent governed activity</h3><div class="content">${missionTable(
+              ["Time", "Type", "Tool", "Risk", "Summary"],
+              activity.slice(0, 30).map((entry) => `<tr><td class="mono">${esc((entry.ts || "").slice(11, 19))}</td><td>${esc(entry.type)}</td><td class="mono">${esc(entry.tool || "-")}</td><td>${entry.risk ? risk(entry.risk) : "-"}</td><td>${esc(entry.summary || "")}</td></tr>`),
+              "No recent governed activity.",
+            )}</div></div>
+          </div>`;
+        document.getElementById("mission-control-checked").textContent = data.generatedAt
+          ? `checked ${new Date(data.generatedAt).toLocaleTimeString()}`
+          : "";
+        bindMissionActions();
       }
 
       function renderChatGpt(data) {
@@ -824,16 +1020,18 @@
 
       async function refreshControlPlane() {
         try {
-          const [status, approvals, processes, audit] = await Promise.all([
+          const [status, approvals, processes, audit, missionControl] = await Promise.all([
             requestJson("/status"),
             requestJson("/approvals"),
             requestJson("/processes"),
             requestJson("/audit?limit=50"),
+            requestJson("/mission-control"),
           ]);
           renderStatus(status);
           renderApprovals(approvals, status.policy.mode);
           renderProcesses(processes);
           renderAudit(audit);
+          renderMissionControl(missionControl);
         } catch (error) {
           document.getElementById("server-meta").textContent = "disconnected";
           toast(error.message, true);

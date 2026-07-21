@@ -13,6 +13,11 @@ export type Decision =
   | { kind: 'deny'; risk: RiskLevel; reason: string }
   | { kind: 'approval'; risk: RiskLevel; approvalId: string; reason: string };
 
+export interface PolicyEvaluationOptions {
+  /** Trusted control-plane escape hatch for exact containment actions only. */
+  bypassReadonly?: boolean;
+}
+
 function normalizePrincipal(requester: string | ToolPrincipal): ToolPrincipal {
   return typeof requester === 'string'
     ? { id: requester, role: 'agent' }
@@ -88,7 +93,8 @@ export class PolicyEngine {
     risk: RiskLevel,
     mutates: boolean,
     args: Record<string, unknown>,
-    requester: string | ToolPrincipal = 'agent:unknown'
+    requester: string | ToolPrincipal = 'agent:unknown',
+    options: PolicyEvaluationOptions = {},
   ): Decision {
     const principal = normalizePrincipal(requester);
 
@@ -97,7 +103,7 @@ export class PolicyEngine {
     if (risk === 'CRITICAL' && this.mode !== 'danger') {
       return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
     }
-    if (this.mode === 'readonly' && mutates) {
+    if (this.mode === 'readonly' && mutates && !options.bypassReadonly) {
       return { kind: 'deny', risk, reason: 'Workspace is in readonly mode; mutations are blocked.' };
     }
 

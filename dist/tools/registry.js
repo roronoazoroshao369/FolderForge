@@ -1,6 +1,7 @@
 import { TOOL_RISK, RISK_ORDER } from "../policy/risk.js";
 import { ApprovalRequiredError, AuditUnavailableError, PolicyDeniedError, } from "../core/errors.js";
 import { logger } from "../core/logger.js";
+import { randomUUID } from "node:crypto";
 /**
  * Derive MCP tool annotations from the existing `mutates` / `risk` contract.
  *
@@ -53,6 +54,14 @@ export function defineTool(def) {
         handler: def.handler,
     };
 }
+const SENSITIVE_ACTIVE_ARG_KEY = /(secret|token|password|authorization|cookie|credential|api.?key)/i;
+function activeArgKey(key) {
+    if (SENSITIVE_ACTIVE_ARG_KEY.test(key))
+        return '[sensitive-key]';
+    if (!/^[A-Za-z0-9_.-]{1,128}$/.test(key))
+        return '[nonstandard-key]';
+    return key;
+}
 /**
  * Central registry. Holds every tool, computes the curated active subset,
  * and wraps each call with policy evaluation + audit.
@@ -62,6 +71,7 @@ export class ToolRegistry {
     tools = new Map();
     activeSet = null;
     listChangedListeners = new Set();
+    activeCalls = new Map();
     constructor(container) {
         this.container = container;
     }
@@ -174,6 +184,12 @@ export class ToolRegistry {
     }
     listAll() {
         return [...this.tools.values()];
+    }
+    /** Redacted active invocation inventory for Mission Control. */
+    listActiveCalls() {
+        return [...this.activeCalls.values()]
+            .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+            .map((call) => ({ ...call, argKeys: [...call.argKeys] }));
     }
     /** Invoke a tool through the agent plane, never with admin authority. */
     async callAgent(name, rawArgs, control) {
@@ -299,10 +315,38 @@ export class ToolRegistry {
         const capsuleDecision = this.container.capsules
             ? this.container.capsules.check(principal, this.container.projectRoot(), { name, group: descriptor.group ?? "dynamic", risk, mutates, args: governanceArgs })
             : { kind: "allow" };
+        const approvalPrincipal = capsuleDecision.capsule
+            ? {
+                ...principal,
+                capsuleId: capsuleDecision.capsule.id,
+                ...(capsuleDecision.capsule.taskId
+                    ? { taskId: capsuleDecision.capsule.taskId }
+                    : {}),
+            }
+            : principal;
+        const containmentBypass = this.container.missionControl?.allowsContainmentAction(name, approvalPrincipal) ?? false;
         const identityDetail = {
-            ...principalAuditDetail(principal),
-            ...(capsuleDecision.capsule ? { capsuleId: capsuleDecision.capsule.id } : {}),
+            ...principalAuditDetail(approvalPrincipal),
+            ...(containmentBypass ? { containmentAction: true } : {}),
         };
+        const activeCallId = `call_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+        this.activeCalls.set(activeCallId, {
+            id: activeCallId,
+            tool: name,
+            group: descriptor.group ?? "dynamic",
+            risk,
+            mutates,
+            principalId: principal.id,
+            role: principal.role,
+            projectRoot: this.container.projectRoot(),
+            startedAt: new Date(started).toISOString(),
+            argKeys: Object.keys(governanceArgs).slice(0, 32).map(activeArgKey),
+            ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
+            ...(principal.oauthClientId ? { clientId: principal.oauthClientId } : {}),
+            ...(capsuleDecision.capsule ? { capsuleId: capsuleDecision.capsule.id } : {}),
+            ...(approvalPrincipal.taskId ? { taskId: approvalPrincipal.taskId } : {}),
+            ...(containmentBypass ? { containmentAction: true } : {}),
+        });
         const auditRequired = this.container.audit.requiresDurability?.({ risk, principal }) ?? false;
         const recordAudit = (event) => {
             this.container.audit.record(event, { required: auditRequired });
@@ -327,16 +371,7 @@ export class ToolRegistry {
                 });
                 return { ok: false, error: `Denied: ${reason}` };
             }
-            const approvalPrincipal = capsuleDecision.capsule
-                ? {
-                    ...principal,
-                    capsuleId: capsuleDecision.capsule.id,
-                    ...(capsuleDecision.capsule.taskId
-                        ? { taskId: capsuleDecision.capsule.taskId }
-                        : {}),
-                }
-                : principal;
-            const decision = this.container.policy.evaluate(name, risk, mutates, governanceArgs, approvalPrincipal);
+            const decision = this.container.policy.evaluate(name, risk, mutates, governanceArgs, approvalPrincipal, { bypassReadonly: containmentBypass });
             if (decision.kind === "deny") {
                 recordAudit({
                     type: "policy_deny",
@@ -440,6 +475,9 @@ export class ToolRegistry {
                 };
             }
             return { ok: false, error: `${err.code}: ${err.message}` };
+        }
+        finally {
+            this.activeCalls.delete(activeCallId);
         }
     }
 }

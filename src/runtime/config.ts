@@ -178,6 +178,8 @@ const DEFAULT_DENIED_GLOBS = [
   '**/.folderforge/audit/**',
   '**/.folderforge/proof-packs/**',
   '**/.folderforge/workflows/**',
+  '**/.folderforge/mission-control.json',
+  '**/.folderforge/mission-control.json.*.tmp',
 ];
 
 export function defaultConfig(projectRoot: string): FolderForgeConfig {

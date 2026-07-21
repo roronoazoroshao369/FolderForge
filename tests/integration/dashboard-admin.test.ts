@@ -57,6 +57,9 @@ describe('dashboard admin authorization plane', () => {
 
   afterEach(async () => {
     for (const harness of harnesses.splice(0)) {
+      for (const process of harness.container.processes.list()) {
+        if (process.status === 'running') harness.container.processes.kill(process.sessionId);
+      }
       await closeServer(harness.server);
       rmSync(harness.root, { recursive: true, force: true });
     }
@@ -72,6 +75,8 @@ describe('dashboard admin authorization plane', () => {
     const html = await page.text();
     expect(html).toContain('id="approvals-panel"');
     expect(html).toContain('Approval queue');
+    expect(html).toContain('id="mission-control-panel"');
+    expect(html).toContain('Mission Control');
     expect(html).toContain('id="policy-mode"');
 
     const status = await fetch(`${harness.baseUrl}/status`);
@@ -186,6 +191,72 @@ describe('dashboard admin authorization plane', () => {
         expect.stringMatching(/^capsule_revoked:/),
       ]),
     );
+  });
+
+  it('freezes writes while preserving exact dashboard containment actions', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+
+    const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify('setInterval(() => {}, 1000)')}`;
+    const managed = harness.container.processes.start(
+      command,
+      harness.root,
+      harness.container.config.terminal.shell,
+    );
+
+    const initial = await fetch(`${harness.baseUrl}/mission-control`);
+    expect(initial.status).toBe(200);
+    const initialBody = (await initial.json()) as {
+      summary: { activeProcesses: number };
+      control: { writeFreeze: boolean };
+    };
+    expect(initialBody.control.writeFreeze).toBe(false);
+    expect(initialBody.summary.activeProcesses).toBe(1);
+
+    const freeze = await fetch(`${harness.baseUrl}/mission-control/write-freeze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(freeze.status).toBe(200);
+    expect(await freeze.json()).toMatchObject({
+      control: { writeFreeze: true, effectivePolicyMode: 'readonly' },
+    });
+
+    const blockedMutation = await fetch(`${harness.baseUrl}/isolations`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ taskId: 'blocked-by-freeze' }),
+    });
+    expect(blockedMutation.status).toBe(409);
+    expect(JSON.stringify(await blockedMutation.json())).toMatch(/readonly/i);
+
+    const blockedMode = await fetch(`${harness.baseUrl}/policy/mode`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'dev' }),
+    });
+    expect(blockedMode.status).toBe(409);
+
+    const stopped = await fetch(
+      `${harness.baseUrl}/mission-control/processes/${managed.sessionId}/stop`,
+      { method: 'POST' },
+    );
+    expect(stopped.status).toBe(200);
+    expect(await stopped.json()).toMatchObject({
+      ok: true,
+      data: { sessionId: managed.sessionId, status: 'killed' },
+    });
+
+    const unfreeze = await fetch(`${harness.baseUrl}/mission-control/write-freeze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(unfreeze.status).toBe(200);
+    expect(await unfreeze.json()).toMatchObject({
+      control: { writeFreeze: false, effectivePolicyMode: 'safe' },
+    });
   });
 
   it('creates, reviews, applies, rolls back, and discards a managed isolation through the dashboard', async () => {

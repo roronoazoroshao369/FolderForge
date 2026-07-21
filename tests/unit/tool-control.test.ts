@@ -17,6 +17,7 @@ function fakeContainer() {
     policy: {
       evaluate: () => ({ kind: 'allow' as const }),
       command: { classify: () => ({ risk: 'LOW' as const }) },
+      secret: { redactValue: (value: unknown) => value },
     },
   };
 }
@@ -108,6 +109,64 @@ describe('ToolRegistry protocol controls (P4/P6/P8)', () => {
       { progress: 1, message: 'step 1' },
       { progress: 3, message: 'done' },
     ]);
+  });
+
+  it('tracks active calls without retaining argument values', async () => {
+    const container = fakeContainer();
+    const registry = new ToolRegistry(container as any);
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+
+    registry.register(
+      defineTool({
+        name: 'active_probe',
+        description: 'waits while Mission Control inspects active metadata',
+        group: 'test',
+        mutates: false,
+        risk: 'LOW',
+        inputSchema: { type: 'object', properties: {} },
+        handler: async () => {
+          entered();
+          await gate;
+          return { ok: true };
+        },
+      }),
+    );
+
+    const call = registry.call(
+      'active_probe',
+      { token: 'never-retain-this-value', path: 'src/private.ts' },
+      {
+        principal: {
+          id: 'credential:agent',
+          role: 'agent',
+          sessionId: 'session:active',
+          oauthClientId: 'client:active',
+          taskId: 'wf_active',
+        },
+      },
+    );
+    await started;
+
+    const active = registry.listActiveCalls();
+    expect(active).toHaveLength(1);
+    expect(active[0]).toMatchObject({
+      tool: 'active_probe',
+      group: 'test',
+      principalId: 'credential:agent',
+      sessionId: 'session:active',
+      clientId: 'client:active',
+      taskId: 'wf_active',
+      argKeys: ['[sensitive-key]', 'path'],
+    });
+    expect(JSON.stringify(active)).not.toContain('never-retain-this-value');
+    expect(JSON.stringify(active)).not.toContain('src/private.ts');
+
+    release();
+    expect((await call).ok).toBe(true);
+    expect(registry.listActiveCalls()).toEqual([]);
   });
 
   it('degrades gracefully when no control is supplied', async () => {

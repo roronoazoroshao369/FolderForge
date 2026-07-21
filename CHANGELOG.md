@@ -8,6 +8,12 @@ semantic versioning.
 
 ### Added
 
+- Add a local Mission Control dashboard for active calls, authorized Workspace
+  Capsule sessions, durable tasks, approvals, managed processes, isolations,
+  Proof Pack counts, and recent governed activity.
+- Add persistent integrity-checked write freeze with restart restoration,
+  prior-policy-mode recovery, and dashboard containment actions for pause/cancel,
+  stop/kill, and rollback/discard.
 - Add owner/project/client-bound durable workflow tasks with objective, acceptance
   criteria, persistent pause/cancel, reconnect-safe resume, targeted one-time
   handoff, state integrity, optimistic revisions, and task-bound child audit and
@@ -32,6 +38,10 @@ semantic versioning.
 
 ### Security
 
+- Keep raw tool arguments out of Mission Control active-call state and restrict
+  write-freeze bypass to a server-generated dashboard role plus an exact
+  containment allowlist; normal agents remain fully readonly and HIGH actions
+  retain approval and audit requirements.
 - Deny native agent access to workflow and Proof Pack state, detect workflow state
   tampering and stale writers, serialize one-time claims with per-run locks, and
   preserve operator pause/cancel during in-flight child completion.

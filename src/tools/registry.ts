@@ -20,6 +20,7 @@ import {
 } from "../core/errors.js";
 import { logger } from "../core/logger.js";
 import type { WorkspaceCapsuleManager } from "../capsule/workspace-capsule-manager.js";
+import { randomUUID } from "node:crypto";
 
 /**
  * Derive MCP tool annotations from the existing `mutates` / `risk` contract.
@@ -100,12 +101,42 @@ export function defineTool(def: {
   };
 }
 
+export interface ActiveToolCall {
+  id: string;
+  tool: string;
+  group: string;
+  risk: RiskLevel;
+  mutates: boolean;
+  principalId: string;
+  role: ToolPrincipal['role'];
+  projectRoot: string;
+  startedAt: string;
+  argKeys: string[];
+  sessionId?: string;
+  clientId?: string;
+  capsuleId?: string;
+  taskId?: string;
+  containmentAction?: boolean;
+}
+
+const SENSITIVE_ACTIVE_ARG_KEY =
+  /(secret|token|password|authorization|cookie|credential|api.?key)/i;
+
+function activeArgKey(key: string): string {
+  if (SENSITIVE_ACTIVE_ARG_KEY.test(key)) return '[sensitive-key]';
+  if (!/^[A-Za-z0-9_.-]{1,128}$/.test(key)) return '[nonstandard-key]';
+  return key;
+}
+
 export interface GovernanceRuntime {
   config: FolderForgeConfig;
   audit: AuditLog;
   policy: PolicyEngine;
   rateLimiter: RateLimiter;
   capsules?: WorkspaceCapsuleManager;
+  missionControl?: {
+    allowsContainmentAction(tool: string, principal: ToolPrincipal): boolean;
+  };
   projectRoot(): string;
 }
 
@@ -117,6 +148,7 @@ export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>();
   private activeSet: Set<string> | null = null;
   private readonly listChangedListeners = new Set<() => void>();
+  private readonly activeCalls = new Map<string, ActiveToolCall>();
 
   constructor(private container: GovernanceRuntime) {}
 
@@ -240,6 +272,13 @@ export class ToolRegistry {
 
   listAll(): ToolDefinition[] {
     return [...this.tools.values()];
+  }
+
+  /** Redacted active invocation inventory for Mission Control. */
+  listActiveCalls(): ActiveToolCall[] {
+    return [...this.activeCalls.values()]
+      .sort((left, right) => left.startedAt.localeCompare(right.startedAt))
+      .map((call) => ({ ...call, argKeys: [...call.argKeys] }));
   }
 
   /** Invoke a tool through the agent plane, never with admin authority. */
@@ -421,10 +460,42 @@ export class ToolRegistry {
           { name, group: descriptor.group ?? "dynamic", risk, mutates, args: governanceArgs },
         )
       : { kind: "allow" as const };
+    const approvalPrincipal: ToolPrincipal = capsuleDecision.capsule
+      ? {
+          ...principal,
+          capsuleId: capsuleDecision.capsule.id,
+          ...(capsuleDecision.capsule.taskId
+            ? { taskId: capsuleDecision.capsule.taskId }
+            : {}),
+        }
+      : principal;
+    const containmentBypass =
+      this.container.missionControl?.allowsContainmentAction(
+        name,
+        approvalPrincipal,
+      ) ?? false;
     const identityDetail = {
-      ...principalAuditDetail(principal),
-      ...(capsuleDecision.capsule ? { capsuleId: capsuleDecision.capsule.id } : {}),
+      ...principalAuditDetail(approvalPrincipal),
+      ...(containmentBypass ? { containmentAction: true } : {}),
     };
+    const activeCallId = `call_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+    this.activeCalls.set(activeCallId, {
+      id: activeCallId,
+      tool: name,
+      group: descriptor.group ?? "dynamic",
+      risk,
+      mutates,
+      principalId: principal.id,
+      role: principal.role,
+      projectRoot: this.container.projectRoot(),
+      startedAt: new Date(started).toISOString(),
+      argKeys: Object.keys(governanceArgs).slice(0, 32).map(activeArgKey),
+      ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
+      ...(principal.oauthClientId ? { clientId: principal.oauthClientId } : {}),
+      ...(capsuleDecision.capsule ? { capsuleId: capsuleDecision.capsule.id } : {}),
+      ...(approvalPrincipal.taskId ? { taskId: approvalPrincipal.taskId } : {}),
+      ...(containmentBypass ? { containmentAction: true } : {}),
+    });
     const auditRequired =
       this.container.audit.requiresDurability?.({ risk, principal }) ?? false;
     const recordAudit = (
@@ -456,21 +527,13 @@ export class ToolRegistry {
         return { ok: false, error: `Denied: ${reason}` };
       }
 
-      const approvalPrincipal: ToolPrincipal = capsuleDecision.capsule
-        ? {
-            ...principal,
-            capsuleId: capsuleDecision.capsule.id,
-            ...(capsuleDecision.capsule.taskId
-              ? { taskId: capsuleDecision.capsule.taskId }
-              : {}),
-          }
-        : principal;
       const decision = this.container.policy.evaluate(
         name,
         risk,
         mutates,
         governanceArgs,
         approvalPrincipal,
+        { bypassReadonly: containmentBypass },
       );
       if (decision.kind === "deny") {
         recordAudit({
@@ -579,6 +642,8 @@ export class ToolRegistry {
         };
       }
       return { ok: false, error: `${err.code}: ${err.message}` };
+    } finally {
+      this.activeCalls.delete(activeCallId);
     }
   }
 }

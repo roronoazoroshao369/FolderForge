@@ -68,14 +68,14 @@ export class PolicyEngine {
      * @param mutates whether the call mutates state
      * @param args original args (recorded on approval requests)
      */
-    evaluate(toolName, risk, mutates, args, requester = 'agent:unknown') {
+    evaluate(toolName, risk, mutates, args, requester = 'agent:unknown', options = {}) {
         const principal = normalizePrincipal(requester);
         // Baseline hard-deny boundaries are evaluated before project policy. Policy
         // files are intentionally unable to weaken either rule.
         if (risk === 'CRITICAL' && this.mode !== 'danger') {
             return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
         }
-        if (this.mode === 'readonly' && mutates) {
+        if (this.mode === 'readonly' && mutates && !options.bypassReadonly) {
             return { kind: 'deny', risk, reason: 'Workspace is in readonly mode; mutations are blocked.' };
         }
         const policyRule = this.asCode.evaluate({
