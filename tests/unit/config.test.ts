@@ -19,6 +19,20 @@ describe('config loading + validation', () => {
       requireForAuthenticatedHttp: true,
     });
     expect(cfg.workspace.allowedDirectories.length).toBeGreaterThan(0);
+    expect(cfg.workspace.deniedGlobs).toEqual(
+      expect.arrayContaining([
+        '**/.git/folderforge/isolations.json',
+        '**/.git/folderforge/isolations.json.*.tmp',
+        '**/.folderforge/capsules.json',
+        '**/.folderforge/approvals.jsonl',
+        '**/.folderforge/audit/**',
+      ]),
+    );
+    expect(cfg.capsule).toEqual({
+      enforcement: 'optional',
+      defaultTtlMs: 3_600_000,
+      maxTtlMs: 86_400_000,
+    });
   });
 
   it('keeps the Playwright adapter isolated but disabled by default', () => {
@@ -45,6 +59,14 @@ describe('config loading + validation', () => {
     // @ts-expect-error deliberately invalid for the test
     cfg.audit.durability = 'eventually';
     expect(() => validateConfig(cfg)).toThrow(/audit.durability/);
+  });
+
+  it('rejects invalid capsule enforcement and lifetime bounds', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    // @ts-expect-error deliberately invalid for the test
+    cfg.capsule.enforcement = 'trust-me';
+    cfg.capsule.maxTtlMs = cfg.capsule.defaultTtlMs - 1;
+    expect(() => validateConfig(cfg)).toThrow(/capsule.enforcement|capsule.maxTtlMs/);
   });
 
   it('rejects an empty allowlist', () => {

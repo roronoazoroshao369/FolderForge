@@ -185,13 +185,13 @@ export function securityTools(): ToolDefinition[] {
         required: ['tool'],
       },
       handler: async (args, ctx) => {
-        const requesterId = ctx.control?.principal?.id ?? 'agent:unknown';
+        const requester = ctx.control?.principal ?? { id: 'agent:unknown', role: 'agent' as const };
         const req = ctx.container.policy.approvals.create(
           String(args.tool),
           {},
           'HIGH',
           String(args.reason ?? 'manual'),
-          requesterId
+          requester
         );
         return { ok: true, data: req };
       },

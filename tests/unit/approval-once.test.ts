@@ -158,4 +158,60 @@ describe('ApprovalEngine principal-bound approvals', () => {
       restarted.consumeOnce('file_write', { ...rawArgs, path: 'other.txt' }, REQUESTER)
     ).toBe(false);
   });
+  it('binds approvals to client, project, session, capsule, and task context', () => {
+    const engine = new ApprovalEngine();
+    const exact = {
+      id: REQUESTER,
+      role: 'agent' as const,
+      oauthClientId: 'client:web-a',
+      projectId: 'project:alpha',
+      sessionId: 'session:one',
+      capsuleId: 'capsule:one',
+      taskId: 'task:one',
+    };
+    const request = engine.create(
+      'file_write',
+      { path: 'a.txt' },
+      'HIGH',
+      'test',
+      exact,
+    );
+    expect(request.binding).toEqual({
+      principalId: REQUESTER,
+      clientId: 'client:web-a',
+      projectId: 'project:alpha',
+      sessionId: 'session:one',
+      capsuleId: 'capsule:one',
+      taskId: 'task:one',
+    });
+    expect(request.requesterKey).toMatch(/^binding:sha256:/);
+    engine.approve(request.id, 'once', APPROVER);
+
+    for (const mismatch of [
+      { ...exact, oauthClientId: 'client:web-b' },
+      { ...exact, projectId: 'project:beta' },
+      { ...exact, sessionId: 'session:two' },
+      { ...exact, capsuleId: 'capsule:two' },
+      { ...exact, taskId: 'task:two' },
+    ]) {
+      expect(engine.consumeOnce('file_write', { path: 'a.txt' }, mismatch)).toBe(false);
+    }
+    expect(engine.consumeOnce('file_write', { path: 'a.txt' }, exact)).toBe(true);
+  });
+
+  it('keeps self-approval bound to the human principal id even with context', () => {
+    const engine = new ApprovalEngine();
+    const requester = {
+      id: REQUESTER,
+      role: 'agent' as const,
+      projectId: 'project:alpha',
+      sessionId: 'session:one',
+    };
+    const request = engine.create('file_delete', { path: 'a.txt' }, 'HIGH', 'test', requester);
+    expect(() => engine.approve(request.id, 'once', REQUESTER)).toThrowError(
+      ApprovalResolutionError,
+    );
+    expect(engine.get(request.id)?.state).toBe('pending');
+  });
+
 });

@@ -23,6 +23,8 @@ import { distributedTools } from './distributed-tools.js';
 import { marketplaceTools } from './marketplace-tools.js';
 import { buildAdapterTools, buildAdapterToolsFor } from './adapter-tools.js';
 import { logger } from '../core/logger.js';
+import { capsuleTools } from './capsule-tools.js';
+import { isolationTools } from './isolation-tools.js';
 /**
  * Build the full tool registry with every group registered.
  */
@@ -30,6 +32,8 @@ export function buildRegistry(container) {
     const registry = new ToolRegistry(container);
     registry.registerAll([
         ...workspaceTools(),
+        ...capsuleTools(),
+        ...isolationTools(),
         ...fileTools(),
         ...searchTools(),
         ...terminalTools(),

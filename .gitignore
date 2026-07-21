@@ -17,6 +17,7 @@ nohup.out
 # Per-project runtime state created at activation. The directory itself is
 # tracked for fixtures, but live audit/approval logs must not be committed.
 **/.folderforge/approvals.jsonl
+**/.folderforge/capsules.json
 **/.folderforge/audit/
 
 # Distributed, marketplace, beta, artifact, and worker runtime state

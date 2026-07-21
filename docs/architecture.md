@@ -69,6 +69,8 @@ when the MCP client does not advertise the `elicitation` capability.
 | Audit/evidence | `src/audit/*`, `src/evidence/*` | Governed event facade, durable hash chain, storage ports, verification |
 | Managers | `src/managers/*` | Long-running processes, DB connections |
 | Workspace | `src/workspace/*` | Project detection, activation, memory store |
+| Capsules | `src/capsule/*` | Principal/session/workspace/profile/budget/expiry enforcement |
+| Isolation | `src/isolation/*` | Managed Git worktree lifecycle, review, safe apply/discard |
 | Adapters | `src/adapters/child-mcp/*` | Proxy child MCP servers (Serena, Playwright) |
 | Dashboard | `src/dashboard/*` | Local read/approve control plane UI |
 
@@ -86,3 +88,19 @@ when the MCP client does not advertise the `elicitation` capability.
 ## Workflow control plane
 
 Persisted workflows are deterministic orchestration over `ToolRegistry.call`; they never invoke handlers directly. This preserves per-step policy, approval, rate limits, audit, adapter risk, and rich results. Checkpoints store bounded/redacted evidence and resume only unfinished steps. See [`workflows.md`](./workflows.md).
+
+
+## Workspace Capsule and isolation boundary
+
+A remote or explicitly capsule-bound call is checked by
+`WorkspaceCapsuleManager` before ordinary policy evaluation. The decision binds
+the active project root to principal, optional client/session, expiry/revocation,
+profile, budgets, and optional task identity. Approval matching then includes the
+resolved capsule/task context. See [`workspace-capsules.md`](./workspace-capsules.md).
+
+`WorktreeManager` creates task branches without changing the source worktree.
+Agent calls may create and inspect isolation, while apply/discard are admin-only.
+Apply requires a clean unchanged source fingerprint and preflights tracked,
+untracked, conflict, path, symlink, size, and patch conditions. See
+[`task-isolation.md`](./task-isolation.md) and
+[ADR-0011](./adr-0011-workspace-capsules-and-isolation.md).

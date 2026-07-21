@@ -29,6 +29,49 @@ using FolderForge itself to implement the AI/browser roadmap.
   into `main`. Push, Git tag, npm publication, and hosted release remain
   operator-controlled and were not performed here.
 
+
+### FF-041 — Permission labels were not bound to a server-owned workspace capsule
+
+- Severity: critical for remote autonomous use
+- Status: fixed and locally verified
+- Root cause: policy, identity, approvals, and workflow state existed separately;
+  no object bound workspace root, client/session, profile, expiry, revocation,
+  budgets, isolation, and task identity at the shared execution boundary.
+- Fix: added atomically persisted Workspace Capsules, optional/remote/all
+  enforcement, Observe/Propose/Develop/Autopilot profiles, exact path and symlink
+  boundary checks, budgets, expiry/revocation, dashboard lifecycle endpoints, and
+  agent-visible status.
+- Regression coverage: missing remote capsule, session reuse, expiry, revocation,
+  Observe mutation, network/command restrictions, exact managed-worktree proof,
+  absolute and symlink path escape, persistence, and budget exhaustion.
+
+### FF-042 — Task isolation had no apply/discard safety boundary
+
+- Severity: critical for preserving user work
+- Status: fixed for Git repository roots; checkpoint fallback remains open
+- Root cause: workflow checkpoints did not create a separate filesystem/Git
+  workspace, and a declared `worktree` profile was not runtime proof.
+- Fix: added managed task branches/worktrees under the Git common directory,
+  source dirty/fingerprint capture, review status/diff, clean-source-only apply,
+  patch preflight, bounded regular untracked files, symlink/submodule rejection,
+  rollback on copy failure, integrity-checked lifecycle state, and branch/worktree discard. Apply/discard are
+  admin-only tools.
+- Regression coverage: dirty source preservation, source drift, tracked/untracked
+  apply, conflict/symlink checks, traversal task id, reload, non-Git degradation,
+  agent/admin tool separation, and cleanup.
+
+### FF-043 — Approval reuse was principal-only across execution contexts
+
+- Severity: high
+- Status: fixed and locally verified
+- Root cause: exact arguments were fingerprinted, but matching used only the raw
+  principal id, allowing the same credential to cross session/project/capsule/task
+  boundaries.
+- Fix: retain the raw requester id for self-approval checks while matching on a
+  separate canonical fingerprint of client, project, session, capsule, and task.
+- Regression coverage: mismatch of each dimension, exact-context success, legacy
+  records, restart, self-approval, and dashboard operator action.
+
 ## Milestone 1.7 — Browser intelligence foundation
 
 ### FF-001 — Screenshot image was flattened into JSON text

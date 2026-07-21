@@ -93,3 +93,9 @@ These documents are useful context but are **not current product contracts**:
 When an internal document conflicts with README, reference, security, or
 compatibility documentation, the current user-facing document and executable
 tests take precedence.
+
+## Workspace safety
+
+- [Workspace Capsules](workspace-capsules.md)
+- [Managed task isolation](task-isolation.md)
+- [ADR-0011: Capsules and worktrees](adr-0011-workspace-capsules-and-isolation.md)

@@ -8,6 +8,17 @@ export type PolicyMode = "readonly" | "safe" | "dev" | "danger";
 
 export type AuditDurability = "required" | "best-effort";
 
+export type CapsuleEnforcement = "optional" | "remote" | "all";
+
+export interface CapsuleConfig {
+  /** Require a matching capsule never, for authenticated remote clients, or for every caller. */
+  enforcement: CapsuleEnforcement;
+  /** Default capsule lifetime used by the admin control plane. */
+  defaultTtlMs: number;
+  /** Hard upper bound for capsule lifetime. */
+  maxTtlMs: number;
+}
+
 export interface AuditConfig {
   /** Baseline durability for audit events that are not otherwise elevated. */
   durability: AuditDurability;
@@ -81,6 +92,10 @@ export interface ToolPrincipal {
   scopes?: string[];
   /** OAuth client identifier used for lifecycle correlation; never a client secret. */
   oauthClientId?: string;
+  /** Server-resolved Workspace Capsule identity for approval/audit binding. */
+  capsuleId?: string;
+  /** Server-resolved durable task identity for approval/audit binding. */
+  taskId?: string;
   /** Challenge context used for tool-level OAuth step-up responses. */
   resourceMetadataUrl?: string;
   readScope?: string;
@@ -316,6 +331,7 @@ export interface FolderForgeConfig {
   workspace: WorkspaceConfig;
   policy: PolicyConfig;
   audit: AuditConfig;
+  capsule: CapsuleConfig;
   terminal: TerminalConfig;
   git: GitConfig;
   rateLimit: RateLimitConfig;

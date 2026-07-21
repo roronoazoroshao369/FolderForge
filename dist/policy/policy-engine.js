@@ -70,7 +70,6 @@ export class PolicyEngine {
      */
     evaluate(toolName, risk, mutates, args, requester = 'agent:unknown') {
         const principal = normalizePrincipal(requester);
-        const requesterId = principal.id;
         // Baseline hard-deny boundaries are evaluated before project policy. Policy
         // files are intentionally unable to weaken either rule.
         if (risk === 'CRITICAL' && this.mode !== 'danger') {
@@ -108,14 +107,14 @@ export class PolicyEngine {
         }
         if (!needsApproval)
             return { kind: 'allow', risk };
-        if (this.approvals.isSessionAllowed(toolName, requesterId) ||
-            this.approvals.consumeOnce(toolName, args, requesterId)) {
+        if (this.approvals.isSessionAllowed(toolName, principal) ||
+            this.approvals.consumeOnce(toolName, args, principal)) {
             return { kind: 'allow', risk };
         }
-        return this.toApproval(toolName, risk, args, approvalReason, requesterId);
+        return this.toApproval(toolName, risk, args, approvalReason, principal);
     }
-    toApproval(toolName, risk, args, reason, requesterId) {
-        const req = this.approvals.create(toolName, args, risk, reason, requesterId);
+    toApproval(toolName, risk, args, reason, requester) {
+        const req = this.approvals.create(toolName, args, risk, reason, requester);
         return { kind: 'approval', risk, approvalId: req.id, reason };
     }
     /**
@@ -205,7 +204,7 @@ export class PolicyEngine {
             needsApproval = true;
             reason = policyRule.reason;
         }
-        if (needsApproval && this.approvals.isSessionAllowed(toolName, principal.id)) {
+        if (needsApproval && this.approvals.isSessionAllowed(toolName, principal)) {
             factors.push('a principal-bound session approval is already active');
             return {
                 decision: 'allow',

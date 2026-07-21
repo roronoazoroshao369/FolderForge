@@ -176,8 +176,8 @@ export function securityTools() {
                 required: ['tool'],
             },
             handler: async (args, ctx) => {
-                const requesterId = ctx.control?.principal?.id ?? 'agent:unknown';
-                const req = ctx.container.policy.approvals.create(String(args.tool), {}, 'HIGH', String(args.reason ?? 'manual'), requesterId);
+                const requester = ctx.control?.principal ?? { id: 'agent:unknown', role: 'agent' };
+                const req = ctx.container.policy.approvals.create(String(args.tool), {}, 'HIGH', String(args.reason ?? 'manual'), requester);
                 return { ok: true, data: req };
             },
         }),

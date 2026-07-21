@@ -259,6 +259,7 @@ export class ToolRegistry {
         }
         return this.runPipeline({
             name: classification.name,
+            group: tool.group,
             risk: classification.risk,
             mutates: classification.mutates,
             handler: tool.handler,
@@ -295,7 +296,13 @@ export class ToolRegistry {
             id: "agent:unknown",
             role: "agent",
         };
-        const identityDetail = principalAuditDetail(principal);
+        const capsuleDecision = this.container.capsules
+            ? this.container.capsules.check(principal, this.container.projectRoot(), { name, group: descriptor.group ?? "dynamic", risk, mutates, args: governanceArgs })
+            : { kind: "allow" };
+        const identityDetail = {
+            ...principalAuditDetail(principal),
+            ...(capsuleDecision.capsule ? { capsuleId: capsuleDecision.capsule.id } : {}),
+        };
         const auditRequired = this.container.audit.requiresDurability?.({ risk, principal }) ?? false;
         const recordAudit = (event) => {
             this.container.audit.record(event, { required: auditRequired });
@@ -309,7 +316,27 @@ export class ToolRegistry {
                 summary: summarizeArgs(name, governanceArgs, (value) => this.container.policy.secret.redactValue(value)),
                 detail: identityDetail,
             });
-            const decision = this.container.policy.evaluate(name, risk, mutates, governanceArgs, principal);
+            if (capsuleDecision.kind === "deny") {
+                const reason = `Workspace Capsule denied the call: ${capsuleDecision.reason ?? "not permitted"}`;
+                recordAudit({
+                    type: "policy_deny",
+                    tool: name,
+                    risk,
+                    summary: reason,
+                    detail: identityDetail,
+                });
+                return { ok: false, error: `Denied: ${reason}` };
+            }
+            const approvalPrincipal = capsuleDecision.capsule
+                ? {
+                    ...principal,
+                    capsuleId: capsuleDecision.capsule.id,
+                    ...(capsuleDecision.capsule.taskId
+                        ? { taskId: capsuleDecision.capsule.taskId }
+                        : {}),
+                }
+                : principal;
+            const decision = this.container.policy.evaluate(name, risk, mutates, governanceArgs, approvalPrincipal);
             if (decision.kind === "deny") {
                 recordAudit({
                     type: "policy_deny",
@@ -358,6 +385,9 @@ export class ToolRegistry {
                 };
             }
             try {
+                if (capsuleDecision.capsule && this.container.capsules) {
+                    this.container.capsules.reserve(capsuleDecision.capsule.id, mutates);
+                }
                 executionStarted = true;
                 const result = await descriptor.handler(handlerArgs, {
                     config: this.container.config,
@@ -424,6 +454,8 @@ function principalAuditDetail(principal) {
         ...(principal.projectId ? { projectId: principal.projectId } : {}),
         ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
         ...(principal.oauthClientId ? { oauthClientId: principal.oauthClientId } : {}),
+        ...(principal.capsuleId ? { capsuleId: principal.capsuleId } : {}),
+        ...(principal.taskId ? { taskId: principal.taskId } : {}),
     };
 }
 function boundSummaryValue(value, depth = 0) {

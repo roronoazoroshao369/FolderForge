@@ -6,6 +6,29 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add server-enforced Workspace Capsules with permission profiles, exact
+  workspace/principal/client/session/task binding, expiry, revocation, budgets,
+  atomic integrity-checked persistence, tool/group scopes, dashboard lifecycle
+  endpoints, and agent-visible status.
+- Add managed Git task worktrees with dirty-source preservation, reviewable diff,
+  clean-source drift checks, bounded tracked/untracked apply, rollback, and
+  operator-only apply/discard.
+
+### Changed
+
+- Bind once/session approvals to client, project, session, capsule, and task in
+  addition to exact canonical arguments, while retaining raw principal identity
+  for self-approval prevention.
+
+### Security
+
+- Deny capsule/store and isolation metadata through native file policy, reject
+  capsule path/symlink and cross-worktree escapes, reject tracked or untracked
+  symlink task output, detect state corruption, and fail closed on all capsule
+  command execution until process sandbox enforcement is connected.
+
 ## [2.7.0] - 2026-07-21
 
 This is a locally prepared release candidate. It has not been tagged, published

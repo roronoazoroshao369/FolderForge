@@ -1,0 +1,517 @@
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+export type IsolationState = 'active' | 'applied' | 'discarded';
+
+export interface WorktreeIsolation {
+  id: string;
+  taskId: string;
+  sourceRoot: string;
+  worktreeRoot: string;
+  branch: string;
+  baseCommit: string;
+  sourceHead: string;
+  sourceFingerprint: string;
+  sourceDirty: boolean;
+  createdAt: string;
+  state: IsolationState;
+  appliedAt?: string;
+  discardedAt?: string;
+}
+
+export interface WorktreeStatus {
+  isolation: WorktreeIsolation;
+  clean: boolean;
+  changed: string[];
+  untracked: string[];
+  conflicts: string[];
+}
+
+interface PersistedState {
+  version: 1;
+  isolations: WorktreeIsolation[];
+  digest: string;
+}
+
+const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const MAX_UNTRACKED_FILES = 100;
+const MAX_UNTRACKED_BYTES = 10 * 1024 * 1024;
+
+function git(cwd: string, args: string[], input?: string): string {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    input,
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    const message = (result.stderr || result.stdout || `git exited ${result.status}`).trim();
+    throw new Error(`Git command failed (${args.join(' ')}): ${message}`);
+  }
+  return result.stdout;
+}
+
+function canonicalRoot(path: string): string {
+  return resolve(path);
+}
+
+function cloneIsolation(value: WorktreeIsolation): WorktreeIsolation {
+  return structuredClone(value);
+}
+
+function splitNul(value: string): string[] {
+  return value.split('\0').filter(Boolean);
+}
+
+function isolationDigest(isolations: WorktreeIsolation[]): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(isolations)).digest('hex')}`;
+}
+
+function validTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function sourceSnapshot(root: string): {
+  head: string;
+  status: string;
+  fingerprint: string;
+  dirty: boolean;
+} {
+  const head = git(root, ['rev-parse', 'HEAD']).trim();
+  const status = git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  return {
+    head,
+    status,
+    fingerprint: createHash('sha256').update(head).update('\0').update(status).digest('hex'),
+    dirty: status.length > 0,
+  };
+}
+
+function assertRelativePath(value: string): string {
+  if (!value || isAbsolute(value)) throw new Error(`Unsafe worktree path: ${value}`);
+  const normalized = value.split('/').join(sep);
+  if (normalized === '..' || normalized.startsWith(`..${sep}`)) {
+    throw new Error(`Worktree path escapes its root: ${value}`);
+  }
+  return normalized;
+}
+
+export class WorktreeManager {
+  private readonly isolations = new Map<string, WorktreeIsolation>();
+  private readonly statePath: string;
+  private readonly worktreesRoot: string;
+  private readonly projectRoot: string;
+  readonly available: boolean;
+  readonly unavailableReason?: string;
+
+  constructor(private readonly allowedDirectories: string[], projectRoot: string) {
+    this.projectRoot = canonicalRoot(projectRoot);
+    this.assertAllowed(this.projectRoot);
+    let topLevel: string;
+    let commonDir: string;
+    try {
+      topLevel = canonicalRoot(git(this.projectRoot, ['rev-parse', '--show-toplevel']).trim());
+      const commonDirRaw = git(this.projectRoot, ['rev-parse', '--git-common-dir']).trim();
+      commonDir = canonicalRoot(
+        isAbsolute(commonDirRaw) ? commonDirRaw : resolve(this.projectRoot, commonDirRaw),
+      );
+    } catch (error) {
+      this.available = false;
+      this.unavailableReason = error instanceof Error ? error.message : String(error);
+      this.statePath = resolve(this.projectRoot, '.folderforge', 'isolations-unavailable.json');
+      this.worktreesRoot = resolve(this.projectRoot, '.folderforge', 'worktrees');
+      return;
+    }
+    if (topLevel !== this.projectRoot) {
+      this.available = false;
+      this.unavailableReason = `Worktree isolation requires the activated workspace to be a Git repository root (repo root: ${topLevel}).`;
+      this.statePath = resolve(this.projectRoot, '.folderforge', 'isolations-unavailable.json');
+      this.worktreesRoot = resolve(this.projectRoot, '.folderforge', 'worktrees');
+      return;
+    }
+    this.statePath = resolve(commonDir, 'folderforge', 'isolations.json');
+    this.worktreesRoot = resolve(commonDir, 'folderforge', 'worktrees');
+    this.assertInsideProject(this.statePath);
+    this.assertInsideProject(this.worktreesRoot);
+    this.available = true;
+    this.load();
+  }
+
+  create(taskId: string, baseRef = 'HEAD'): WorktreeIsolation {
+    this.requireAvailable();
+    if (!TASK_ID.test(taskId)) {
+      throw new Error('taskId must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}.');
+    }
+    if ([...this.isolations.values()].some((item) => item.taskId === taskId && item.state !== 'discarded')) {
+      throw new Error(`An active isolation already exists for taskId=${taskId}.`);
+    }
+    const snapshot = sourceSnapshot(this.projectRoot);
+    const baseCommit = git(this.projectRoot, ['rev-parse', '--verify', `${baseRef}^{commit}`]).trim();
+    const id = `iso_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const suffix = id.slice(-8);
+    const branch = `folderforge/task/${taskId}-${suffix}`;
+    const worktreeRoot = resolve(this.worktreesRoot, id);
+    this.assertInsideProject(worktreeRoot);
+    mkdirSync(dirname(worktreeRoot), { recursive: true, mode: 0o700 });
+    git(this.projectRoot, ['worktree', 'add', '-b', branch, worktreeRoot, baseCommit]);
+
+    const isolation: WorktreeIsolation = {
+      id,
+      taskId,
+      sourceRoot: this.projectRoot,
+      worktreeRoot,
+      branch,
+      baseCommit,
+      sourceHead: snapshot.head,
+      sourceFingerprint: snapshot.fingerprint,
+      sourceDirty: snapshot.dirty,
+      createdAt: new Date().toISOString(),
+      state: 'active',
+    };
+    this.isolations.set(id, isolation);
+    this.persist();
+    return cloneIsolation(isolation);
+  }
+
+  list(): WorktreeIsolation[] {
+    return [...this.isolations.values()]
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map(cloneIsolation);
+  }
+
+  get(id: string): WorktreeIsolation | undefined {
+    const value = this.isolations.get(id);
+    return value ? cloneIsolation(value) : undefined;
+  }
+
+  isManagedRoot(root: string): boolean {
+    const target = canonicalRoot(root);
+    return [...this.isolations.values()].some(
+      (item) => item.state !== 'discarded' && canonicalRoot(item.worktreeRoot) === target,
+    );
+  }
+
+  managedRootForPath(path: string): string | undefined {
+    const target = canonicalRoot(path);
+    return [...this.isolations.values()]
+      .filter((item) => item.state !== 'discarded')
+      .map((item) => canonicalRoot(item.worktreeRoot))
+      .sort((left, right) => right.length - left.length)
+      .find((root) => target === root || target.startsWith(`${root}${sep}`));
+  }
+
+  status(id: string): WorktreeStatus {
+    const isolation = this.requireActive(id);
+    this.assertWorktreePresent(isolation);
+    const changed = splitNul(
+      git(isolation.worktreeRoot, [
+        'diff',
+        '--name-only',
+        '-z',
+        isolation.baseCommit,
+        '--',
+      ]),
+    );
+    const untracked = splitNul(
+      git(isolation.worktreeRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
+    );
+    const conflicts = splitNul(
+      git(isolation.worktreeRoot, ['diff', '--name-only', '--diff-filter=U', '-z']),
+    );
+    return {
+      isolation: cloneIsolation(isolation),
+      clean: changed.length === 0 && untracked.length === 0 && conflicts.length === 0,
+      changed,
+      untracked,
+      conflicts,
+    };
+  }
+
+  diff(id: string): { isolation: WorktreeIsolation; diff: string; untracked: string[] } {
+    const status = this.status(id);
+    const patch = git(status.isolation.worktreeRoot, [
+      'diff',
+      '--binary',
+      '--full-index',
+      status.isolation.baseCommit,
+      '--',
+    ]);
+    return { isolation: status.isolation, diff: patch, untracked: status.untracked };
+  }
+
+  apply(id: string): WorktreeStatus {
+    const isolation = this.requireActive(id);
+    if (isolation.sourceDirty) {
+      throw new Error('Cannot apply isolation onto a source workspace that was dirty at creation.');
+    }
+    const current = sourceSnapshot(isolation.sourceRoot);
+    if (current.fingerprint !== isolation.sourceFingerprint) {
+      throw new Error('Source workspace changed after isolation creation; refusing to overwrite user work.');
+    }
+    const status = this.status(id);
+    if (status.conflicts.length > 0) {
+      throw new Error(`Isolation contains unresolved conflicts: ${status.conflicts.join(', ')}`);
+    }
+    this.preflightTracked(isolation, status.changed);
+    const patch = git(isolation.worktreeRoot, [
+      'diff',
+      '--binary',
+      '--full-index',
+      isolation.baseCommit,
+      '--',
+    ]);
+    const untracked = this.preflightUntracked(isolation, status.untracked);
+    if (patch) git(isolation.sourceRoot, ['apply', '--check', '--binary', '-'], patch);
+
+    const copied: string[] = [];
+    let patchApplied = false;
+    try {
+      if (patch) {
+        git(isolation.sourceRoot, ['apply', '--binary', '-'], patch);
+        patchApplied = true;
+      }
+      for (const entry of untracked) {
+        mkdirSync(dirname(entry.target), { recursive: true });
+        copyFileSync(entry.source, entry.target);
+        copied.push(entry.target);
+      }
+    } catch (error) {
+      for (const target of copied.reverse()) rmSync(target, { force: true });
+      if (patchApplied) {
+        try {
+          git(isolation.sourceRoot, ['apply', '--reverse', '--binary', '-'], patch);
+        } catch {
+          throw new Error(
+            `Apply failed and automatic rollback also failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      throw error;
+    }
+
+    isolation.state = 'applied';
+    isolation.appliedAt = new Date().toISOString();
+    this.persist();
+    return this.statusApplied(isolation);
+  }
+
+  discard(id: string): WorktreeIsolation {
+    const isolation = this.isolations.get(id);
+    if (!isolation) throw new Error(`Isolation not found: ${id}`);
+    if (isolation.state === 'discarded') return cloneIsolation(isolation);
+    if (existsSync(isolation.worktreeRoot)) {
+      git(isolation.sourceRoot, ['worktree', 'remove', '--force', isolation.worktreeRoot]);
+    } else {
+      git(isolation.sourceRoot, ['worktree', 'prune']);
+    }
+    const branchExists = spawnSync(
+      'git',
+      ['show-ref', '--verify', '--quiet', `refs/heads/${isolation.branch}`],
+      { cwd: isolation.sourceRoot, windowsHide: true },
+    ).status === 0;
+    if (branchExists) git(isolation.sourceRoot, ['branch', '-D', isolation.branch]);
+    isolation.state = 'discarded';
+    isolation.discardedAt = new Date().toISOString();
+    this.persist();
+    return cloneIsolation(isolation);
+  }
+
+  private statusApplied(isolation: WorktreeIsolation): WorktreeStatus {
+    return {
+      isolation: cloneIsolation(isolation),
+      clean: false,
+      changed: splitNul(
+        git(isolation.sourceRoot, ['diff', '--name-only', '-z', isolation.sourceHead, '--']),
+      ),
+      untracked: splitNul(
+        git(isolation.sourceRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
+      ),
+      conflicts: [],
+    };
+  }
+
+  private preflightTracked(isolation: WorktreeIsolation, paths: string[]): void {
+    for (const path of paths) {
+      const rel = assertRelativePath(path);
+      const source = resolve(isolation.worktreeRoot, rel);
+      this.assertInside(source, isolation.worktreeRoot);
+      if (!existsSync(source)) continue; // deletion
+      const stats = lstatSync(source);
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw new Error(`Tracked task output must be a regular file or deletion: ${path}`);
+      }
+    }
+  }
+
+  private preflightUntracked(
+    isolation: WorktreeIsolation,
+    paths: string[],
+  ): Array<{ source: string; target: string }> {
+    if (paths.length > MAX_UNTRACKED_FILES) {
+      throw new Error(`Isolation has ${paths.length} untracked files; limit is ${MAX_UNTRACKED_FILES}.`);
+    }
+    let totalBytes = 0;
+    return paths.map((path) => {
+      const rel = assertRelativePath(path);
+      const source = resolve(isolation.worktreeRoot, rel);
+      const target = resolve(isolation.sourceRoot, rel);
+      this.assertInside(source, isolation.worktreeRoot);
+      this.assertInside(target, isolation.sourceRoot);
+      const stats = lstatSync(source);
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error(`Untracked entry must be a regular file: ${path}`);
+      }
+      totalBytes += statSync(source).size;
+      if (totalBytes > MAX_UNTRACKED_BYTES) {
+        throw new Error(`Untracked file payload exceeds ${MAX_UNTRACKED_BYTES} bytes.`);
+      }
+      if (existsSync(target)) throw new Error(`Untracked target already exists in source: ${path}`);
+      return { source, target };
+    });
+  }
+
+  describe(): { available: boolean; reason?: string; total: number; active: number } {
+    return {
+      available: this.available,
+      ...(this.unavailableReason ? { reason: this.unavailableReason } : {}),
+      total: this.isolations.size,
+      active: [...this.isolations.values()].filter((item) => item.state !== 'discarded').length,
+    };
+  }
+
+  private requireAvailable(): void {
+    if (!this.available) {
+      throw new Error(this.unavailableReason ?? 'Worktree isolation is unavailable.');
+    }
+  }
+
+  private requireActive(id: string): WorktreeIsolation {
+    this.requireAvailable();
+    const isolation = this.isolations.get(id);
+    if (!isolation) throw new Error(`Isolation not found: ${id}`);
+    if (isolation.state === 'discarded') throw new Error(`Isolation has been discarded: ${id}`);
+    return isolation;
+  }
+
+  private assertWorktreePresent(isolation: WorktreeIsolation): void {
+    if (!existsSync(isolation.worktreeRoot)) {
+      throw new Error(`Managed worktree is missing: ${isolation.worktreeRoot}`);
+    }
+    const top = canonicalRoot(
+      git(isolation.worktreeRoot, ['rev-parse', '--show-toplevel']).trim(),
+    );
+    if (top !== canonicalRoot(isolation.worktreeRoot)) {
+      throw new Error('Managed worktree identity mismatch.');
+    }
+  }
+
+  private assertAllowed(path: string): void {
+    const target = canonicalRoot(path);
+    const allowed = this.allowedDirectories.some((directory) => {
+      const root = canonicalRoot(directory);
+      return target === root || target.startsWith(`${root}${sep}`);
+    });
+    if (!allowed) throw new Error(`Isolation path is outside allowed directories: ${path}`);
+  }
+
+  private assertInsideProject(path: string): void {
+    this.assertInside(path, this.projectRoot);
+  }
+
+  private assertInside(path: string, root: string): void {
+    const rel = relative(canonicalRoot(root), canonicalRoot(path));
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error(`Isolation path escapes managed root: ${path}`);
+    }
+  }
+
+  private validatePersistedIsolation(value: unknown): WorktreeIsolation {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('Isolation state contains an invalid entry.');
+    }
+    const isolation = value as WorktreeIsolation;
+    if (!/^iso_[a-f0-9]{20}$/.test(isolation.id)) throw new Error('Isolation id is invalid.');
+    if (!TASK_ID.test(isolation.taskId)) throw new Error('Isolation taskId is invalid.');
+    if (canonicalRoot(isolation.sourceRoot) !== this.projectRoot) {
+      throw new Error('Isolation state belongs to a different source repository.');
+    }
+    const expectedRoot = canonicalRoot(resolve(this.worktreesRoot, isolation.id));
+    if (canonicalRoot(isolation.worktreeRoot) !== expectedRoot) {
+      throw new Error('Isolation worktree path does not match its identity.');
+    }
+    this.assertInsideProject(isolation.worktreeRoot);
+    const suffix = isolation.id.slice(-8);
+    if (isolation.branch !== `folderforge/task/${isolation.taskId}-${suffix}`) {
+      throw new Error('Isolation branch does not match its identity.');
+    }
+    if (!/^[a-f0-9]{40,64}$/.test(isolation.baseCommit) || !/^[a-f0-9]{40,64}$/.test(isolation.sourceHead)) {
+      throw new Error('Isolation commit identity is invalid.');
+    }
+    if (!/^[a-f0-9]{64}$/.test(isolation.sourceFingerprint)) {
+      throw new Error('Isolation source fingerprint is invalid.');
+    }
+    if (typeof isolation.sourceDirty !== 'boolean' || !validTimestamp(isolation.createdAt)) {
+      throw new Error('Isolation source state or creation timestamp is invalid.');
+    }
+    if (!['active', 'applied', 'discarded'].includes(isolation.state)) {
+      throw new Error('Isolation lifecycle state is invalid.');
+    }
+    if (isolation.appliedAt !== undefined && !validTimestamp(isolation.appliedAt)) {
+      throw new Error('Isolation applied timestamp is invalid.');
+    }
+    if (isolation.discardedAt !== undefined && !validTimestamp(isolation.discardedAt)) {
+      throw new Error('Isolation discarded timestamp is invalid.');
+    }
+    if (isolation.state === 'applied' && !isolation.appliedAt) {
+      throw new Error('Applied isolation is missing appliedAt.');
+    }
+    if (isolation.state === 'discarded' && !isolation.discardedAt) {
+      throw new Error('Discarded isolation is missing discardedAt.');
+    }
+    return isolation;
+  }
+
+  private load(): void {
+    if (!existsSync(this.statePath)) return;
+    const parsed = JSON.parse(readFileSync(this.statePath, 'utf8')) as PersistedState;
+    if (parsed.version !== 1 || !Array.isArray(parsed.isolations) || typeof parsed.digest !== 'string') {
+      throw new Error('Unsupported or invalid isolation state file.');
+    }
+    if (parsed.digest !== isolationDigest(parsed.isolations)) {
+      throw new Error('Isolation state integrity check failed.');
+    }
+    const seen = new Set<string>();
+    for (const value of parsed.isolations) {
+      const isolation = this.validatePersistedIsolation(value);
+      if (seen.has(isolation.id)) throw new Error(`Duplicate isolation id: ${isolation.id}`);
+      seen.add(isolation.id);
+      this.isolations.set(isolation.id, isolation);
+    }
+  }
+
+  private persist(): void {
+    mkdirSync(dirname(this.statePath), { recursive: true, mode: 0o700 });
+    const temp = `${this.statePath}.${process.pid}.${randomUUID()}.tmp`;
+    const isolations = this.list();
+    const state: PersistedState = {
+      version: 1,
+      isolations,
+      digest: isolationDigest(isolations),
+    };
+    writeFileSync(temp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temp, this.statePath);
+  }
+}

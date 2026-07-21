@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { RiskLevel } from '../core/types.js';
+import type { RiskLevel, ToolPrincipal } from '../core/types.js';
 import { logger } from '../core/logger.js';
 import { FileSnapshotStore } from '../evidence/file-stores.js';
 import type { SnapshotStore } from '../evidence/ports.js';
@@ -17,6 +17,15 @@ export class ApprovalResolutionError extends Error {
   }
 }
 
+export interface ApprovalBinding {
+  principalId: string;
+  clientId?: string;
+  projectId?: string;
+  sessionId?: string;
+  capsuleId?: string;
+  taskId?: string;
+}
+
 export interface ApprovalRequest {
   id: string;
   tool: string;
@@ -27,6 +36,10 @@ export interface ApprovalRequest {
   reason: string;
   state: ApprovalState;
   requesterId: string;
+  /** Exact execution-context binding; legacy records may omit it. */
+  binding?: ApprovalBinding;
+  /** Stable key derived from the complete binding, used for matching only. */
+  requesterKey?: string;
   approverId?: string;
   createdAt: number;
   expiresAt: number;
@@ -48,6 +61,26 @@ function canonical(value: unknown): string {
 
 function fingerprint(args: Record<string, unknown>): string {
   return `sha256:${createHash('sha256').update(canonical(args)).digest('hex')}`;
+}
+
+function approvalBinding(requester: string | ToolPrincipal): ApprovalBinding {
+  const principal = typeof requester === 'string'
+    ? { id: requester, role: 'agent' as const }
+    : requester;
+  return {
+    principalId: principal.id,
+    ...(principal.oauthClientId ? { clientId: principal.oauthClientId } : {}),
+    ...(principal.projectId ? { projectId: principal.projectId } : {}),
+    ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
+    ...(principal.capsuleId ? { capsuleId: principal.capsuleId } : {}),
+    ...(principal.taskId ? { taskId: principal.taskId } : {}),
+  };
+}
+
+function bindingKey(binding: ApprovalBinding): string {
+  const contextual = Object.keys(binding).some((key) => key !== 'principalId');
+  if (!contextual) return binding.principalId;
+  return `binding:sha256:${createHash('sha256').update(canonical(binding)).digest('hex')}`;
 }
 
 function boundedEvidence(value: unknown, depth = 0): unknown {
@@ -130,9 +163,11 @@ export class ApprovalEngine {
     args: Record<string, unknown>,
     risk: RiskLevel,
     reason: string,
-    requesterId = 'agent:unknown'
+    requester: string | ToolPrincipal = 'agent:unknown'
   ): ApprovalRequest {
     const createdAt = this.now();
+    const binding = approvalBinding(requester);
+    const requesterKey = bindingKey(binding);
     const req: ApprovalRequest = {
       id: `appr_${randomUUID().slice(0, 8)}`,
       tool,
@@ -141,7 +176,9 @@ export class ApprovalEngine {
       risk,
       reason,
       state: 'pending',
-      requesterId,
+      requesterId: binding.principalId,
+      binding,
+      requesterKey,
       createdAt,
       expiresAt: createdAt + this.approvalTtlMs,
       scope: 'once',
@@ -151,21 +188,27 @@ export class ApprovalEngine {
     return req;
   }
 
-  isSessionAllowed(tool: string, requesterId = 'agent:unknown'): boolean {
-    return this.sessionAllowed.has(this.sessionKey(tool, requesterId));
+  isSessionAllowed(
+    tool: string,
+    requester: string | ToolPrincipal = 'agent:unknown'
+  ): boolean {
+    return this.sessionAllowed.has(
+      this.sessionKey(tool, bindingKey(approvalBinding(requester))),
+    );
   }
 
   /** Consume one approved request matching requester, exact tool, and exact args. */
   consumeOnce(
     tool: string,
     args: Record<string, unknown>,
-    requesterId = 'agent:unknown'
+    requester: string | ToolPrincipal = 'agent:unknown'
   ): boolean {
     const requestedFingerprint = fingerprint(args);
+    const requesterKey = bindingKey(approvalBinding(requester));
     const match = [...this.requests.values()]
       .filter(
         (request) =>
-          request.requesterId === requesterId &&
+          (request.requesterKey ?? request.requesterId) === requesterKey &&
           request.tool === tool &&
           request.state === 'approved' &&
           request.scope === 'once' &&
@@ -205,7 +248,7 @@ export class ApprovalEngine {
       );
     }
     const previous = snapshotApproval(req);
-    const sessionKey = this.sessionKey(req.tool, req.requesterId);
+    const sessionKey = this.sessionKey(req.tool, req.requesterKey ?? req.requesterId);
     const sessionWasAllowed = this.sessionAllowed.has(sessionKey);
     req.state = 'approved';
     req.scope = scope;
@@ -272,6 +315,8 @@ export class ApprovalEngine {
         boundedEvidence(req.args) as Record<string, unknown>,
       );
       req.requesterId ??= 'legacy:unknown';
+      req.binding ??= { principalId: req.requesterId };
+      req.requesterKey ??= bindingKey(req.binding);
       req.expiresAt ??= req.createdAt + this.approvalTtlMs;
       this.requests.set(req.id, req);
     }
@@ -279,7 +324,9 @@ export class ApprovalEngine {
     if (this.restoreSession) {
       for (const req of this.requests.values()) {
         if (req.state === 'approved' && req.scope === 'session') {
-          this.sessionAllowed.add(this.sessionKey(req.tool, req.requesterId));
+          this.sessionAllowed.add(
+            this.sessionKey(req.tool, req.requesterKey ?? req.requesterId),
+          );
         }
       }
     }
@@ -308,8 +355,8 @@ export class ApprovalEngine {
     }
   }
 
-  private sessionKey(tool: string, requesterId: string): string {
-    return `${requesterId}\u0000${tool}`;
+  private sessionKey(tool: string, requesterKey: string): string {
+    return `${requesterKey}\u0000${tool}`;
   }
 
   /** Persist the current snapshot before reporting the state transition complete. */

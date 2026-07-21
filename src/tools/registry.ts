@@ -19,6 +19,7 @@ import {
   PolicyDeniedError,
 } from "../core/errors.js";
 import { logger } from "../core/logger.js";
+import type { WorkspaceCapsuleManager } from "../capsule/workspace-capsule-manager.js";
 
 /**
  * Derive MCP tool annotations from the existing `mutates` / `risk` contract.
@@ -104,6 +105,7 @@ export interface GovernanceRuntime {
   audit: AuditLog;
   policy: PolicyEngine;
   rateLimiter: RateLimiter;
+  capsules?: WorkspaceCapsuleManager;
   projectRoot(): string;
 }
 
@@ -346,6 +348,7 @@ export class ToolRegistry {
     return this.runPipeline(
       {
         name: classification.name,
+        group: tool.group,
         risk: classification.risk,
         mutates: classification.mutates,
         handler: tool.handler,
@@ -368,6 +371,7 @@ export class ToolRegistry {
   async callDynamic(
     descriptor: {
       name: string;
+      group?: string;
       risk: RiskLevel;
       mutates: boolean;
       handler: ToolDefinition["handler"];
@@ -387,6 +391,7 @@ export class ToolRegistry {
   private async runPipeline(
     descriptor: {
       name: string;
+      group?: string;
       risk: RiskLevel;
       mutates: boolean;
       handler: ToolDefinition["handler"];
@@ -409,7 +414,17 @@ export class ToolRegistry {
       id: "agent:unknown",
       role: "agent" as const,
     };
-    const identityDetail = principalAuditDetail(principal);
+    const capsuleDecision = this.container.capsules
+      ? this.container.capsules.check(
+          principal,
+          this.container.projectRoot(),
+          { name, group: descriptor.group ?? "dynamic", risk, mutates, args: governanceArgs },
+        )
+      : { kind: "allow" as const };
+    const identityDetail = {
+      ...principalAuditDetail(principal),
+      ...(capsuleDecision.capsule ? { capsuleId: capsuleDecision.capsule.id } : {}),
+    };
     const auditRequired =
       this.container.audit.requiresDurability?.({ risk, principal }) ?? false;
     const recordAudit = (
@@ -429,12 +444,33 @@ export class ToolRegistry {
         ),
         detail: identityDetail,
       });
+      if (capsuleDecision.kind === "deny") {
+        const reason = `Workspace Capsule denied the call: ${capsuleDecision.reason ?? "not permitted"}`;
+        recordAudit({
+          type: "policy_deny",
+          tool: name,
+          risk,
+          summary: reason,
+          detail: identityDetail,
+        });
+        return { ok: false, error: `Denied: ${reason}` };
+      }
+
+      const approvalPrincipal: ToolPrincipal = capsuleDecision.capsule
+        ? {
+            ...principal,
+            capsuleId: capsuleDecision.capsule.id,
+            ...(capsuleDecision.capsule.taskId
+              ? { taskId: capsuleDecision.capsule.taskId }
+              : {}),
+          }
+        : principal;
       const decision = this.container.policy.evaluate(
         name,
         risk,
         mutates,
         governanceArgs,
-        principal,
+        approvalPrincipal,
       );
       if (decision.kind === "deny") {
         recordAudit({
@@ -487,6 +523,9 @@ export class ToolRegistry {
       }
 
       try {
+        if (capsuleDecision.capsule && this.container.capsules) {
+          this.container.capsules.reserve(capsuleDecision.capsule.id, mutates);
+        }
         executionStarted = true;
         const result = await descriptor.handler(handlerArgs, {
           config: this.container.config,
@@ -555,6 +594,8 @@ function principalAuditDetail(principal: ToolPrincipal): Record<string, unknown>
     ...(principal.projectId ? { projectId: principal.projectId } : {}),
     ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
     ...(principal.oauthClientId ? { oauthClientId: principal.oauthClientId } : {}),
+    ...(principal.capsuleId ? { capsuleId: principal.capsuleId } : {}),
+    ...(principal.taskId ? { taskId: principal.taskId } : {}),
   };
 }
 

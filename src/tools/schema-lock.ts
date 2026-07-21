@@ -39,6 +39,13 @@ export interface FrozenTool {
 export const FROZEN_TOOLS: readonly FrozenTool[] = [
   // --- workspace ---
   { name: 'workspace_status', mutates: false, risk: 'LOW' },
+  { name: 'capsule_status', mutates: false, risk: 'LOW' },
+  { name: 'isolation_list', mutates: false, risk: 'LOW' },
+  { name: 'isolation_create', mutates: true, risk: 'MEDIUM' },
+  { name: 'isolation_status', mutates: false, risk: 'LOW' },
+  { name: 'isolation_diff', mutates: false, risk: 'LOW' },
+  { name: 'isolation_apply', mutates: true, risk: 'HIGH' },
+  { name: 'isolation_discard', mutates: true, risk: 'HIGH' },
   { name: 'workspace_list', mutates: false, risk: 'LOW' },
   { name: 'workspace_health', mutates: false, risk: 'LOW' },
   { name: 'workspace_route', mutates: false, risk: 'LOW' },

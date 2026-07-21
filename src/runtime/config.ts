@@ -170,6 +170,11 @@ const DEFAULT_DENIED_GLOBS = [
   '**/*.key',
   '**/node_modules/**',
   '**/.git/objects/**',
+  '**/.git/folderforge/isolations.json',
+  '**/.git/folderforge/isolations.json.*.tmp',
+  '**/.folderforge/capsules.json',
+  '**/.folderforge/approvals.jsonl',
+  '**/.folderforge/audit/**',
 ];
 
 export function defaultConfig(projectRoot: string): FolderForgeConfig {
@@ -203,6 +208,11 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
       durability: 'best-effort',
       requireForHighRisk: true,
       requireForAuthenticatedHttp: true,
+    },
+    capsule: {
+      enforcement: 'optional',
+      defaultTtlMs: 60 * 60 * 1000,
+      maxTtlMs: 24 * 60 * 60 * 1000,
     },
     terminal: {
       shell: defaultShell(),
@@ -337,6 +347,15 @@ export function validateConfig(cfg: FolderForgeConfig): void {
   }
   if (typeof cfg.audit.requireForAuthenticatedHttp !== 'boolean') {
     errors.push('audit.requireForAuthenticatedHttp must be a boolean');
+  }
+  if (!['optional', 'remote', 'all'].includes(cfg.capsule.enforcement)) {
+    errors.push('capsule.enforcement must be optional, remote, or all');
+  }
+  if (!Number.isInteger(cfg.capsule.defaultTtlMs) || cfg.capsule.defaultTtlMs < 1_000) {
+    errors.push('capsule.defaultTtlMs must be an integer >= 1000');
+  }
+  if (!Number.isInteger(cfg.capsule.maxTtlMs) || cfg.capsule.maxTtlMs < cfg.capsule.defaultTtlMs) {
+    errors.push('capsule.maxTtlMs must be an integer >= capsule.defaultTtlMs');
   }
   for (const [index, policyFile] of (cfg.policy.files ?? []).entries()) {
     if (typeof policyFile !== 'string' || policyFile.trim().length === 0) {

@@ -23,6 +23,25 @@ function canonical(value) {
 function fingerprint(args) {
     return `sha256:${createHash('sha256').update(canonical(args)).digest('hex')}`;
 }
+function approvalBinding(requester) {
+    const principal = typeof requester === 'string'
+        ? { id: requester, role: 'agent' }
+        : requester;
+    return {
+        principalId: principal.id,
+        ...(principal.oauthClientId ? { clientId: principal.oauthClientId } : {}),
+        ...(principal.projectId ? { projectId: principal.projectId } : {}),
+        ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
+        ...(principal.capsuleId ? { capsuleId: principal.capsuleId } : {}),
+        ...(principal.taskId ? { taskId: principal.taskId } : {}),
+    };
+}
+function bindingKey(binding) {
+    const contextual = Object.keys(binding).some((key) => key !== 'principalId');
+    if (!contextual)
+        return binding.principalId;
+    return `binding:sha256:${createHash('sha256').update(canonical(binding)).digest('hex')}`;
+}
 function boundedEvidence(value, depth = 0) {
     if (depth >= 5)
         return '[TRUNCATED: depth]';
@@ -74,8 +93,10 @@ export class ApprovalEngine {
         if (this.store)
             this.load();
     }
-    create(tool, args, risk, reason, requesterId = 'agent:unknown') {
+    create(tool, args, risk, reason, requester = 'agent:unknown') {
         const createdAt = this.now();
+        const binding = approvalBinding(requester);
+        const requesterKey = bindingKey(binding);
         const req = {
             id: `appr_${randomUUID().slice(0, 8)}`,
             tool,
@@ -84,7 +105,9 @@ export class ApprovalEngine {
             risk,
             reason,
             state: 'pending',
-            requesterId,
+            requesterId: binding.principalId,
+            binding,
+            requesterKey,
             createdAt,
             expiresAt: createdAt + this.approvalTtlMs,
             scope: 'once',
@@ -93,14 +116,15 @@ export class ApprovalEngine {
         this.requests.set(req.id, req);
         return req;
     }
-    isSessionAllowed(tool, requesterId = 'agent:unknown') {
-        return this.sessionAllowed.has(this.sessionKey(tool, requesterId));
+    isSessionAllowed(tool, requester = 'agent:unknown') {
+        return this.sessionAllowed.has(this.sessionKey(tool, bindingKey(approvalBinding(requester))));
     }
     /** Consume one approved request matching requester, exact tool, and exact args. */
-    consumeOnce(tool, args, requesterId = 'agent:unknown') {
+    consumeOnce(tool, args, requester = 'agent:unknown') {
         const requestedFingerprint = fingerprint(args);
+        const requesterKey = bindingKey(approvalBinding(requester));
         const match = [...this.requests.values()]
-            .filter((request) => request.requesterId === requesterId &&
+            .filter((request) => (request.requesterKey ?? request.requesterId) === requesterKey &&
             request.tool === tool &&
             request.state === 'approved' &&
             request.scope === 'once' &&
@@ -137,7 +161,7 @@ export class ApprovalEngine {
             throw new ApprovalResolutionError('self_approval', `Principal ${approverId} cannot approve its own request ${id}.`);
         }
         const previous = snapshotApproval(req);
-        const sessionKey = this.sessionKey(req.tool, req.requesterId);
+        const sessionKey = this.sessionKey(req.tool, req.requesterKey ?? req.requesterId);
         const sessionWasAllowed = this.sessionAllowed.has(sessionKey);
         req.state = 'approved';
         req.scope = scope;
@@ -204,6 +228,8 @@ export class ApprovalEngine {
             req.argsFingerprint ??= fingerprint(req.args);
             req.args = this.sanitizeArgs(boundedEvidence(req.args));
             req.requesterId ??= 'legacy:unknown';
+            req.binding ??= { principalId: req.requesterId };
+            req.requesterKey ??= bindingKey(req.binding);
             req.expiresAt ??= req.createdAt + this.approvalTtlMs;
             this.requests.set(req.id, req);
         }
@@ -211,7 +237,7 @@ export class ApprovalEngine {
         if (this.restoreSession) {
             for (const req of this.requests.values()) {
                 if (req.state === 'approved' && req.scope === 'session') {
-                    this.sessionAllowed.add(this.sessionKey(req.tool, req.requesterId));
+                    this.sessionAllowed.add(this.sessionKey(req.tool, req.requesterKey ?? req.requesterId));
                 }
             }
         }
@@ -238,8 +264,8 @@ export class ApprovalEngine {
             throw error;
         }
     }
-    sessionKey(tool, requesterId) {
-        return `${requesterId}\u0000${tool}`;
+    sessionKey(tool, requesterKey) {
+        return `${requesterKey}\u0000${tool}`;
     }
     /** Persist the current snapshot before reporting the state transition complete. */
     append(req) {

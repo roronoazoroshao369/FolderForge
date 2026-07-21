@@ -21,6 +21,8 @@ import { DistributedCoordinator } from '../distributed/coordinator.js';
 import { MarketplaceManager } from '../marketplace/marketplace-manager.js';
 import { BrowserEmulationManager } from '../browser/emulation-manager.js';
 import { McpTaskManager } from '../server/mcp-task-manager.js';
+import { WorkspaceCapsuleManager } from '../capsule/workspace-capsule-manager.js';
+import { WorktreeManager } from '../isolation/worktree-manager.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -43,6 +45,8 @@ export class Container {
   readonly marketplace: MarketplaceManager;
   readonly browserEmulation: BrowserEmulationManager;
   readonly mcpTasks: McpTaskManager;
+  readonly capsules: WorkspaceCapsuleManager;
+  readonly isolation: WorktreeManager;
   workspaceStartupError: string | null = null;
   /**
    * Narrow routing contract assigned by `buildRegistry` after construction.
@@ -55,6 +59,19 @@ export class Container {
     this.rateLimiter = new RateLimiter(config.rateLimit);
     this.workspace = new WorkspaceManager(config.workspace.allowedDirectories);
     this.audit = new AuditLog(config.workspace.defaultProject, config.audit);
+    this.isolation = new WorktreeManager(
+      config.workspace.allowedDirectories,
+      config.workspace.defaultProject,
+    );
+    this.capsules = new WorkspaceCapsuleManager(
+      config.workspace.allowedDirectories,
+      config.capsule.enforcement,
+      config.capsule.defaultTtlMs,
+      config.capsule.maxTtlMs,
+      config.workspace.defaultProject,
+      (root) => this.isolation.isManagedRoot(root),
+      (path) => this.isolation.managedRootForPath(path),
+    );
     this.mcpTasks = new McpTaskManager(
       config.workspace.defaultProject,
       (text) => this.policy.secret.redact(text),

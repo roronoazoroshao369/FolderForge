@@ -343,6 +343,29 @@ async function runChatGptDashboardAction(action, container) {
         }),
     };
 }
+async function runOperatorTool(registry, container, principal, tool, args) {
+    const actionPrincipal = {
+        ...principal,
+        id: `${principal.id}:operator-action`,
+        sessionId: `${principal.id}:dashboard-session`,
+    };
+    let result = await registry.call(tool, args, { principal: actionPrincipal });
+    if (result.approvalId) {
+        const approval = container.policy.approvals.approve(result.approvalId, 'once', principal.id);
+        container.audit.record({
+            type: 'approval_resolved',
+            summary: `operator approve ${result.approvalId} (once)`,
+            detail: {
+                approvalId: result.approvalId,
+                approverId: principal.id,
+                requesterId: approval?.requesterId,
+                binding: approval?.binding,
+            },
+        });
+        result = await registry.call(tool, args, { principal: actionPrincipal });
+    }
+    return result;
+}
 async function handle(req, res, container, registry, principal) {
     const method = req.method ?? "GET";
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -366,6 +389,8 @@ async function handle(req, res, container, registry, principal) {
                 allowedDirectories: container.config.workspace.allowedDirectories,
             },
             policy: container.policy.describe(),
+            capsules: container.capsules.describe(),
+            isolation: container.isolation.describe(),
             tools: {
                 active: registry.listActive().length,
                 total: registry.listAll().length,
@@ -413,11 +438,108 @@ async function handle(req, res, container, registry, principal) {
     if (method === "GET" && path === "/processes") {
         return sendJson(res, 200, { processes: container.processes.list() });
     }
+    if (method === "GET" && path === "/isolations") {
+        return sendJson(res, 200, {
+            ...container.isolation.describe(),
+            isolations: container.isolation.list(),
+        });
+    }
+    if (method === "POST" && path === "/isolations") {
+        const body = await readJsonBody(req);
+        const result = await runOperatorTool(registry, container, principal, 'isolation_create', {
+            taskId: String(body?.taskId ?? ''),
+            baseRef: String(body?.baseRef ?? 'HEAD'),
+        });
+        return sendJson(res, result.ok ? 201 : 409, result);
+    }
+    const isolationReadMatch = /^\/isolations\/([^/]+)\/(status|diff)$/.exec(path);
+    if (method === "GET" && isolationReadMatch) {
+        const id = decodeURIComponent(isolationReadMatch[1]);
+        const tool = isolationReadMatch[2] === 'diff' ? 'isolation_diff' : 'isolation_status';
+        const result = await runOperatorTool(registry, container, principal, tool, { id });
+        return sendJson(res, result.ok ? 200 : 409, result);
+    }
+    const isolationActionMatch = /^\/isolations\/([^/]+)\/(apply|discard)$/.exec(path);
+    if (method === "POST" && isolationActionMatch) {
+        const id = decodeURIComponent(isolationActionMatch[1]);
+        const tool = isolationActionMatch[2] === 'apply' ? 'isolation_apply' : 'isolation_discard';
+        const result = await runOperatorTool(registry, container, principal, tool, { id });
+        return sendJson(res, result.ok ? 200 : 409, result);
+    }
     if (method === "GET" && path === "/approvals") {
         return sendJson(res, 200, {
             pending: container.policy.approvals.pending(),
             all: container.policy.approvals.all(),
         });
+    }
+    if (method === "GET" && path === "/capsules") {
+        return sendJson(res, 200, {
+            ...container.capsules.describe(),
+            capsules: container.capsules.list(),
+        });
+    }
+    if (method === "POST" && path === "/capsules") {
+        const body = await readJsonBody(req);
+        try {
+            const capsule = container.capsules.create({
+                workspaceRoot: String(body?.workspaceRoot ?? container.projectRoot()),
+                principalId: String(body?.principalId ?? ""),
+                profile: String(body?.profile ?? ""),
+                ...(body?.ttlMs !== undefined ? { ttlMs: Number(body.ttlMs) } : {}),
+                ...(typeof body?.sessionId === "string" ? { sessionId: body.sessionId } : {}),
+                ...(typeof body?.clientId === "string" ? { clientId: body.clientId } : {}),
+                ...(typeof body?.taskId === "string" ? { taskId: body.taskId } : {}),
+                ...(Array.isArray(body?.grantedScopes)
+                    ? { grantedScopes: body.grantedScopes.map(String) }
+                    : {}),
+                ...(typeof body?.isolation === "string"
+                    ? { isolation: body.isolation }
+                    : {}),
+                ...(typeof body?.networkPolicy === "string"
+                    ? { networkPolicy: body.networkPolicy }
+                    : {}),
+                ...(body?.limits && typeof body.limits === "object"
+                    ? { limits: body.limits }
+                    : {}),
+                ...(typeof body?.evidenceDestination === "string"
+                    ? { evidenceDestination: body.evidenceDestination }
+                    : {}),
+                ...(typeof body?.clientCompatibility === "string"
+                    ? { clientCompatibility: body.clientCompatibility }
+                    : {}),
+            });
+            container.audit.record({
+                type: "policy_change",
+                summary: `capsule_created:${capsule.id}`,
+                detail: {
+                    actorId: principal.id,
+                    capsuleId: capsule.id,
+                    principalId: capsule.principalId,
+                    profile: capsule.profile,
+                    workspaceId: capsule.workspaceId,
+                },
+            });
+            return sendJson(res, 201, { capsule });
+        }
+        catch (error) {
+            return sendJson(res, 400, {
+                error: "invalid_capsule",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    const capsuleMatch = /^\/capsules\/([^/]+)\/revoke$/.exec(path);
+    if (method === "POST" && capsuleMatch) {
+        const id = decodeURIComponent(capsuleMatch[1]);
+        const capsule = container.capsules.revoke(id, principal.id);
+        if (!capsule)
+            return sendJson(res, 404, { error: "capsule_not_found", id });
+        container.audit.record({
+            type: "policy_change",
+            summary: `capsule_revoked:${id}`,
+            detail: { actorId: principal.id, capsuleId: id },
+        });
+        return sendJson(res, 200, { capsule });
     }
     // POST /approvals/:id/approve | /approvals/:id/deny
     const approvalMatch = /^\/approvals\/([^/]+)\/(approve|deny)$/.exec(path);

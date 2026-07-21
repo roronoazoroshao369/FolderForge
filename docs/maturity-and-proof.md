@@ -8,6 +8,7 @@ production guarantee.
 | --- | --- | --- | --- |
 | Local stdio governance | Beta / hardened local path | Cross-platform tests, MCP Inspector, packed-package and onboarding smoke | Independent user reproduction |
 | Policy, approvals, path and command boundary | Beta / hardened local path | Critical coverage gate, exact-approval tests, escape and self-approval tests | Design-partner incident exercises |
+| Workspace Capsules and Git worktree isolation | Beta / locally verified | Exact binding/expiry/revocation/scope/budget/integrity tests; dirty/drift/symlink/apply/discard worktree tests; dashboard and registry integration | External client UX, non-Git checkpoint fallback, and sandboxed command execution |
 | Audit durability and evidence v2 | Beta / hardened local path | Failure injection, hash-chain tamper corpus, migration smoke, 8-process writer test | External witness/key operations for stronger non-repudiation |
 | Child MCP runtime | Beta | 46 child-client tests, stress suite, five deterministic protocol profiles, and a five-product exact-version/integrity-pinned runner with local Linux evidence | Passing exact-commit artifacts on all required operating systems plus independent reproduction and maintenance ownership |
 | Runtime soak evidence | Harness complete; long-duration proof pending | Governed/audited samples, planned child restart, SIGTERM resume, SHA-256 JSONL verification, reset fail-closed, CI smoke, and 90,001-record volume test | A retained passing 24-hour active-duration chain for the exact revision plus independent review |
@@ -43,6 +44,8 @@ npm run benchmark:governance
 - Historical cryptographic integrity for legacy audit logs.
 - Published availability of `@folderforge/adapter-godot` until a separate release
   is explicitly approved and completed.
+
+- Complete autonomous command verification inside Propose/Autopilot worktree capsules; command tools remain fail-closed until the process sandbox is connected.
 
 ## External evidence backlog
 
