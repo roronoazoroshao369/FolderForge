@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Container } from '../../src/core/container.js';
-import { loadConfig } from '../../src/core/config.js';
+import { Container } from '../../src/runtime/container.js';
+import { loadConfig } from '../../src/runtime/config.js';
 import {
   projectPrincipalId,
   scopedSessionId,

@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
-import { dirname } from 'node:path';
 import type { RiskLevel } from '../core/types.js';
 import { logger } from '../core/logger.js';
+import { FileSnapshotStore } from '../evidence/file-stores.js';
+import type { SnapshotStore } from '../evidence/ports.js';
 
 export type ApprovalState = 'pending' | 'approved' | 'denied' | 'expired';
 export type ApprovalResolutionErrorCode = 'self_approval' | 'expired';
@@ -77,6 +77,8 @@ export interface ApprovalEngineOptions {
    * the engine stays purely in-memory (previous behaviour, used by unit tests).
    */
   persistPath?: string;
+  /** Explicit storage port. Takes precedence over persistPath when supplied. */
+  store?: SnapshotStore<ApprovalRequest>;
   /**
    * Re-arm session-scoped allowances from persisted state on load. Defaults to
    * false: a fresh process starts a fresh session, so session approvals from a
@@ -102,7 +104,8 @@ export interface ApprovalEngineOptions {
 export class ApprovalEngine {
   private requests = new Map<string, ApprovalRequest>();
   private sessionAllowed = new Set<string>();
-  private persistPath: string | undefined;
+  private readonly persistPath: string | undefined;
+  private readonly store: SnapshotStore<ApprovalRequest> | undefined;
   private restoreSession: boolean;
   private sanitizeArgs: (args: Record<string, unknown>) => Record<string, unknown>;
   private approvalTtlMs: number;
@@ -110,11 +113,16 @@ export class ApprovalEngine {
 
   constructor(opts: ApprovalEngineOptions = {}) {
     this.persistPath = opts.persistPath;
+    this.store =
+      opts.store ??
+      (opts.persistPath
+        ? new FileSnapshotStore(opts.persistPath, validateApprovalRecord)
+        : undefined);
     this.restoreSession = opts.restoreSession ?? false;
     this.sanitizeArgs = opts.sanitizeArgs ?? ((args) => JSON.parse(JSON.stringify(args)) as Record<string, unknown>);
     this.approvalTtlMs = opts.approvalTtlMs ?? 15 * 60 * 1000;
     this.now = opts.now ?? Date.now;
-    if (this.persistPath) this.load();
+    if (this.store) this.load();
   }
 
   create(
@@ -138,8 +146,8 @@ export class ApprovalEngine {
       expiresAt: createdAt + this.approvalTtlMs,
       scope: 'once',
     };
-    this.requests.set(req.id, req);
     this.append(req);
+    this.requests.set(req.id, req);
     return req;
   }
 
@@ -166,8 +174,15 @@ export class ApprovalEngine {
       )
       .sort((a, b) => a.createdAt - b.createdAt)[0];
     if (!match) return false;
+    const previousConsumedAt = match.consumedAt;
     match.consumedAt = this.now();
-    this.append(match);
+    try {
+      this.append(match);
+    } catch (error) {
+      if (previousConsumedAt === undefined) delete match.consumedAt;
+      else match.consumedAt = previousConsumedAt;
+      throw error;
+    }
     return true;
   }
 
@@ -189,14 +204,21 @@ export class ApprovalEngine {
         `Principal ${approverId} cannot approve its own request ${id}.`
       );
     }
+    const previous = snapshotApproval(req);
+    const sessionKey = this.sessionKey(req.tool, req.requesterId);
+    const sessionWasAllowed = this.sessionAllowed.has(sessionKey);
     req.state = 'approved';
     req.scope = scope;
     req.approverId = approverId;
     req.resolvedAt = this.now();
-    if (scope === 'session') {
-      this.sessionAllowed.add(this.sessionKey(req.tool, req.requesterId));
+    if (scope === 'session') this.sessionAllowed.add(sessionKey);
+    try {
+      this.append(req);
+    } catch (error) {
+      restoreApproval(req, previous);
+      if (!sessionWasAllowed) this.sessionAllowed.delete(sessionKey);
+      throw error;
     }
-    this.append(req);
     return req;
   }
 
@@ -208,10 +230,16 @@ export class ApprovalEngine {
       throw new ApprovalResolutionError('expired', `Approval ${id} expired at ${new Date(req.expiresAt).toISOString()}.`);
     }
     if (req.state !== 'pending') return req;
+    const previous = snapshotApproval(req);
     req.state = 'denied';
     req.approverId = approverId;
     req.resolvedAt = this.now();
-    this.append(req);
+    try {
+      this.append(req);
+    } catch (error) {
+      restoreApproval(req, previous);
+      throw error;
+    }
     return req;
   }
 
@@ -237,32 +265,15 @@ export class ApprovalEngine {
    * receive a conservative requester id and expiry before atomic compaction.
    */
   private load(): void {
-    const path = this.persistPath;
-    if (!path || !existsSync(path)) return;
-    let lines: string[];
-    try {
-      lines = readFileSync(path, 'utf8').split('\n');
-    } catch (err) {
-      logger.warn({ path, err: String(err) }, 'Failed to read approvals store; starting empty');
-      return;
-    }
-    let loaded = 0;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const req = JSON.parse(trimmed) as ApprovalRequest;
-        if (req && typeof req.id === 'string' && req.args && typeof req.args === 'object') {
-          req.argsFingerprint ??= fingerprint(req.args);
-          req.args = this.sanitizeArgs(boundedEvidence(req.args) as Record<string, unknown>);
-          req.requesterId ??= 'legacy:unknown';
-          req.expiresAt ??= req.createdAt + this.approvalTtlMs;
-          this.requests.set(req.id, req);
-          loaded++;
-        }
-      } catch {
-        // Skip corrupt lines rather than failing startup.
-      }
+    const records = this.store?.load() ?? [];
+    for (const req of records) {
+      req.argsFingerprint ??= fingerprint(req.args);
+      req.args = this.sanitizeArgs(
+        boundedEvidence(req.args) as Record<string, unknown>,
+      );
+      req.requesterId ??= 'legacy:unknown';
+      req.expiresAt ??= req.createdAt + this.approvalTtlMs;
+      this.requests.set(req.id, req);
     }
     this.expirePending(false);
     if (this.restoreSession) {
@@ -272,7 +283,10 @@ export class ApprovalEngine {
         }
       }
     }
-    logger.info({ path, loaded }, 'Loaded persisted approvals');
+    logger.info(
+      { path: this.persistPath ?? 'custom-store', loaded: records.length },
+      'Loaded persisted approvals',
+    );
     this.compact();
   }
 
@@ -282,40 +296,62 @@ export class ApprovalEngine {
 
   private expireIfNeeded(req: ApprovalRequest, append = true): void {
     if (req.state !== 'pending' || this.now() < req.expiresAt) return;
+    const previous = snapshotApproval(req);
     req.state = 'expired';
     req.resolvedAt = this.now();
-    if (append) this.append(req);
+    if (!append) return;
+    try {
+      this.append(req);
+    } catch (error) {
+      restoreApproval(req, previous);
+      throw error;
+    }
   }
 
   private sessionKey(tool: string, requesterId: string): string {
     return `${requesterId}\u0000${tool}`;
   }
 
-  /** Append the current snapshot of one request to the JSONL log. */
+  /** Persist the current snapshot before reporting the state transition complete. */
   private append(req: ApprovalRequest): void {
-    const path = this.persistPath;
-    if (!path) return;
-    try {
-      mkdirSync(dirname(path), { recursive: true });
-      appendFileSync(path, JSON.stringify(req) + '\n', { encoding: 'utf8', mode: 0o600 });
-      chmodSync(path, 0o600);
-    } catch (err) {
-      logger.warn({ path, id: req.id, err: String(err) }, 'Failed to persist approval');
-    }
+    this.store?.append(req);
   }
 
-  /** Rewrite the log with exactly one current line per request (atomic). */
+  /** Rewrite the store with exactly one current snapshot per request. */
   private compact(): void {
-    const path = this.persistPath;
-    if (!path) return;
-    try {
-      const body = [...this.requests.values()].map((r) => JSON.stringify(r)).join('\n');
-      const tmp = `${path}.tmp`;
-      writeFileSync(tmp, body ? body + '\n' : '', { encoding: 'utf8', mode: 0o600 });
-      renameSync(tmp, path);
-      chmodSync(path, 0o600);
-    } catch (err) {
-      logger.warn({ path, err: String(err) }, 'Failed to compact approvals store');
-    }
+    this.store?.replaceAll([...this.requests.values()]);
   }
+}
+
+function snapshotApproval(request: ApprovalRequest): ApprovalRequest {
+  return { ...request, args: { ...request.args } };
+}
+
+function restoreApproval(
+  request: ApprovalRequest,
+  snapshot: ApprovalRequest,
+): void {
+  for (const key of Object.keys(request) as Array<keyof ApprovalRequest>) {
+    delete request[key];
+  }
+  Object.assign(request, snapshot);
+}
+
+function validateApprovalRecord(value: unknown, location: string): ApprovalRequest {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${location} is not an approval object.`);
+  }
+  const record = value as Partial<ApprovalRequest>;
+  if (
+    typeof record.id !== 'string' ||
+    typeof record.tool !== 'string' ||
+    !record.args ||
+    typeof record.args !== 'object' ||
+    typeof record.createdAt !== 'number' ||
+    !['pending', 'approved', 'denied', 'expired'].includes(String(record.state)) ||
+    !['once', 'session'].includes(String(record.scope))
+  ) {
+    throw new Error(`${location} does not match the approval record schema.`);
+  }
+  return record as ApprovalRequest;
 }

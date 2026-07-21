@@ -1,9 +1,12 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { resolve, isAbsolute, dirname } from 'node:path';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import type { FolderForgeConfig, OAuthHttpAuthConfig } from './types.js';
-import { logger } from './logger.js';
-import { defaultShell } from './shell.js';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, isAbsolute } from 'node:path';
+import { parse as parseYaml } from 'yaml';
+import type {
+  FolderForgeConfig,
+  OAuthHttpAuthConfig,
+} from '../core/types.js';
+import { logger } from '../core/logger.js';
+import { defaultShell } from '../core/shell.js';
 import { packageLocalPlaywrightDef } from '../adapters/child-mcp/resolve.js';
 
 const DEFAULT_BLOCKED = [
@@ -40,6 +43,19 @@ function envBoolean(value: string | undefined): boolean | undefined {
 }
 
 function applyEnvironmentOverrides(cfg: FolderForgeConfig): void {
+  const auditDurability = process.env.FOLDERFORGE_AUDIT_DURABILITY;
+  if (auditDurability !== undefined) {
+    cfg.audit.durability = auditDurability as FolderForgeConfig['audit']['durability'];
+  }
+  const highRiskAudit = envBoolean(process.env.FOLDERFORGE_AUDIT_REQUIRE_HIGH_RISK);
+  if (highRiskAudit !== undefined) cfg.audit.requireForHighRisk = highRiskAudit;
+  const authenticatedHttpAudit = envBoolean(
+    process.env.FOLDERFORGE_AUDIT_REQUIRE_AUTHENTICATED_HTTP,
+  );
+  if (authenticatedHttpAudit !== undefined) {
+    cfg.audit.requireForAuthenticatedHttp = authenticatedHttpAudit;
+  }
+
   const mode = process.env.FOLDERFORGE_HTTP_AUTH;
   const resource = process.env.FOLDERFORGE_OAUTH_RESOURCE;
   const issuer = process.env.FOLDERFORGE_OAUTH_ISSUER;
@@ -162,7 +178,7 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
       name: 'folderforge',
       transport: 'stdio',
       http: { host: '127.0.0.1', port: 7331 },
-      dashboard: { host: '127.0.0.1', port: 7332 },
+      dashboard: { enabled: true, host: '127.0.0.1', port: 7332 },
     },
     workspace: {
       defaultProject: projectRoot,
@@ -182,6 +198,11 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
         'docker_prune',
       ],
       blockedCommands: [...DEFAULT_BLOCKED],
+    },
+    audit: {
+      durability: 'best-effort',
+      requireForHighRisk: true,
+      requireForAuthenticatedHttp: true,
     },
     terminal: {
       shell: defaultShell(),
@@ -246,85 +267,6 @@ function deepMerge<T>(base: T, override: Partial<T>): T {
   return (override ?? base) as T;
 }
 
-/**
- * Build a fully-populated, "batteries-included" config intended to be written
- * to disk on first run. Unlike defaultConfig (conservative, safe mode, adapters
- * off), this turns on the things most users want for AI vibe-coding + UI tests:
- *   - policy mode `dev`
- *   - tools preset `vibe-lite` (folder-scoped coding set + browser group)
- *   - Playwright adapter enabled (so browser_* tools actually run)
- * The projectRoot is written as "." so the file stays portable/relocatable.
- */
-export function fullConfig(): Record<string, unknown> {
-  const base = defaultConfig('.') as unknown as Record<string, unknown>;
-  return {
-    ...base,
-    server: {
-      name: 'folderforge',
-      transport: 'http',
-      http: { host: '127.0.0.1', port: 7331, sessionTtlMs: 1_800_000 },
-      dashboard: { host: '127.0.0.1', port: 7332 },
-    },
-    workspace: {
-      defaultProject: '.',
-      allowedDirectories: ['.'],
-      deniedGlobs: [...DEFAULT_DENIED_GLOBS],
-    },
-    policy: {
-      ...(base.policy as Record<string, unknown>),
-      defaultMode: 'dev',
-    },
-    tools: { preset: 'vibe-lite' },
-    adapters: {
-      serena: { enabled: false, command: 'serena', args: [] },
-      playwright: packageLocalPlaywrightDef(true),
-      desktopCommander: {
-        enabled: false,
-        command: 'npx',
-        args: ['-y', '@wonderwhy-er/desktop-commander@latest'],
-      },
-      godot: { enabled: false, godotPath: 'godot', editorPort: 6550, runtimePort: 9090 },
-    },
-  };
-}
-
-/**
- * Write a full, batteries-included config to `folderforge.yaml` in projectRoot
- * if (and only if) no config file already exists in any of the discovery
- * locations. Returns the absolute path written, or null when a config was
- * already present (nothing is overwritten). Failures are logged, never thrown -
- * a missing-config write must never block startup.
- */
-export function ensureConfigFile(projectRoot: string): string | null {
-  const root = resolve(projectRoot);
-  const discovery = [
-    process.env.FOLDERFORGE_CONFIG,
-    resolve(root, 'folderforge.yaml'),
-    resolve(root, '.folderforge.yaml'),
-    resolve(root, '.folderforge/config.yaml'),
-  ].filter((p): p is string => Boolean(p));
-
-  for (const p of discovery) {
-    const abs = isAbsolute(p) ? p : resolve(root, p);
-    if (existsSync(abs)) return null; // already configured; never overwrite
-  }
-
-  const target = resolve(root, '.folderforge/config.yaml');
-  try {
-    mkdirSync(dirname(target), { recursive: true });
-    const header =
-      '# FolderForge - auto-generated full config (first run).\n' +
-      '# Edit freely; this file is only created when no config exists.\n' +
-      '# Playwright is enabled so browser_* tools work for FE/UI testing.\n\n';
-    writeFileSync(target, header + stringifyYaml(fullConfig()), 'utf8');
-    logger.info({ configPath: target }, 'No config found; wrote a full default config');
-    return target;
-  } catch (err) {
-    logger.warn({ configPath: target, err: String(err) }, 'Could not write default config; using built-in defaults');
-    return null;
-  }
-}
-
 export interface LoadConfigOptions {
   configPath?: string;
   projectRoot?: string;
@@ -385,6 +327,17 @@ export function validateConfig(cfg: FolderForgeConfig): void {
   if (cfg.policy.approvalTtlMs <= 0) {
     errors.push(`policy.approvalTtlMs must be > 0 (got ${cfg.policy.approvalTtlMs})`);
   }
+  if (!['required', 'best-effort'].includes(cfg.audit.durability)) {
+    errors.push(
+      `audit.durability must be "required" or "best-effort" (got "${cfg.audit.durability}")`,
+    );
+  }
+  if (typeof cfg.audit.requireForHighRisk !== 'boolean') {
+    errors.push('audit.requireForHighRisk must be a boolean');
+  }
+  if (typeof cfg.audit.requireForAuthenticatedHttp !== 'boolean') {
+    errors.push('audit.requireForAuthenticatedHttp must be a boolean');
+  }
   for (const [index, policyFile] of (cfg.policy.files ?? []).entries()) {
     if (typeof policyFile !== 'string' || policyFile.trim().length === 0) {
       errors.push(`policy.files[${index}] must be a non-empty project-relative path`);
@@ -395,6 +348,9 @@ export function validateConfig(cfg: FolderForgeConfig): void {
   }
   if (cfg.server.http.port <= 0 || cfg.server.http.port > 65535) {
     errors.push(`server.http.port must be 1-65535 (got ${cfg.server.http.port})`);
+  }
+  if (typeof cfg.server.dashboard.enabled !== 'boolean') {
+    errors.push('server.dashboard.enabled must be a boolean');
   }
   if (cfg.server.dashboard.port <= 0 || cfg.server.dashboard.port > 65535) {
     errors.push(`server.dashboard.port must be 1-65535 (got ${cfg.server.dashboard.port})`);

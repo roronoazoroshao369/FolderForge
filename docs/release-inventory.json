@@ -1,0 +1,391 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-20T16:15:46.717Z",
+  "repository": "roronoazoroshao369/FolderForge",
+  "package": {
+    "name": "@musashishao/folderforge",
+    "sourceVersion": "2.5.0",
+    "distTags": {
+      "next": "2.0.0-rc.2",
+      "latest": "2.3.4"
+    }
+  },
+  "remoteTags": [
+    {
+      "tag": "v2.0.0",
+      "object": "88fb531f6703926cc7594d0ad63fc49154bd4481",
+      "commit": "6cde6708201873647b8f682cd6918fa86e520f24",
+      "annotated": true
+    },
+    {
+      "tag": "v2.0.0-rc.2",
+      "object": "7803b0e0ed1d7f610d11f556d0c6f4c0122b94cc",
+      "commit": "5728e3b2608b51cfefe809cc2da8c35112380356",
+      "annotated": true
+    }
+  ],
+  "githubReleases": [
+    {
+      "tag": "v2.0.0",
+      "publishedAt": "2026-07-13T00:54:46Z",
+      "immutable": false,
+      "assets": []
+    }
+  ],
+  "versions": [
+    {
+      "version": "1.2.0",
+      "publishedAt": "2026-06-25T16:45:08.704Z",
+      "gitHead": "799b0087a58af23058c30a3101764a6bad8b06f6",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-U4RlbXZ4hPt0rjljB42QzaBWXiyTDE+NabnUYfdOxdT+e4BYVPuI1IXWKf5m2/tyh6UYZgqv7IgNyDwSN3V2kQ==",
+      "distShasum": "2e061e914fce5750bbe36226781253b9b2c9b68e",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.2.1",
+      "publishedAt": "2026-06-26T01:46:43.952Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-GVArY5n4WQdVgwk8gpELtLR7+YptiiNjdA2CwqfTsmAy9TwT0RuWBtQEXWMNkvQWAirf7Xnum/r7jvolz6K/bw==",
+      "distShasum": "3de25157d8edfd43465f071882da630da2282b54",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.2.1"
+    },
+    {
+      "version": "1.2.2",
+      "publishedAt": "2026-06-26T01:57:11.997Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-Z3lW4JCkaXPG/nu/xY34NvOg04y9Ke9wSxs/a77WdX+CT++iI/Cl088rrlcGh1V3WtLywhvYonRK8ZTgQSzjGQ==",
+      "distShasum": "533891a50f12593c5455c0f30327adf06a6d1bbc",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.2.2"
+    },
+    {
+      "version": "1.2.3",
+      "publishedAt": "2026-06-26T02:02:06.529Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-g674U10l3r5iC8lqQMiqyeUQtBHR1yj9g9nJ8mi+9HtYq5ScnUaRf0zZdeeTKojrQOsDrFyPQbPNZPTsZGaqWQ==",
+      "distShasum": "2b1d5e03c09e669aa1f91b5f5e381e98dade9547",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.2.3"
+    },
+    {
+      "version": "1.2.4",
+      "publishedAt": "2026-06-26T02:51:19.957Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-Kmbl4Hbv1tle/IMG5ru1kAO2cbKJid0Up2ew8z4eWOGVTz9gjHrMrvu+hkDcb/nC2zo5lL3HqsdZCOT0XcWWGQ==",
+      "distShasum": "932273c83e2b67144a6a4557ec95625148e86124",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.2.4"
+    },
+    {
+      "version": "1.2.5",
+      "publishedAt": "2026-06-26T03:09:40.269Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-DBAqOIMA6PitmRtrSED3Zcjy7BqbmFKJSLjhgJPxT+DWe09nlk0KSmBkRFwrp5dvDLj937oDRcpIaTgZu9zPwA==",
+      "distShasum": "bb9635f7f6981e6991eed2c758350f0f539dab43",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.2.5"
+    },
+    {
+      "version": "1.2.6",
+      "publishedAt": "2026-06-26T04:16:14.005Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-PrhoXD858nm17yTsemcjWSrDJVjYtJhJZ5pfJ1pVkeh66WUD9BAhRtdrOMtXbT8Gungdr9lj6mfqCKhp+E2hgA==",
+      "distShasum": "fb94d602511a094c808d9dbf5839ec516f5484f1",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.2.6"
+    },
+    {
+      "version": "1.2.7",
+      "publishedAt": "2026-06-26T04:19:48.516Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-z8zOTc6WzRV818OTyv+18GWCFnl8MLD4YYzJVQQlXT/J3fccgygH8uFrXITc1hHXiGbxUJ1YlstsdAA/hIDIjA==",
+      "distShasum": "45ad333da9addda064c60cc6a8c1ab23ae5404f4",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.2.7"
+    },
+    {
+      "version": "1.3.0",
+      "publishedAt": "2026-06-26T17:03:22.557Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-vhqQUqZXJZfr6bmrwiqLJBCkxESQOnvVkxFw7ZauYklNddKWBa7Psq1QPjTak96AQxvoEpFr33hN+fpIHx2j8Q==",
+      "distShasum": "a14286786a2b333c886b8ec1780ed7b0307d75c4",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.3.0"
+    },
+    {
+      "version": "1.3.1",
+      "publishedAt": "2026-06-26T17:09:53.300Z",
+      "gitHead": "ef6d95e760ddc596d1c37fff27b6c57e1373296d",
+      "sourceVersion": "1.2.0",
+      "distIntegrity": "sha512-MAQAIRZbESlXEQrOuwuUIWR8TsYz9bcdwF5BP/qtvB7Z5f47gqZ0VIUHyUqQcFIZmJE95sRSyoiSUB6k3DPJNQ==",
+      "distShasum": "d394070402238491643998b7927f21de51064d7f",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.2.0, not 1.3.1"
+    },
+    {
+      "version": "1.3.2",
+      "publishedAt": "2026-06-27T01:18:07.540Z",
+      "gitHead": "ee801d9c9ccacb49bd6608204e788bc325c88e6c",
+      "sourceVersion": "1.3.2",
+      "distIntegrity": "sha512-W5XigPTuEKTgtZJ09jNBaWmZ2syd9Lk2vGhbzvJX58gW+XyV8MzXT+P0xhLhy8GjBXRFbC7oiVmXzP4QRDx/Pw==",
+      "distShasum": "857d881ed95d8dfa4d4b32f5e54988effd7c6eeb",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.3.3",
+      "publishedAt": "2026-06-27T15:45:32.921Z",
+      "gitHead": "dc6b5f4318771038ef09db684248a7e1be69137e",
+      "sourceVersion": "1.3.3",
+      "distIntegrity": "sha512-iMQ/IYmaac995vNRrIhVDUDfVYITeedpIRsYbHur3w1Ag10JQEEtNPHPWKXv+I0IQVgN46qlS5eJ54aqKux0eQ==",
+      "distShasum": "b61440b99adc1f2ec08f518c2e43a07a2b5f4528",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.4.0",
+      "publishedAt": "2026-06-28T07:07:45.513Z",
+      "gitHead": "79d618c91510b8e1a7784d2562183c639fccfc85",
+      "sourceVersion": "1.4.0",
+      "distIntegrity": "sha512-jxo1BoqtWuhLlll7gyV+4b+vrZVusa6prfm675SqhE9o1elluybX8PrZsWrzH5vPUCOwzZ/p+CtQIVbSpS4B+w==",
+      "distShasum": "95f4ddf616b32f27674c1b352578ef202e1266a8",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.4.1",
+      "publishedAt": "2026-06-28T07:25:46.173Z",
+      "gitHead": "411585bcf14a5a2df7713c367c72c7e8c420df74",
+      "sourceVersion": "1.4.1",
+      "distIntegrity": "sha512-XIP9HXtLbsNmDnWPFmA76dIy4FY2ekG9Lfji1at6ckCLCLJkbJK0rj5rbSR48AuRx3dF70bviA8GumDzFS6sXQ==",
+      "distShasum": "cc1484c58495f418a5aab7dab9412d51284d5b52",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.4.2",
+      "publishedAt": "2026-06-28T16:15:10.513Z",
+      "gitHead": "f4401707c6bf3ebcadc1044bede5049ac8777720",
+      "sourceVersion": "1.4.2",
+      "distIntegrity": "sha512-Lw14yHIQqX98qxKZgTGNNEeMGX2t1N9daBaHzapZQaxVvFVwTvFF5TdWklScP5mHRlFkjjMqBOsZJQMygWjryA==",
+      "distShasum": "e047f8c43e4131732e1c3f31731888ced20bfae4",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.4.3",
+      "publishedAt": "2026-06-29T01:17:02.958Z",
+      "gitHead": "13dfb1091d36e3b729198b3beb4ddb3f9f7d23d9",
+      "sourceVersion": "1.4.3",
+      "distIntegrity": "sha512-Vbczu4s9wyAthsMsQS+ZIg8ADOSuyoI8YtNlQWlBvFvi8VpBMZjMhFtBSK2fQizkxwSD7wUdgCG+GRCfDegWfQ==",
+      "distShasum": "f5ef13df7d69e973fb28a05603575c1b7016232d",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.5.0",
+      "publishedAt": "2026-06-29T10:44:29.297Z",
+      "gitHead": "e0359756a0da6d9ac22c1743d75ea0a9646fdd6f",
+      "sourceVersion": "1.4.4",
+      "distIntegrity": "sha512-XvlDtGkQysylf4Ntho7lkKwUqhwBZFtyzkzlXD930Re47CUcHIrOAPkRXfBc8kUU81PHRmoth1W89KZdYXH5yA==",
+      "distShasum": "f3543442e0b27bbe44165be02efdea1a0d44a673",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 1.4.4, not 1.5.0"
+    },
+    {
+      "version": "1.5.1",
+      "publishedAt": "2026-06-29T13:36:08.440Z",
+      "gitHead": "76ad23612fc3a0731138bd0dd94980bd5e22bcd0",
+      "sourceVersion": "1.5.1",
+      "distIntegrity": "sha512-6rO6ppmxBRxTFjTIkek73TwI5lpJe+nAUiilRssYiFpNjxeGgEsSzW0YfqCRBHJP32xMphWKo+gp908y82kThg==",
+      "distShasum": "4d6bd8e769c1b4767a9880070178592cb7157475",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "1.5.2",
+      "publishedAt": "2026-06-29T13:57:27.831Z",
+      "gitHead": "41dedad063f9a1b9a0c201236eb85f68f7968777",
+      "sourceVersion": "1.5.2",
+      "distIntegrity": "sha512-Wil0dfuyCQKC/xKpyYe4JhLqeVQV7yTD6+E3miTc0An/ZHcUXpBdKqsAmq4CaiAYlNAcwMEUKnetsAYXxb2a2g==",
+      "distShasum": "bc631d5f23889b5acfa1731403c936300c2d7d00",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.0.0-rc.2",
+      "publishedAt": "2026-07-11T11:17:52.528Z",
+      "gitHead": "5728e3b2608b51cfefe809cc2da8c35112380356",
+      "sourceVersion": "2.0.0-rc.2",
+      "distIntegrity": "sha512-YS7q8IPx6kuQ9yuri2Gec5L6J20BdAZ2ULnYytcPcz4kmUGFFaLwFBuAwWQkONrE8hu+exYKxqDM6E+BpeAO8Q==",
+      "distShasum": "aa6d5ad7148816ecfdacd30241bbac9eb9ad3daf",
+      "remoteTag": {
+        "object": "7803b0e0ed1d7f610d11f556d0c6f4c0122b94cc",
+        "commit": "5728e3b2608b51cfefe809cc2da8c35112380356",
+        "annotated": true
+      },
+      "githubRelease": null,
+      "status": "tag-aligned-no-release",
+      "reason": "npm gitHead, source version, and remote tag align; no GitHub Release exists"
+    },
+    {
+      "version": "2.0.0",
+      "publishedAt": "2026-07-12T05:02:05.275Z",
+      "gitHead": "cc5dd53c7f12e7491971ebde4e05dcd61d6e7130",
+      "sourceVersion": "2.0.0",
+      "distIntegrity": "sha512-0cW8pnbrnN8K9CKoDC7YWbda2ItfCiXtPdLMejBfhq3o2suvfMgaUGXx1fTg0Brq9hbI1EYtLRt6sC0OwbmzkA==",
+      "distShasum": "5b95497de6106275f8bce0b6e7ff543f4184f678",
+      "remoteTag": {
+        "object": "88fb531f6703926cc7594d0ad63fc49154bd4481",
+        "commit": "6cde6708201873647b8f682cd6918fa86e520f24",
+        "annotated": true
+      },
+      "githubRelease": {
+        "tag": "v2.0.0",
+        "publishedAt": "2026-07-13T00:54:46Z",
+        "immutable": false,
+        "assets": []
+      },
+      "status": "public-tag-conflict",
+      "reason": "v2.0.0 resolves to 6cde6708201873647b8f682cd6918fa86e520f24, not npm gitHead cc5dd53c7f12e7491971ebde4e05dcd61d6e7130"
+    },
+    {
+      "version": "2.1.0",
+      "publishedAt": "2026-07-15T13:35:11.898Z",
+      "gitHead": "66d5931f5d42afecedfe0787f640b15d26e68b34",
+      "sourceVersion": "2.1.0",
+      "distIntegrity": "sha512-4h8QdEr/d03aTPjl1pWpGljqyZ02D07TDG5/ASS/d2Bhywif1OXT8nhDz5wimqc0piRTPoZ8l+fN7SSv979hQA==",
+      "distShasum": "a38daf070bfe4b0696a3ab1a2c4d021dc7308c07",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.2.0",
+      "publishedAt": "2026-07-16T01:08:25.144Z",
+      "gitHead": "dcb36083fd383411eadf2881cdcf7f0de15e169c",
+      "sourceVersion": "2.1.0",
+      "distIntegrity": "sha512-yNnB5tcO8PwzMnPsSMdYXQ9ueEn5QbnHeImchFA6Nt/cBGFoZi0lSoBQ2ICSZ4H9Kdl8QjL47GXjUT+i4QfduQ==",
+      "distShasum": "e654c568effafdbfc43d4e6672b32b40033092eb",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-claim-conflict",
+      "reason": "npm gitHead contains package version 2.1.0, not 2.2.0"
+    },
+    {
+      "version": "2.2.1",
+      "publishedAt": "2026-07-16T06:56:01.689Z",
+      "gitHead": "e1da2865b2c49b13c2922fa0942d663d1861e1b0",
+      "sourceVersion": "2.2.1",
+      "distIntegrity": "sha512-MdJdbuaAMOsrHcTOrHj/PMI4zN5iY0G6UrpwoPT34b7jL2GXzX6wFqFawu7JWHk7wVVRzYezrO3D13a3jFTJ8w==",
+      "distShasum": "47244b9432548ee84d3cc771394403bd29ffc3d2",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.2.2",
+      "publishedAt": "2026-07-16T07:39:37.520Z",
+      "gitHead": "f5d0a20c83de3bc8ce442b9e258af323a758cea5",
+      "sourceVersion": "2.2.2",
+      "distIntegrity": "sha512-R00lQtJDJKjDDlD/ygd1er/RQfoi+EasS+5wj2l1sEZFPGwAZZkgiYCXT8uJhLZfIOuBUmoe6a5luDyku8C5eg==",
+      "distShasum": "8426604f4a62621d26ccb04744a0f09ed3b23ac8",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.2.3",
+      "publishedAt": "2026-07-17T01:51:36.972Z",
+      "gitHead": "af2d03001ee51ba469e0e0eedd5d9e667462f9f6",
+      "sourceVersion": "2.2.3",
+      "distIntegrity": "sha512-7SFcIosqB6yyS0RpRlJJb/ie8LXJxWOMl6TAZl0vkr0QHtlGyWVOlNGTjkQlGIP8VYRaHP48RFe9fEggpWqKag==",
+      "distShasum": "834c64096effc48e2f60d348555865f94bd0ab51",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.3.0",
+      "publishedAt": "2026-07-18T02:16:50.577Z",
+      "gitHead": "f82caf4aaeb91e94b3afd0714d7b38bc1faa393c",
+      "sourceVersion": "2.3.0",
+      "distIntegrity": "sha512-BsioKCM5FouRi+oKri4exxRYL+pIcSnW2L6LYqZ7utOV3EvWzbju/l1NA3D30GJ+FqABCxBlhEP6XllDQ3jACA==",
+      "distShasum": "f7aba1841e9c69345095d6bcb55739e864beb777",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.3.4",
+      "publishedAt": "2026-07-19T02:02:49.222Z",
+      "gitHead": "c27a50a0fc75f97970fd3be21804fd112685183d",
+      "sourceVersion": "2.3.4",
+      "distIntegrity": "sha512-GfcnNV+1TsX+sC8ur8Fdc7aOtCPwV0UijEVvYCF8NBXIsKPMRPghuW2fLyAtnyCpbxuYj5jLdTuN/+z9YoVItQ==",
+      "distShasum": "f3ddd2d0944acf04046155c0c105172e444e7a13",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    }
+  ],
+  "limitations": [
+    "npm gitHead is registry metadata and is not a cryptographic attestation.",
+    "Historical packages without an aligned public tag and release bundle remain unverified.",
+    "This snapshot does not mutate, recreate, or retag historical releases."
+  ]
+}

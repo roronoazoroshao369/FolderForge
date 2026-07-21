@@ -1,34 +1,92 @@
-import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import type { AuditEvent } from './event-types.js';
+import type { AuditConfig, RiskLevel, ToolPrincipal } from '../core/types.js';
+import { AuditUnavailableError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
+import type { AuditEvent } from './event-types.js';
+import {
+  FileAuditStore,
+  type AuditFileSystem,
+} from '../evidence/file-audit-store.js';
+import type {
+  AuditStore,
+  AuditVerificationReport,
+} from '../evidence/ports.js';
+
+export type { AuditFileSystem } from '../evidence/file-audit-store.js';
+
+export interface AuditRecordOptions {
+  /** Override the configured baseline for this individual event. */
+  required?: boolean;
+}
+
+export interface AuditRequirementContext {
+  risk?: RiskLevel;
+  principal?: ToolPrincipal;
+}
+
+const DEFAULT_AUDIT_CONFIG: AuditConfig = {
+  durability: 'best-effort',
+  requireForHighRisk: true,
+  requireForAuthenticatedHttp: true,
+};
 
 /**
- * Append-only JSONL audit log, also kept in a ring buffer for fast recent reads.
+ * Governed audit facade. Runtime callers receive plain AuditEvent objects while
+ * the storage port persists versioned, hash-chained envelopes.
  */
 export class AuditLog {
-  private buffer: AuditEvent[] = [];
-  private maxBuffer = 500;
-  private filePath: string;
+  private readonly buffer: AuditEvent[] = [];
+  private readonly maxBuffer = 500;
+  private readonly config: AuditConfig;
+  private readonly store: AuditStore;
 
-  constructor(projectRoot: string) {
-    this.filePath = join(projectRoot, '.folderforge', 'audit', 'audit.jsonl');
+  constructor(
+    projectRoot: string,
+    config: AuditConfig = DEFAULT_AUDIT_CONFIG,
+    fileSystem: Partial<AuditFileSystem> = {},
+    store?: AuditStore,
+  ) {
+    this.config = { ...config };
+    this.store =
+      store ?? new FileAuditStore(projectRoot, { fileSystem });
+    this.preflight();
+  }
+
+  requiresDurability(context: AuditRequirementContext = {}): boolean {
+    if (this.config.durability === 'required') return true;
+    if (
+      this.config.requireForHighRisk &&
+      (context.risk === 'HIGH' || context.risk === 'CRITICAL')
+    ) {
+      return true;
+    }
+    return Boolean(
+      this.config.requireForAuthenticatedHttp &&
+        (context.principal?.authMode === 'token' ||
+          context.principal?.authMode === 'oauth'),
+    );
+  }
+
+  preflight(options: AuditRecordOptions = {}): void {
+    const required = options.required ?? this.config.durability === 'required';
     try {
-      mkdirSync(dirname(this.filePath), { recursive: true });
-    } catch (err) {
-      logger.warn({ err: String(err) }, 'Could not create audit directory');
+      this.store.preflight(required);
+    } catch (error) {
+      this.handleFailure(error, required, 'Audit storage preflight failed');
     }
   }
 
-  record(event: Omit<AuditEvent, 'ts'>): AuditEvent {
+  record(
+    event: Omit<AuditEvent, 'ts'>,
+    options: AuditRecordOptions = {},
+  ): AuditEvent {
+    const required = options.required ?? this.config.durability === 'required';
     const full: AuditEvent = { ts: new Date().toISOString(), ...event };
-    this.buffer.push(full);
-    if (this.buffer.length > this.maxBuffer) this.buffer.shift();
     try {
-      appendFileSync(this.filePath, JSON.stringify(full) + '\n', 'utf8');
-    } catch (err) {
-      logger.warn({ err: String(err) }, 'Failed to append audit event');
+      this.store.append(full, { required });
+    } catch (error) {
+      this.handleFailure(error, required, 'Failed to append audit event');
     }
+    this.remember(full);
     return full;
   }
 
@@ -37,13 +95,32 @@ export class AuditLog {
   }
 
   exportPath(): string {
-    return this.filePath;
+    return this.store.filePath;
   }
 
   exportRaw(): string {
-    if (existsSync(this.filePath)) {
-      return readFileSync(this.filePath, 'utf8');
+    return this.store.readRaw();
+  }
+
+  verify(): AuditVerificationReport {
+    return this.store.verify();
+  }
+
+  private remember(event: AuditEvent): void {
+    this.buffer.push(event);
+    if (this.buffer.length > this.maxBuffer) this.buffer.shift();
+  }
+
+  private handleFailure(
+    error: unknown,
+    required: boolean,
+    message: string,
+  ): void {
+    const detail = { err: String(error), auditPath: this.store.filePath };
+    if (required) {
+      logger.error(detail, message);
+      throw new AuditUnavailableError();
     }
-    return this.buffer.map((e) => JSON.stringify(e)).join('\n');
+    logger.warn(detail, message);
   }
 }

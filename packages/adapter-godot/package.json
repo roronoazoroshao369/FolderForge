@@ -1,0 +1,34 @@
+{
+  "name": "@folderforge/adapter-godot",
+  "version": "0.1.0",
+  "description": "Godot CLI and runtime bridge primitives for FolderForge integrations.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pack:check": "npm pack --dry-run --ignore-scripts"
+  },
+  "dependencies": {
+    "execa": "^9.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

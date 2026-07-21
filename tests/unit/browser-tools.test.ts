@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { browserTools } from '../../src/tools/browser-tools.js';
 import { agentTools } from '../../src/tools/agent-tools.js';
 import { workflowTools } from '../../src/tools/workflow-tools.js';
-import { loadConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { loadConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { buildRegistry, resolveActiveTools, TASK_PRESETS } from '../../src/tools/index.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
 

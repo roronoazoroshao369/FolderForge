@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { defaultConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { defaultConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 
 function setup(root: string) {

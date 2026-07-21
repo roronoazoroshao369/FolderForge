@@ -1,5 +1,5 @@
 import { Socket } from 'node:net';
-import type { GodotConfig } from '../../core/types.js';
+import type { GodotAdapterConfig } from './types.js';
 
 /**
  * Godot runtime-bridge adapter (Step 3 - RUN channel).
@@ -45,7 +45,10 @@ export class GodotRuntime {
   private readonly host: string;
   private readonly port: number;
 
-  constructor(config: Pick<GodotConfig, 'runtimePort'>, host: string = DEFAULT_HOST) {
+  constructor(
+    config: Pick<GodotAdapterConfig, 'runtimePort'>,
+    host: string = DEFAULT_HOST,
+  ) {
     this.host = host;
     this.port = config.runtimePort;
   }

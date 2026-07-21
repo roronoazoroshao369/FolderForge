@@ -26,7 +26,7 @@ import type {
   ToolPrincipal,
 } from '../core/types.js';
 import { logger } from '../core/logger.js';
-import type { Container } from '../core/container.js';
+import type { Container } from '../runtime/container.js';
 import { buildBearerChallenge } from './auth/oauth.js';
 import { McpPromptCatalog } from './mcp-prompts.js';
 import { McpResourceCatalog, McpResourceSubscriptions } from './mcp-resources.js';

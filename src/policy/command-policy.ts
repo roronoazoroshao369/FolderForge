@@ -56,7 +56,7 @@ const MEDIUM_PATTERNS: RegExp[] = [
  * accepted. Root/home/system paths never enter this branch.
  */
 function recursiveRemovalTarget(command: string): string | null {
-  const match = /^rm\s+-rf?\s+(?:--\s+)?(?:"([^"]+)"|'([^']+)'|([^\s;&|`$*?{}\[\]]+))$/.exec(
+  const match = /^rm\s+-rf?\s+(?:--\s+)?(?:"([^"]+)"|'([^']+)'|([^\s;&|`$*?{}\x5b\x5d]+))$/.exec(
     command.trim()
   );
   if (!match) return null;
@@ -64,7 +64,7 @@ function recursiveRemovalTarget(command: string): string | null {
   const raw = match[1] ?? match[2] ?? match[3] ?? '';
   // Quoting makes spaces literal, but expansion/chaining characters remain out
   // of bounds for this narrowly-scoped cleanup analysis.
-  if (!raw || /[;&|`$*?{}\[\]\r\n]/.test(raw) || !isAbsolute(raw)) return null;
+  if (!raw || /[;&|`$*?{}\x5b\x5d\r\n]/.test(raw) || !isAbsolute(raw)) return null;
   return resolve(raw);
 }
 

@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   attestations: write
   artifact-metadata: write
@@ -77,6 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           pack_json="$(npm pack --json --ignore-scripts)"
+          printf '%s\n' "${pack_json}" > "${RUNNER_TEMP}/npm-pack.json"
           tarball="$(node -e "const value=JSON.parse(process.argv[1]); if (!Array.isArray(value) || !value[0]?.filename) process.exit(1); process.stdout.write(value[0].filename)" "${pack_json}")"
           test -f "${tarball}"
           echo "filename=${tarball}" >> "${GITHUB_OUTPUT}"
@@ -85,16 +86,39 @@ jobs:
       - name: Generate CycloneDX SBOM
         run: npm sbom --sbom-format cyclonedx --sbom-type library > "${RUNNER_TEMP}/folderforge.cdx.json"
 
+      - name: Create and verify immutable release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dir="${RUNNER_TEMP}/release-bundle"
+          node scripts/create-release-bundle.mjs \
+            --root "${GITHUB_WORKSPACE}" \
+            --tag "${RELEASE_TAG}" \
+            --commit "${GITHUB_SHA}" \
+            --tarball "${{ steps.pack.outputs.path }}" \
+            --sbom "${RUNNER_TEMP}/folderforge.cdx.json" \
+            --notes "${RUNNER_TEMP}/release-notes.md" \
+            --pack-json "${RUNNER_TEMP}/npm-pack.json" \
+            --output-dir "${bundle_dir}"
+          node scripts/verify-release-bundle.mjs \
+            --bundle-dir "${bundle_dir}" \
+            --root "${GITHUB_WORKSPACE}"
+
       - name: Attest tarball build provenance
         uses: actions/attest@36051bcae73b7c2a8a6945a48cbf80953c6baa35 # v4
         with:
-          subject-path: ${{ steps.pack.outputs.path }}
+          subject-path: ${{ runner.temp }}/release-bundle/${{ steps.pack.outputs.filename }}
 
       - name: Attest tarball SBOM
         uses: actions/attest@36051bcae73b7c2a8a6945a48cbf80953c6baa35 # v4
         with:
-          subject-path: ${{ steps.pack.outputs.path }}
-          sbom-path: ${{ runner.temp }}/folderforge.cdx.json
+          subject-path: ${{ runner.temp }}/release-bundle/${{ steps.pack.outputs.filename }}
+          sbom-path: ${{ runner.temp }}/release-bundle/folderforge.cdx.json
+
+      - name: Attest release manifest
+        uses: actions/attest@36051bcae73b7c2a8a6945a48cbf80953c6baa35 # v4
+        with:
+          subject-path: ${{ runner.temp }}/release-bundle/release-bundle.json
 
       - name: Upload review artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -102,19 +126,26 @@ jobs:
           name: npm-release-${{ inputs.tag }}
           if-no-files-found: error
           retention-days: 30
-          path: |
-            ${{ steps.pack.outputs.path }}
-            ${{ runner.temp }}/folderforge.cdx.json
-            ${{ runner.temp }}/release-notes.md
+          path: ${{ runner.temp }}/release-bundle
 
       - name: Publish exact attested tarball with npm OIDC
-        run: npm publish "${{ steps.pack.outputs.path }}" --access public
+        run: npm publish "${RUNNER_TEMP}/release-bundle/${{ steps.pack.outputs.filename }}" --access public
 
-      - name: Verify registry state
+      - name: Verify registry package bytes and source metadata
+        run: node scripts/verify-release-bundle.mjs --bundle-dir "${RUNNER_TEMP}/release-bundle" --registry
+
+      - name: Attach immutable evidence to the existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          package_name="$(node -p "require('./package.json').name")"
-          package_version="$(node -p "require('./package.json').version")"
-          published="$(npm view "${package_name}@${package_version}" version)"
-          test "${published}" = "${package_version}"
+          gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+          gh release upload "${RELEASE_TAG}" \
+            "${RUNNER_TEMP}/release-bundle/${{ steps.pack.outputs.filename }}" \
+            "${RUNNER_TEMP}/release-bundle/folderforge.cdx.json" \
+            "${RUNNER_TEMP}/release-bundle/release-notes.md" \
+            "${RUNNER_TEMP}/release-bundle/npm-pack.json" \
+            "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
+            "${RUNNER_TEMP}/release-bundle/SHA256SUMS" \
+            --repo "${GITHUB_REPOSITORY}"

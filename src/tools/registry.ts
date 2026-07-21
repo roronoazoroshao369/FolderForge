@@ -1,4 +1,5 @@
 import type {
+  FolderForgeConfig,
   ToolDefinition,
   ToolResult,
   ToolCallControl,
@@ -8,9 +9,15 @@ import type {
   ToolPrincipal,
   ToolCallClassification,
 } from "../core/types.js";
-import type { Container } from "../core/container.js";
+import type { AuditLog } from "../audit/audit-log.js";
+import type { PolicyEngine } from "../policy/policy-engine.js";
+import type { RateLimiter } from "../policy/rate-limiter.js";
 import { TOOL_RISK, RISK_ORDER } from "../policy/risk.js";
-import { ApprovalRequiredError, PolicyDeniedError } from "../core/errors.js";
+import {
+  ApprovalRequiredError,
+  AuditUnavailableError,
+  PolicyDeniedError,
+} from "../core/errors.js";
 import { logger } from "../core/logger.js";
 
 /**
@@ -92,6 +99,14 @@ export function defineTool(def: {
   };
 }
 
+export interface GovernanceRuntime {
+  config: FolderForgeConfig;
+  audit: AuditLog;
+  policy: PolicyEngine;
+  rateLimiter: RateLimiter;
+  projectRoot(): string;
+}
+
 /**
  * Central registry. Holds every tool, computes the curated active subset,
  * and wraps each call with policy evaluation + audit.
@@ -100,7 +115,7 @@ export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>();
   private activeSet: Set<string> | null = null;
 
-  constructor(private container: Container) {}
+  constructor(private container: GovernanceRuntime) {}
 
   register(tool: ToolDefinition): void {
     this.tools.set(tool.name, tool);
@@ -133,7 +148,7 @@ export class ToolRegistry {
   }
 
   /** Restrict the visible tool set (routing). Pass null to show all. */
-  setActive(names: string[] | null): void {
+  setActive(names: readonly string[] | null): void {
     this.activeSet = names ? new Set(names) : null;
   }
 
@@ -317,111 +332,141 @@ export class ToolRegistry {
       return { ok: false, error: "Tool call cancelled before execution." };
     }
 
-    const principal = control?.principal ?? { id: "agent:unknown", role: "agent" as const };
+    const principal = control?.principal ?? {
+      id: "agent:unknown",
+      role: "agent" as const,
+    };
     const identityDetail = principalAuditDetail(principal);
-    this.container.audit.record({
-      type: "tool_call",
-      tool: name,
-      risk,
-      summary: summarizeArgs(name, governanceArgs, (value) =>
-        this.container.policy.secret.redactValue(value),
-      ),
-      detail: identityDetail,
-    });
-    const decision = this.container.policy.evaluate(
-      name,
-      risk,
-      mutates,
-      governanceArgs,
-      principal,
-    );
-    if (decision.kind === "deny") {
-      this.container.audit.record({
-        type: "policy_deny",
-        tool: name,
-        risk,
-        summary: decision.reason,
-        detail: identityDetail,
-      });
-      return { ok: false, error: `Denied: ${decision.reason}` };
-    }
-    if (decision.kind === "approval") {
-      this.container.audit.record({
-        type: "approval_request",
-        tool: name,
-        risk,
-        summary: decision.reason,
-        detail: { ...identityDetail, approvalId: decision.approvalId },
-      });
-
-      // Agent-facing protocol controls may report or render the request, but they
-      // cannot resolve it. Resolution is confined to the authenticated admin plane.
-      return {
-        ok: false,
-        approvalId: decision.approvalId,
-        error: `Approval required (${risk}). Resolve in the dashboard admin plane. id=${decision.approvalId}`,
-      };
-    }
-
-    // Rate limit / quota: applied only to calls that policy would actually
-    // run. Denied or approval-gated calls never consume quota.
-    const rl = this.container.rateLimiter.hit(name);
-    if (!rl.allowed) {
-      this.container.audit.record({
-        type: "rate_limited",
-        tool: name,
-        risk,
-        summary: rl.reason ?? "rate limited",
-        detail: {
-          ...identityDetail,
-          retryAfterMs: rl.retryAfterMs,
-          windowCount: rl.windowCount,
-          dailyCount: rl.dailyCount,
-        },
-      });
-      return {
-        ok: false,
-        error: `${rl.reason} Retry in ~${Math.ceil((rl.retryAfterMs ?? 0) / 1000)}s.`,
-      };
-    }
+    const auditRequired =
+      this.container.audit.requiresDurability?.({ risk, principal }) ?? false;
+    const recordAudit = (
+      event: Parameters<typeof this.container.audit.record>[0],
+    ): void => {
+      this.container.audit.record(event, { required: auditRequired });
+    };
+    let executionStarted = false;
 
     try {
-      const result = await descriptor.handler(handlerArgs, {
-        config: this.container.config,
-        projectRoot: this.container.projectRoot(),
-        ...(control !== undefined ? { control } : {}),
-        container: this.container,
-      });
-      this.container.audit.record({
-        type: result.ok ? "tool_result" : "tool_error",
+      recordAudit({
+        type: "tool_call",
         tool: name,
         risk,
-        ok: result.ok,
-        durationMs: Date.now() - started,
-        summary: result.ok ? "ok" : (result.error ?? "error"),
+        summary: summarizeArgs(name, governanceArgs, (value) =>
+          this.container.policy.secret.redactValue(value),
+        ),
         detail: identityDetail,
       });
-      return result;
+      const decision = this.container.policy.evaluate(
+        name,
+        risk,
+        mutates,
+        governanceArgs,
+        principal,
+      );
+      if (decision.kind === "deny") {
+        recordAudit({
+          type: "policy_deny",
+          tool: name,
+          risk,
+          summary: decision.reason,
+          detail: identityDetail,
+        });
+        return { ok: false, error: `Denied: ${decision.reason}` };
+      }
+      if (decision.kind === "approval") {
+        recordAudit({
+          type: "approval_request",
+          tool: name,
+          risk,
+          summary: decision.reason,
+          detail: { ...identityDetail, approvalId: decision.approvalId },
+        });
+
+        // Agent-facing protocol controls may report or render the request, but they
+        // cannot resolve it. Resolution is confined to the authenticated admin plane.
+        return {
+          ok: false,
+          approvalId: decision.approvalId,
+          error: `Approval required (${risk}). Resolve in the dashboard admin plane. id=${decision.approvalId}`,
+        };
+      }
+
+      // Rate limit / quota: applied only to calls that policy would actually
+      // run. Denied or approval-gated calls never consume quota.
+      const rl = this.container.rateLimiter.hit(name);
+      if (!rl.allowed) {
+        recordAudit({
+          type: "rate_limited",
+          tool: name,
+          risk,
+          summary: rl.reason ?? "rate limited",
+          detail: {
+            ...identityDetail,
+            retryAfterMs: rl.retryAfterMs,
+            windowCount: rl.windowCount,
+            dailyCount: rl.dailyCount,
+          },
+        });
+        return {
+          ok: false,
+          error: `${rl.reason} Retry in ~${Math.ceil((rl.retryAfterMs ?? 0) / 1000)}s.`,
+        };
+      }
+
+      try {
+        executionStarted = true;
+        const result = await descriptor.handler(handlerArgs, {
+          config: this.container.config,
+          projectRoot: this.container.projectRoot(),
+          ...(control !== undefined ? { control } : {}),
+          container: this.container,
+        });
+        recordAudit({
+          type: result.ok ? "tool_result" : "tool_error",
+          tool: name,
+          risk,
+          ok: result.ok,
+          durationMs: Date.now() - started,
+          summary: result.ok ? "ok" : (result.error ?? "error"),
+          detail: identityDetail,
+        });
+        return result;
+      } catch (err) {
+        if (err instanceof AuditUnavailableError) throw err;
+        const message =
+          err instanceof ApprovalRequiredError
+            ? `Approval required: ${err.message} (id=${err.approvalId})`
+            : err instanceof PolicyDeniedError
+              ? `Denied: ${err.message}`
+              : err instanceof Error
+                ? err.message
+                : String(err);
+        logger.error({ tool: name, err: message }, "tool error");
+        recordAudit({
+          type: "tool_error",
+          tool: name,
+          risk,
+          ok: false,
+          durationMs: Date.now() - started,
+          summary: message,
+          detail: identityDetail,
+        });
+        return { ok: false, error: message };
+      }
     } catch (err) {
-      const message =
-        err instanceof ApprovalRequiredError
-          ? `Approval required: ${err.message} (id=${err.approvalId})`
-          : err instanceof PolicyDeniedError
-            ? `Denied: ${err.message}`
-            : err instanceof Error
-              ? err.message
-              : String(err);
-      logger.error({ tool: name, err: message }, "tool error");
-      this.container.audit.record({
-        type: "tool_error",
-        tool: name,
-        risk,
-        ok: false,
-        durationMs: Date.now() - started,
-        summary: message,
-        detail: identityDetail,
-      });
-      return { ok: false, error: message };
+      if (!(err instanceof AuditUnavailableError)) throw err;
+      logger.error(
+        { tool: name, risk, executionStarted, code: err.code },
+        "Required audit storage unavailable",
+      );
+      if (executionStarted) {
+        return {
+          ok: false,
+          error:
+            "AUDIT_OUTCOME_UNCERTAIN: Tool execution completed or may have partially completed, but terminal audit evidence could not be persisted. Do not retry automatically.",
+        };
+      }
+      return { ok: false, error: `${err.code}: ${err.message}` };
     }
   }
 }

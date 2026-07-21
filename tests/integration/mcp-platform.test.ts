@@ -10,8 +10,8 @@ import {
   ErrorCode,
   RELATED_TASK_META_KEY,
 } from '@modelcontextprotocol/sdk/types.js';
-import { loadConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { loadConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { createMcpServer } from '../../src/server/mcp-server.js';
 import { buildRegistry } from '../../src/tools/index.js';
 

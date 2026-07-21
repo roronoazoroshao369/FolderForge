@@ -311,7 +311,7 @@ FolderForge writes runtime state below the selected project:
 .folderforge/chatgpt-server.log
 .folderforge/chatgpt-tunnel.log       # managed quick tunnel only
 .folderforge/chatgpt-connect.lock     # only while an operation holds the lock
-.folderforge/audit/audit.jsonl
+.folderforge/audit/audit.v2.jsonl
 ```
 
 Config and receipt files use mode `0600` on POSIX systems. The version 2 receipt

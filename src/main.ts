@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 import {
   loadConfig,
-  ensureConfigFile,
   applyHttpAuthDefaults,
   validateConfig,
-} from "./core/config.js";
-import { Container } from "./core/container.js";
+} from "./runtime/config.js";
+import { Container } from "./runtime/container.js";
 import {
   buildRegistry,
   registerAdapterTools,
@@ -24,6 +23,10 @@ import type { OAuthHttpAuthConfig, ToolPrincipal } from "./core/types.js";
 import { STDIO_AGENT_PRINCIPAL, withExecutionContext } from "./core/principal.js";
 import { executeDistributedCli } from './distributed/cli.js';
 import { executePluginSdkCli } from './plugins/sdk-cli.js';
+import {
+  executeConnectClientCli,
+  executeInitCli,
+} from './onboarding/cli.js';
 
 const VERSION = readFolderForgeVersion();
 
@@ -260,8 +263,10 @@ function printHelp(): void {
       "Usage: folderforge [command] [options]",
       "",
       "Commands:",
+      "  init                   Create an explicit observe|develop|trusted-automation profile",
       "  doctor                 Run read-only installation and workspace diagnostics",
       "  setup browser          Install package-compatible Playwright Chromium (explicit opt-in)",
+      "  connect <client>       Configure cursor|vscode|claude|generic stdio clients",
       "  connect chatgpt        Configure Auth0 OAuth and connect FolderForge to ChatGPT",
       "  chatgpt <command>      status|doctor|repair|start|stop|disconnect",
       "  distributed serve      Start the authenticated remote-worker coordinator API",
@@ -317,6 +322,12 @@ async function main(): Promise<void> {
     process.exitCode = result.exitCode;
     return;
   }
+  if (argv[0] === "init") {
+    const result = executeInitCli(argv.slice(1));
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
   if (argv[0] === "doctor") {
     const result = await executeDoctorCli(argv.slice(1));
     process.stdout.write(result.output);
@@ -325,6 +336,12 @@ async function main(): Promise<void> {
   }
   if (argv[0] === "setup") {
     const result = executeBrowserSetupCli(argv.slice(1));
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === "connect" && argv[1] !== "chatgpt") {
+    const result = executeConnectClientCli(argv.slice(1));
     process.stdout.write(result.output);
     process.exitCode = result.exitCode;
     return;
@@ -368,14 +385,6 @@ async function main(): Promise<void> {
 
   const args = parseArgs(argv);
 
-  // First-run convenience: if the user did not point at an explicit --config and
-  // the project has no config file yet, write a full batteries-included config
-  // (vibe-lite + Playwright enabled) so browser/UI tools work out of the box.
-  // Never overwrites an existing file; failures are non-fatal.
-  if (args.config === undefined) {
-    ensureConfigFile(args.project ?? process.cwd());
-  }
-
   const config = loadConfig({
     ...(args.config !== undefined ? { configPath: args.config } : {}),
     ...(args.project !== undefined ? { projectRoot: args.project } : {}),
@@ -407,7 +416,9 @@ async function main(): Promise<void> {
   if (config.policy.allowCriticalInDanger && config.policy.defaultMode !== "danger") {
     throw new Error("--dangerously-allow-critical requires --policy danger (or policy.defaultMode=danger)");
   }
-  if (!args.dashboard && config.policy.defaultMode !== "readonly" && !config.policy.allowCriticalInDanger) {
+  const dashboardEnabled =
+    args.dashboard && config.server.dashboard.enabled !== false;
+  if (!dashboardEnabled && config.policy.defaultMode !== "readonly" && !config.policy.allowCriticalInDanger) {
     logger.warn(
       { mode: config.policy.defaultMode },
       "Dashboard disabled: approval-gated actions cannot be resolved. Enable the dashboard or use --policy danger --dangerously-allow-critical in an isolated environment.",
@@ -550,7 +561,7 @@ async function main(): Promise<void> {
   });
 
   // Dashboard is independent of the MCP transport (and is safe to run alongside stdio).
-  if (args.dashboard) {
+  if (dashboardEnabled) {
     const dashHost = config.server.dashboard.host;
     // A non-loopback bind exposes the control plane to the network, so it must be
     // token-protected. Use the configured token or mint one and log it once.

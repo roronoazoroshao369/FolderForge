@@ -24,7 +24,7 @@ function fakeContainer() {
 describe('ToolRegistry protocol controls (P4/P6/P8)', () => {
   it('passes the control object through to the handler', async () => {
     const container = fakeContainer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const registry = new ToolRegistry(container as any);
     let seen: ToolContext['control'];
     registry.register(
@@ -50,7 +50,7 @@ describe('ToolRegistry protocol controls (P4/P6/P8)', () => {
 
   it('refuses to run when the call is already cancelled (P6)', async () => {
     const container = fakeContainer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const registry = new ToolRegistry(container as any);
     let handlerRan = false;
     registry.register(
@@ -78,7 +78,7 @@ describe('ToolRegistry protocol controls (P4/P6/P8)', () => {
 
   it('lets a handler emit progress through the control (P4)', async () => {
     const container = fakeContainer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const registry = new ToolRegistry(container as any);
     const ticks: Array<{ progress: number; message?: string }> = [];
     registry.register(
@@ -112,7 +112,7 @@ describe('ToolRegistry protocol controls (P4/P6/P8)', () => {
 
   it('degrades gracefully when no control is supplied', async () => {
     const container = fakeContainer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const registry = new ToolRegistry(container as any);
     registry.register(
       defineTool({

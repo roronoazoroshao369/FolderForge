@@ -74,7 +74,7 @@ describe('db manager driver-backed flow (Q8, sqlite optional)', () => {
     const file = join(dir, 'dev.sqlite');
 
     // Seed a tiny database directly with the driver.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const seed = new (Database as any)(file);
     seed.exec(
       'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, password TEXT);'

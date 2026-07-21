@@ -6,6 +6,17 @@ export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
 export type PolicyMode = "readonly" | "safe" | "dev" | "danger";
 
+export type AuditDurability = "required" | "best-effort";
+
+export interface AuditConfig {
+  /** Baseline durability for audit events that are not otherwise elevated. */
+  durability: AuditDurability;
+  /** Force durable audit writes for HIGH and CRITICAL operations. */
+  requireForHighRisk: boolean;
+  /** Force durable audit writes for token- or OAuth-authenticated HTTP callers. */
+  requireForAuthenticatedHttp: boolean;
+}
+
 export type ToolAudience = "agent" | "admin";
 
 export type HttpAuthMode = "none" | "token" | "oauth";
@@ -113,6 +124,8 @@ export interface ServerConfig {
     auth?: HttpAuthConfig;
   };
   dashboard: {
+    /** Whether the local dashboard is started by default. */
+    enabled: boolean;
     host: string;
     port: number;
     /**
@@ -291,15 +304,24 @@ export interface LspConfig {
   servers?: LanguageServerDef[];
 }
 
+export interface ToolsConfig {
+  preset?: string;
+  groups?: string[];
+  enable?: string[];
+  disable?: string[];
+}
+
 export interface FolderForgeConfig {
   server: ServerConfig;
   workspace: WorkspaceConfig;
   policy: PolicyConfig;
+  audit: AuditConfig;
   terminal: TerminalConfig;
   git: GitConfig;
   rateLimit: RateLimitConfig;
   secretScan: SecretScanConfig;
   adapters: AdaptersConfig;
+  tools?: ToolsConfig;
   lsp: LspConfig;
 }
 
@@ -463,6 +485,12 @@ export interface ToolResult {
   content?: ToolContentBlock[];
 }
 
+export interface ToolRoutingRegistry {
+  setActive(names: readonly string[] | null): void;
+  listAgentActive(): ToolDefinition[];
+  listAll(): ToolDefinition[];
+}
+
 export interface ToolContext {
   config: FolderForgeConfig;
   projectRoot: string;
@@ -473,6 +501,6 @@ export interface ToolContext {
    */
   control?: ToolCallControl;
   // Filled in by the runtime container; circular at type level so kept loose.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   container: any;
 }

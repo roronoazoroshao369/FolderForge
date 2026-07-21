@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { ToolPrincipal, ToolResult } from '../core/types.js';
-import type { Container } from '../core/container.js';
+import type { Container } from '../runtime/container.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import {
   canonicalJson,

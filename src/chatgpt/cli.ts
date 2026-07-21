@@ -40,11 +40,9 @@ import {
   deriveChatGptLifecycle,
   redactSensitiveText,
   type ChatGptDiagnostic,
-  type ChatGptDiagnosticStatus,
   type ChatGptErrorState,
   type ChatGptLifecycleRecord,
   type ChatGptLifecycleSnapshot,
-  type ChatGptLifecycleStage,
 } from "./lifecycle.js";
 
 const DEFAULT_PORT = 7331;
@@ -920,14 +918,6 @@ async function discoverAuth0(
       ? { token_endpoint_auth_methods_supported: tokenMethods }
       : {}),
   };
-}
-
-function apiScopes(api: Auth0Api): string[] {
-  return (api.scopes ?? [])
-    .map((scope) => scope.value)
-    .filter(
-      (value): value is string => typeof value === "string" && value.length > 0,
-    );
 }
 
 async function listAuth0Apis(tenant: string): Promise<Auth0Api[]> {
@@ -1910,12 +1900,20 @@ function hasAuthenticatedChatGptActivity(
   const clientId =
     receipt.lifecycle?.detectedClient?.clientId ?? receipt.clientId;
   if (!clientId) return false;
-  const auditPath = join(
+  const auditV2Path = join(
+    receipt.projectRoot,
+    ".folderforge",
+    "audit",
+    "audit.v2.jsonl",
+  );
+  const auditV1Path = join(
     receipt.projectRoot,
     ".folderforge",
     "audit",
     "audit.jsonl",
   );
+  const auditPath = existsSync(auditV2Path) ? auditV2Path : auditV1Path;
+  const v2 = auditPath === auditV2Path;
   if (!existsSync(auditPath)) return false;
   try {
     const size = statSync(auditPath).size;
@@ -1934,13 +1932,20 @@ function hasAuthenticatedChatGptActivity(
     for (const line of lines.slice(size > bytesToRead ? 1 : 0)) {
       if (!line.trim()) continue;
       try {
-        const event = JSON.parse(line) as {
+        const parsed = JSON.parse(line) as {
+          schemaVersion?: number;
+          event?: {
+            ts?: string;
+            type?: string;
+            detail?: { authMode?: string; oauthClientId?: string };
+          };
           ts?: string;
           type?: string;
           detail?: { authMode?: string; oauthClientId?: string };
         };
+        const event = v2 ? parsed.event : parsed;
         if (
-          event.type === "tool_call" &&
+          event?.type === "tool_call" &&
           event.detail?.authMode === "oauth" &&
           event.detail.oauthClientId === clientId &&
           Date.parse(event.ts ?? "") >= sessionStartedAt

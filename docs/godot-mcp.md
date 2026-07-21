@@ -234,12 +234,12 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 | # | File | Change |
 | --- | --- | --- |
 | 1 | `src/adapters/godot/client.ts` | **New** - WS + TCP JSON client, health check, reconnect, queue, reentrancy guard |
-| 2 | `src/adapters/godot/cli.ts` | **New** - headless `godot --headless` operations runner |
+| 2 | `packages/adapter-godot/src/cli.ts` | **Extracted** - headless `godot --headless` operations runner |
 | 3 | `src/tools/game-tools.ts` | **New** - the full `game` group (149 tools) in the `bTool()` style |
 | 4 | `src/tools/index.ts` | Import `gameTools()`; add `'game'` to `GROUP_PRESETS.full`; new `godot` preset |
 | 5 | `src/policy/risk.ts` | Risk band for all 149 `game_*` tools |
 | 6 | `src/tools/schema-lock.ts` | Declare all 149 tools (surface is frozen + test-guarded) |
-| 7 | `src/core/config.ts` (+types) | `adapters.godot.enabled`, `editorPort`, `runtimePort`, `godotPath` |
+| 7 | `src/runtime/config.ts` (+types) | `adapters.godot.enabled`, `editorPort`, `runtimePort`, `godotPath` |
 | 8 | `addons/folderforge_bridge/` | **Done** - GDScript addon (editor plugin + runtime autoload TCP :9090) users copy in |
 
 ## Roadmap to 149
@@ -252,7 +252,7 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
   runtime/eval tools would hang. Required before any CRITICAL `game_*` tool ships.
 
 ### Step 1 - Adapter + headless read tier (~25 tools)
-- `src/adapters/godot/cli.ts` + bundled `godot_operations.gd`.
+- `packages/adapter-godot/src/cli.ts` + bundled `godot_operations.gd`.
 - Families 1, 3 (reads), 4 (reads), 12 (read), 13: project info/version/list,
   `game_read_scene`, `game_read_project_settings`, `game_list_project_files`,
   `game_read_file`, run/stop/debug-output.
@@ -306,7 +306,7 @@ tools matching the frozen surface.
 
 ### Step 1 - delivered surface (6 tools)
 
-`GodotCli` (`src/adapters/godot/cli.ts`) is the CLI/file-read channel; all six
+`GodotCli` (`packages/adapter-godot/src/cli.ts`) is the CLI/file-read channel; all six
 tools route through it (`src/tools/game-tools.ts`, group `game`). They parse
 Godot project files directly, so the file-based reads work even with no Godot
 binary installed; the engine probe degrades to `available: false` rather than
@@ -323,7 +323,7 @@ failing.
 
 ### Step 3 - delivered surface (12 tools)
 
-`GodotRuntime` (`src/adapters/godot/runtime.ts`) is the RUN channel: a stateless,
+`GodotRuntime` (`packages/adapter-godot/src/runtime.ts`) is the RUN channel: a stateless,
 one-connection-per-call client speaking line-delimited JSON to the runtime-bridge
 GDScript autoload inside the live game (TCP :9090). "Is the game running?" is a
 normal, recoverable state - a refused/closed connection returns a structured,
@@ -352,7 +352,7 @@ approval gate on `game_eval`). Verification: `npm run typecheck`, `npm run lint`
 `npm test` (29 files, 252 tests), and `npm run build` all green.
 
 Wiring done: `adapters.godot` config (`enabled`, `godotPath`, `editorPort`,
-`runtimePort`) in `src/core/config.ts` + `GodotConfig` in `src/core/types.ts`;
+`runtimePort`) in `src/runtime/config.ts` + `GodotConfig` in `src/core/types.ts`;
 risk bands in `src/policy/risk.ts`; frozen surface in `src/tools/schema-lock.ts`;
 registered in `src/tools/index.ts` with `game` added to the `full` preset and a
 new `godot` preset. Covered by `tests/integration/game-ops.test.ts` (8 tests).
@@ -446,7 +446,7 @@ Things this session discovered/decided that are NOT obvious from the code:
   `approvals.create(...).id` + `approvals.approve(id, 'session')`, same pattern
   as `game_eval` / `game_create_project`.
 - **Adding any `game_*` tool requires four synchronized edits**, in this order:
-  `src/adapters/godot/cli.ts` (or `runtime.ts`) -> `src/tools/game-tools.ts`
+  `packages/adapter-godot/src/cli.ts` (or `runtime.ts`) -> `src/tools/game-tools.ts`
   (register) -> `src/policy/risk.ts` (risk band) -> `src/tools/schema-lock.ts`
   (frozen entry). Forgetting the schema-lock entry fails the guard test; that is
   by design.

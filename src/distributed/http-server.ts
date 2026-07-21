@@ -15,8 +15,6 @@ export interface DistributedHttpServerOptions {
 }
 
 const DEFAULT_MAX_BODY = 8 * 1024 * 1024;
-const ARTIFACT_ID = /^art_[a-f0-9]{64}$/;
-const JOB_ID = /^job_[a-f0-9]{16}$/;
 
 function isLoopback(host: string): boolean {
   return ['127.0.0.1', '::1', 'localhost'].includes(host);

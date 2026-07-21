@@ -40,3 +40,13 @@ export class WorkspaceNotActiveError extends FolderForgeError {
     this.name = 'WorkspaceNotActiveError';
   }
 }
+
+export class AuditUnavailableError extends FolderForgeError {
+  constructor() {
+    super(
+      'AUDIT_UNAVAILABLE',
+      'Required audit storage is unavailable. Check free space, permissions, and JSONL integrity for .folderforge/audit.',
+    );
+    this.name = 'AuditUnavailableError';
+  }
+}

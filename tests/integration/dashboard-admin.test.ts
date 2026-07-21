@@ -5,8 +5,8 @@ import type { Server } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { defaultConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { defaultConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import {
   LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL,
   LOOPBACK_HTTP_AGENT_PRINCIPAL,

@@ -175,7 +175,7 @@ intentional. `folderforge doctor` performs a real bounded `initialize` and
 ## Writing a new adapter
 
 1. Add an `AdapterDef` entry to `AdaptersConfig` in `src/core/types.ts` when the
-   adapter is built in, and provide a default in `src/core/config.ts`. Installed
+   adapter is built in, and provide a default in `src/runtime/config.ts`. Installed
    plugins can register dynamic string names without modifying a central enum.
 2. Define per-sub-tool risk overrides in
    `src/adapters/child-mcp/risk-map.ts` when the conservative default

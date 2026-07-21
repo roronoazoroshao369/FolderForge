@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultConfig, loadConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { defaultConfig, loadConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { ToolPrincipal, ToolResult } from '../../src/core/types.js';
 import { TS_FIXTURE } from './fixtures.js';

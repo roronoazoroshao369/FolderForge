@@ -21,7 +21,6 @@ export function maskRow(row) {
 }
 export class DbManager {
     connections = new Map();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     handles = new Map();
     list() {
         return [...this.connections.values()];
@@ -39,14 +38,12 @@ export class DbManager {
         }
         if (kind === 'sqlite') {
             const mod = await this.tryImport('better-sqlite3', 'SQLite');
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const Database = mod.default ?? mod;
             const db = new Database(target, { readonly: true, fileMustExist: true });
             this.handles.set(id, db);
         }
         else {
             const mod = await this.tryImport('pg', 'Postgres');
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const Client = mod.Client;
             const client = new Client({ connectionString: target });
             await client.connect();
@@ -59,13 +56,11 @@ export class DbManager {
     async listTables(id) {
         const { conn, handle } = this.require(id);
         if (conn.kind === 'sqlite') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const rows = handle
                 .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
                 .all();
             return rows.map((r) => r.name);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const res = await handle.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name");
         return res.rows.map((r) => r.table_name);
     }
@@ -74,10 +69,8 @@ export class DbManager {
         if (!/^[A-Za-z0-9_]+$/.test(table))
             throw new Error('Invalid table name');
         if (conn.kind === 'sqlite') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return handle.prepare(`PRAGMA table_info(${table})`).all();
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const res = await handle.query('SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name=$1 ORDER BY ordinal_position', [table]);
         return res.rows;
     }
@@ -87,11 +80,9 @@ export class DbManager {
         const { conn, handle } = this.require(id);
         let rows;
         if (conn.kind === 'sqlite') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             rows = handle.prepare(sql).all().slice(0, limit);
         }
         else {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const res = await handle.query(sql);
             rows = res.rows.slice(0, limit);
         }
@@ -115,11 +106,9 @@ export class DbManager {
             throw new Error(`Connection ${id} is read-only; db_write is not permitted.`);
         }
         if (conn.kind === 'sqlite') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const info = handle.prepare(sql).run();
             return { changes: Number(info.changes ?? 0) };
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const res = await handle.query(sql);
         return { changes: Number(res.rowCount ?? 0) };
     }
@@ -133,11 +122,9 @@ export class DbManager {
             throw new Error(`Connection ${id} is read-only; db_run_migration is not permitted.`);
         }
         if (conn.kind === 'sqlite') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             handle.exec(sql);
             return { applied: true };
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const client = handle;
         try {
             await client.query('BEGIN');

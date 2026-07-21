@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
+import type { ArtifactStorePort } from '../evidence/ports.js';
 
 const DEFAULT_MAX_ARTIFACT_BYTES = 20 * 1024 * 1024;
 const DEFAULT_MAX_TOTAL_BYTES = 500 * 1024 * 1024;
@@ -75,7 +76,7 @@ function imageDimensions(mimeType: string, data: Buffer): { width?: number; heig
   }
 }
 
-export class ArtifactStore {
+export class ArtifactStore implements ArtifactStorePort<ArtifactMetadata> {
   readonly root: string;
   private readonly objectsDir: string;
   private readonly metadataDir: string;

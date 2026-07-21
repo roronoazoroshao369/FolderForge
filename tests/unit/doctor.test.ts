@@ -55,7 +55,8 @@ describe('folderforge doctor', () => {
     );
     expect(byId(report, 'runtime.node')?.status).toBe('pass');
     expect(byId(report, 'config.discovery')?.status).toBe('warn');
-    expect(byId(report, 'port.http')?.status).toBe('pass');
+    expect(byId(report, 'port.http')).toBeUndefined();
+    expect(byId(report, 'port.dashboard')?.status).toBe('pass');
     expect(byId(report, 'playwright.chromium')).toBeDefined();
     expect(existsSync(join(root, '.folderforge'))).toBe(false);
 

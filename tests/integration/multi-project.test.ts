@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { dirname } from 'node:path';
-import { loadConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { loadConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { ToolResult } from '../../src/core/types.js';
 import { TS_FIXTURE, PY_FIXTURE } from './fixtures.js';

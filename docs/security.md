@@ -222,8 +222,46 @@ with no token available is a startup error.
 
 ## Audit
 
-Every call, denial, and approval is appended to
-`<project>/.folderforge/audit/audit.jsonl` and kept in a 500-entry ring buffer
-for `audit_recent` and the dashboard `/audit` endpoint. Tool argument summaries
-are redacted before recording; raw approval arguments are not copied into audit
-summaries.
+Every new call, denial, approval, rate-limit decision, and terminal outcome is
+persisted as a versioned hash-chained envelope in
+`<project>/.folderforge/audit/audit.v2.jsonl` and kept as the original event in a
+500-entry ring buffer for `audit_recent` and the dashboard `/audit` endpoint.
+Tool argument summaries are bounded and redacted before recording; raw approval
+arguments are not copied into audit summaries. The legacy v1 path
+`.folderforge/audit/audit.jsonl` is read only for diagnostics or an explicit
+migration and is never silently promoted to trusted v2 evidence.
+
+Audit durability is explicit:
+
+```yaml
+audit:
+  durability: best-effort # required | best-effort
+  requireForHighRisk: true
+  requireForAuthenticatedHttp: true
+```
+
+With the defaults, LOW/MEDIUM local stdio calls use best-effort logging, while
+HIGH/CRITICAL operations and token- or OAuth-authenticated HTTP calls require a
+durable audit write. Required writes are flushed before the handler starts. If
+that write fails, the call returns `AUDIT_UNAVAILABLE` and the handler does not
+run. If terminal evidence fails after a handler has started, FolderForge returns
+`AUDIT_OUTCOME_UNCERTAIN`; clients must not retry that operation automatically.
+
+Setting `audit.durability: required` also makes audit-storage preflight a startup
+requirement. Preflight verifies the sequence, previous-record hash, canonical
+record hash, and any known Ed25519 signature before required execution proceeds.
+Modification, deletion, insertion, reordering, and incomplete trailing records are
+reported explicitly. Best-effort mode logs storage failures and preserves the
+in-memory event, but it does not provide durable evidence for the affected call.
+
+Verify or migrate evidence offline with:
+
+```bash
+npm run evidence:verify -- --path .folderforge/audit/audit.v2.jsonl --json
+npm run evidence:migrate -- --input .folderforge/audit/audit.jsonl
+```
+
+Migration records the legacy file digest and line provenance but never claims the
+old log was historically untampered. See [ADR-0006](adr-0006-audit-durability.md)
+for durability and [ADR-0007](adr-0007-evidence-store-v2.md) for integrity,
+signatures, migration, and threat-model limits.

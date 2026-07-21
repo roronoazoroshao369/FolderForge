@@ -31,14 +31,18 @@ function createReleaseRepo({
   version = '2.3.2',
   changelogVersion = version,
   tagVersion = version,
+  lockVersion = version,
   commitAfterTag = false,
   emptySection = false,
+  lightweightTag = false,
 }: {
   version?: string;
   changelogVersion?: string;
   tagVersion?: string;
+  lockVersion?: string;
   commitAfterTag?: boolean;
   emptySection?: boolean;
+  lightweightTag?: boolean;
 } = {}): string {
   const path = mkdtempSync(join(tmpdir(), 'folderforge-release-ref-'));
   temporaryRoots.push(path);
@@ -47,15 +51,35 @@ function createReleaseRepo({
     : '\n### Added\n\n- Canonical first note.\n- Canonical second note.\n';
   writeFileSync(join(path, 'package.json'), JSON.stringify({ version }, null, 2));
   writeFileSync(
+    join(path, 'package-lock.json'),
+    JSON.stringify(
+      {
+        name: 'release-fixture',
+        version: lockVersion,
+        lockfileVersion: 3,
+        requires: true,
+        packages: { '': { name: 'release-fixture', version: lockVersion } },
+      },
+      null,
+      2,
+    ),
+  );
+  writeFileSync(
     join(path, 'CHANGELOG.md'),
     `# Changelog\n\n## [Unreleased]\n\n- Future work.\n\n## [${changelogVersion}] - 2026-07-18\n${section}\n## [2.3.1] - 2026-07-17\n\n- Older note.\n`
   );
   run('git', ['init'], path);
   run('git', ['config', 'user.name', 'FolderForge Test'], path);
   run('git', ['config', 'user.email', 'folderforge-test@example.invalid'], path);
-  run('git', ['add', 'package.json', 'CHANGELOG.md'], path);
+  run('git', ['add', 'package.json', 'package-lock.json', 'CHANGELOG.md'], path);
   run('git', ['commit', '-m', 'release fixture'], path);
-  run('git', ['tag', '-a', `v${tagVersion}`, '-m', `v${tagVersion}`], path);
+  run(
+    'git',
+    lightweightTag
+      ? ['tag', `v${tagVersion}`]
+      : ['tag', '-a', `v${tagVersion}`, '-m', `v${tagVersion}`],
+    path,
+  );
   if (commitAfterTag) {
     writeFileSync(join(path, 'after-tag.txt'), 'newer commit\n');
     run('git', ['add', 'after-tag.txt'], path);
@@ -122,6 +146,24 @@ describe('release integrity', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('CHANGELOG.md section for 2.3.2 is empty');
+  });
+
+  it('rejects a package-lock version mismatch', () => {
+    const path = createReleaseRepo({ lockVersion: '2.3.1' });
+    const result = verifyRelease(path, 'v2.3.2');
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'package-lock.json version metadata does not match package.json version 2.3.2',
+    );
+  });
+
+  it('rejects a lightweight release tag', () => {
+    const path = createReleaseRepo({ lightweightTag: true });
+    const result = verifyRelease(path, 'v2.3.2');
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('tag v2.3.2 must be an annotated tag, received commit');
   });
 
   it('rejects a dirty worktree and leaves the notes path untouched', () => {

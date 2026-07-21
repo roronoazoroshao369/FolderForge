@@ -19,7 +19,6 @@ import {
   executeChatGptCli,
   readConnectionReceipt,
   refreshChatGptLifecycle,
-  type ChatGptConnectionReceipt,
 } from "../chatgpt/cli.js";
 import {
   deriveChatGptLifecycle,
@@ -27,7 +26,7 @@ import {
   redactSensitiveText,
   type ChatGptLifecycleSnapshot,
 } from "../chatgpt/lifecycle.js";
-import type { Container } from "../core/container.js";
+import type { Container } from "../runtime/container.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";

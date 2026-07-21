@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/core/config.js';
+import { loadConfig } from '../../src/runtime/config.js';
 import type { ToolPrincipal } from '../../src/core/types.js';
 import { PolicyAsCode } from '../../src/policy/policy-as-code.js';
 import { PolicyEngine } from '../../src/policy/policy-engine.js';

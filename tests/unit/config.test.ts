@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyHttpAuthDefaults,
-  fullConfig,
+  defaultConfig,
   loadConfig,
   validateConfig,
-} from '../../src/core/config.js';
+} from '../../src/runtime/config.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
 
 describe('config loading + validation', () => {
@@ -13,15 +13,18 @@ describe('config loading + validation', () => {
     expect(cfg.server.name).toBe('folderforge');
     expect(cfg.rateLimit.enabled).toBe(true);
     expect(cfg.secretScan.entropyEnabled).toBe(true);
+    expect(cfg.audit).toEqual({
+      durability: 'best-effort',
+      requireForHighRisk: true,
+      requireForAuthenticatedHttp: true,
+    });
     expect(cfg.workspace.allowedDirectories.length).toBeGreaterThan(0);
   });
 
-  it('generates an isolated Playwright adapter by default', () => {
-    const cfg = fullConfig() as {
-      adapters: { playwright: { enabled: boolean; args: string[] } };
-    };
-    expect(cfg.adapters.playwright.enabled).toBe(true);
-    expect(cfg.adapters.playwright.args).toContain('--isolated');
+  it('keeps the Playwright adapter isolated but disabled by default', () => {
+    const cfg = defaultConfig(TS_FIXTURE);
+    expect(cfg.adapters.playwright?.enabled).toBe(false);
+    expect(cfg.adapters.playwright?.args).toContain('--isolated');
   });
 
   it('rejects an invalid policy mode', () => {
@@ -35,6 +38,13 @@ describe('config loading + validation', () => {
     const cfg = loadConfig({ projectRoot: TS_FIXTURE });
     cfg.server.http.port = 0;
     expect(() => validateConfig(cfg)).toThrow(/http.port/);
+  });
+
+  it('rejects an invalid audit durability mode', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    // @ts-expect-error deliberately invalid for the test
+    cfg.audit.durability = 'eventually';
+    expect(() => validateConfig(cfg)).toThrow(/audit.durability/);
   });
 
   it('rejects an empty allowlist', () => {

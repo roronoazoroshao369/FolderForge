@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "folderforge-governance-microbenchmark-v1",
+  "generatedAt": "2026-07-21T01:53:10.859Z",
+  "runsPerWorkload": 5,
+  "system": {
+    "node": "v22.23.0",
+    "os": "linux-x64",
+    "cpu": "Intel(R) Core(TM) i3-6100T CPU @ 3.20GHz",
+    "cpuCount": 4,
+    "memoryGiB": 16
+  },
+  "workloads": {
+    "registryBuild1000": {
+      "samplesMs": [
+        8.0906,
+        8.7476,
+        19.9574,
+        27.7748,
+        33.6152
+      ],
+      "minMs": 8.0906,
+      "medianMs": 19.9574,
+      "p95Ms": 33.6152,
+      "maxMs": 33.6152
+    },
+    "toolsList1000": {
+      "samplesMs": [
+        0.0543,
+        0.017,
+        0.0538,
+        0.0219,
+        0.0099
+      ],
+      "minMs": 0.0099,
+      "medianMs": 0.0219,
+      "p95Ms": 0.0543,
+      "maxMs": 0.0543
+    },
+    "policyEvaluate500Rules": {
+      "samplesMs": [
+        0.2096,
+        0.2072,
+        0.2146,
+        0.22,
+        0.2019
+      ],
+      "minMs": 0.2019,
+      "medianMs": 0.2096,
+      "p95Ms": 0.22,
+      "maxMs": 0.22
+    },
+    "coldStdioInitializeAndToolsList": {
+      "samplesMs": [
+        1856.6603,
+        1304.0382,
+        1305.2364,
+        1100.4547,
+        1080.4219
+      ],
+      "minMs": 1080.4219,
+      "medianMs": 1304.0382,
+      "p95Ms": 1856.6603,
+      "maxMs": 1856.6603
+    }
+  },
+  "targets": {
+    "toolsList1000P95Ms": 250,
+    "policyEvaluate500RulesP95Ms": 5,
+    "coldStdioInitializeAndToolsListP95Ms": 1500
+  },
+  "pass": {
+    "toolsList1000": true,
+    "policyEvaluate500Rules": true,
+    "coldStdioInitializeAndToolsList": false
+  },
+  "limitations": [
+    "This is a local FolderForge microbenchmark, not a competitor comparison.",
+    "Synthetic tool and policy catalogs isolate runtime overhead but do not model application handler cost.",
+    "Cold stdio timing includes process startup, MCP initialization, and one tools/list call on the disclosed machine."
+  ]
+}

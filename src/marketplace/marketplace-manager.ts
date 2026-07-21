@@ -1,5 +1,4 @@
 import {
-  createHash,
   createPrivateKey,
   createPublicKey,
   sign as cryptoSign,
@@ -7,7 +6,6 @@ import {
 } from 'node:crypto';
 import {
   chmodSync,
-  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -18,7 +16,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as tar from 'tar';
 import {

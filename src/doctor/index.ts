@@ -13,7 +13,7 @@ import { createServer } from 'node:net';
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { defaultConfig, loadConfig } from '../core/config.js';
+import { defaultConfig, loadConfig } from '../runtime/config.js';
 import type { AdapterDef, FolderForgeConfig } from '../core/types.js';
 import { readFolderForgeVersion } from '../core/version.js';
 import { PluginManager } from '../plugins/plugin-manager.js';
@@ -27,6 +27,8 @@ import {
 } from '../adapters/child-mcp/client.js';
 import { resolveAdapterLaunch, resolvePlaywrightMcpRuntime } from '../adapters/child-mcp/resolve.js';
 import { applySandboxLaunch, sandboxSummary } from '../sandbox/launcher.js';
+import { verifyAuditChain } from '../evidence/audit-chain.js';
+import { verifyLegacyAuditLog } from '../evidence/migration.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 export type DoctorSeverity = 'info' | 'warning' | 'error' | 'blocker';
@@ -584,10 +586,18 @@ async function checkPorts(
   findings: DoctorFinding[]
 ): Promise<void> {
   const ports = [
-    { id: 'port.http', label: 'HTTP MCP', host: config.server.http.host, port: config.server.http.port },
-    { id: 'port.dashboard', label: 'dashboard', host: config.server.dashboard.host, port: config.server.dashboard.port },
+    ...(config.server.transport === 'http'
+      ? [{ id: 'port.http', label: 'HTTP MCP', host: config.server.http.host, port: config.server.http.port }]
+      : []),
+    ...(config.server.dashboard.enabled
+      ? [{ id: 'port.dashboard', label: 'dashboard', host: config.server.dashboard.host, port: config.server.dashboard.port }]
+      : []),
   ];
-  if (ports[0]!.host === ports[1]!.host && ports[0]!.port === ports[1]!.port) {
+  if (
+    ports.length === 2 &&
+    ports[0]!.host === ports[1]!.host &&
+    ports[0]!.port === ports[1]!.port
+  ) {
     findings.push(
       finding(
         'port.conflict',
@@ -1125,23 +1135,43 @@ function checkState(projectRoot: string, now: number, findings: DoctorFinding[])
     }
   }
 
-  const auditPath = join(projectRoot, '.folderforge', 'audit', 'audit.jsonl');
-  if (!existsSync(auditPath)) {
-    findings.push(finding('state.audit', 'pass', 'info', 'Audit log is absent.', auditPath));
-  } else {
+  const auditV2Path = join(
+    projectRoot,
+    '.folderforge',
+    'audit',
+    'audit.v2.jsonl',
+  );
+  const auditV1Path = join(projectRoot, '.folderforge', 'audit', 'audit.jsonl');
+  if (existsSync(auditV2Path)) {
     try {
-      const { records, corrupt } = parseJsonLines(auditPath);
+      const report = verifyAuditChain(readFileSync(auditV2Path, 'utf8'));
+      const hardIssues = report.issues.filter(
+        (issue) => issue.code !== 'unknown_signer',
+      );
       findings.push(
-        corrupt > 0
+        report.ok
           ? finding(
+              'state.audit',
+              report.unverifiedSignatures > 0 ? 'warn' : 'pass',
+              report.unverifiedSignatures > 0 ? 'warning' : 'info',
+              report.unverifiedSignatures > 0
+                ? 'Audit hash chain is valid but some signatures cannot be verified.'
+                : 'Audit hash chain is valid.',
+              `schema=2; records=${report.records}; head=${report.headHash ?? 'none'}; signed=${report.signedRecords}; unverifiedSignatures=${report.unverifiedSignatures}`,
+              report.unverifiedSignatures > 0
+                ? 'Provide the matching public keys to the offline evidence verifier.'
+                : '',
+            )
+          : finding(
               'state.audit',
               'fail',
               'error',
-              'Audit log contains corrupt JSONL records.',
-              `records=${records.length}; corrupt=${corrupt}`,
-              'Preserve the original log, then repair invalid lines in a reviewed copy.'
-            )
-          : finding('state.audit', 'pass', 'info', 'Audit log is readable.', `records=${records.length}; corrupt=0`)
+              'Audit hash chain integrity verification failed.',
+              `records=${report.records}; issues=${hardIssues
+                .map((issue) => `line ${issue.line}:${issue.code}`)
+                .join(', ')}`,
+              'Preserve the original file and run the offline evidence verifier before any repair or migration.',
+            ),
       );
     } catch (error) {
       findings.push(
@@ -1149,12 +1179,52 @@ function checkState(projectRoot: string, now: number, findings: DoctorFinding[])
           'state.audit',
           'fail',
           'error',
-          'Audit log cannot be read.',
-          `${auditPath}: ${errorText(error)}`,
-          'Repair file permissions or restore the audit log.'
-        )
+          'Audit v2 evidence cannot be read.',
+          `${auditV2Path}: ${errorText(error)}`,
+          'Repair file permissions or restore the evidence file from a trusted checkpoint.',
+        ),
       );
     }
+  } else if (existsSync(auditV1Path)) {
+    try {
+      const report = verifyLegacyAuditLog(readFileSync(auditV1Path, 'utf8'));
+      findings.push(
+        report.ok
+          ? finding(
+              'state.audit',
+              'warn',
+              'warning',
+              'Only a legacy audit log is present.',
+              `schema=legacy-v1; records=${report.records}; file=${report.sha256}`,
+              'Run `npm run evidence:migrate -- --input .folderforge/audit/audit.jsonl` after preserving a backup. Migration does not claim historical integrity.',
+            )
+          : finding(
+              'state.audit',
+              'fail',
+              'error',
+              'Legacy audit log contains corrupt or incomplete records.',
+              `records=${report.records}; issues=${report.issues
+                .map((issue) => `line ${issue.line}`)
+                .join(', ')}`,
+              'Preserve the original file and repair a reviewed copy before migration.',
+            ),
+      );
+    } catch (error) {
+      findings.push(
+        finding(
+          'state.audit',
+          'fail',
+          'error',
+          'Legacy audit log cannot be read.',
+          `${auditV1Path}: ${errorText(error)}`,
+          'Repair file permissions or restore the audit log.',
+        ),
+      );
+    }
+  } else {
+    findings.push(
+      finding('state.audit', 'pass', 'info', 'Audit log is absent.', auditV2Path),
+    );
   }
 
   const runsDir = join(projectRoot, '.folderforge', 'workflows', 'runs');

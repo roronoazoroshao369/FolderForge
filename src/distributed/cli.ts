@@ -1,8 +1,8 @@
 import { createPublicKey, generateKeyPairSync } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { loadConfig } from '../core/config.js';
-import { Container } from '../core/container.js';
+import { loadConfig } from '../runtime/config.js';
+import { Container } from '../runtime/container.js';
 import { readFolderForgeVersion } from '../core/version.js';
 import { buildRegistry, registerAdapterTools } from '../tools/index.js';
 import { sha256 } from './coordinator.js';

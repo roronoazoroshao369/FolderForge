@@ -13,7 +13,7 @@ function makeConfig(over: Partial<RateLimitConfig> = {}): RateLimitConfig {
 
 describe('RateLimiter', () => {
   it('allows calls up to the window limit then blocks', () => {
-    let now = 0;
+    const now = 0;
     const rl = new RateLimiter(makeConfig(), () => now);
     expect(rl.hit('file_read').allowed).toBe(true);
     expect(rl.hit('file_read').allowed).toBe(true);
@@ -36,7 +36,7 @@ describe('RateLimiter', () => {
   });
 
   it('tracks each tool independently', () => {
-    let now = 0;
+    const now = 0;
     const rl = new RateLimiter(makeConfig(), () => now);
     rl.hit('a');
     rl.hit('a');
@@ -46,7 +46,7 @@ describe('RateLimiter', () => {
   });
 
   it('applies per-tool overrides', () => {
-    let now = 0;
+    const now = 0;
     const rl = new RateLimiter(
       makeConfig({ overrides: { git_push: { maxCalls: 1, windowMs: 1000 } } }),
       () => now
@@ -71,7 +71,7 @@ describe('RateLimiter', () => {
   });
 
   it('check() does not consume quota; hit() does', () => {
-    let now = 0;
+    const now = 0;
     const rl = new RateLimiter(makeConfig({ default: { maxCalls: 1, windowMs: 1000 } }), () => now);
     expect(rl.check('t').allowed).toBe(true);
     expect(rl.check('t').allowed).toBe(true); // still allowed, nothing recorded
@@ -85,7 +85,7 @@ describe('RateLimiter', () => {
   });
 
   it('reports usage via snapshot', () => {
-    let now = 0;
+    const now = 0;
     const rl = new RateLimiter(makeConfig(), () => now);
     rl.hit('t');
     rl.hit('t');

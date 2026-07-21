@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { simpleGit } from 'simple-git';
-import { loadConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { loadConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { ToolResult, PolicyMode } from '../../src/core/types.js';
 

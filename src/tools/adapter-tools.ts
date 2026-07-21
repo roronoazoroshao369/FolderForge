@@ -1,4 +1,4 @@
-import type { Container } from '../core/container.js';
+import type { Container } from '../runtime/container.js';
 import type { ToolDefinition, ToolResult } from '../core/types.js';
 import type { AdapterName, SubToolDescriptor } from '../adapters/child-mcp/registry.js';
 import { resolveSubOpRisk } from '../adapters/child-mcp/risk-map.js';

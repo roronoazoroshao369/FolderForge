@@ -24,14 +24,24 @@ npx -y @musashishao/folderforge --version
 npx -y @musashishao/folderforge --help
 ```
 
-Run FolderForge for the current project:
+Initialize an explicit safe profile, inspect it, and generate client config:
+
+```bash
+npx -y @musashishao/folderforge init --project . --profile develop
+npx -y @musashishao/folderforge doctor --project .
+npx -y @musashishao/folderforge connect cursor --project . --write
+```
+
+Profiles are explicit: `observe` is read-only, `develop` uses bounded mutations
+and exact approvals, and `trusted-automation` requires the operator to accept a
+broader local automation boundary. Ordinary server startup never creates or
+overwrites configuration.
+
+Your MCP client then starts FolderForge over stdio. To run the server manually:
 
 ```bash
 npx -y @musashishao/folderforge --project . --stdio
 ```
-
-The process waits for MCP JSON-RPC on stdin. In normal use your MCP client starts
-this command for you.
 
 ### Claude Desktop or a generic MCP client
 

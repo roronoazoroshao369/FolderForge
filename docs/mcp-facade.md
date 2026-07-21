@@ -261,7 +261,7 @@ namespaced tools; unflagged adapters are unchanged.
 Steps are sequenced so each is independently reviewable and CI-green.
 
 - **[x] Step 0 — Config surface.** Add `facade?: boolean` to `AdapterDef`
-  (`src/core/types.ts`) + default in `src/core/config.ts`. Doc the flag in
+  (`src/core/types.ts`) + default in `src/runtime/config.ts`. Doc the flag in
   `docs/adapters.md`. No behavior change yet.
 - **[x] Step 1 — Child schema pass-through.** Extend `StdioChildClient.listTools()`
   to also return `inputSchema` (already available from the child; today's wrapper

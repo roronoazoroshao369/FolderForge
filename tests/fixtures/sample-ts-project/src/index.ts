@@ -6,6 +6,6 @@ export function main(): number {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // eslint-disable-next-line no-console
+
   console.log(`result=${main()}`);
 }

@@ -10,7 +10,7 @@ import {
   renameSync,
 } from 'node:fs';
 import { resolve, join, relative, sep, dirname } from 'node:path';
-import type { GodotConfig } from '../../core/types.js';
+import type { GodotAdapterConfig } from './types.js';
 
 /**
  * Godot headless-CLI adapter (Step 1 - read tier).
@@ -96,7 +96,7 @@ const KIND_BY_EXT: Record<string, GodotProjectFile['kind']> = {
 const DEFAULT_IGNORES = new Set(['.git', '.godot', '.import', 'node_modules']);
 
 export class GodotCli {
-  constructor(private readonly config: GodotConfig) {}
+  constructor(private readonly config: GodotAdapterConfig) {}
 
   /** Whether the Godot adapter is turned on in config. */
   isEnabled(): boolean {

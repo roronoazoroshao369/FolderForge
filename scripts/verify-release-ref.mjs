@@ -68,9 +68,16 @@ function verify({ root, tag, notesFile }) {
   }
 
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
   const version = String(packageJson.version ?? '');
   const expectedTag = `v${version}`;
   const errors = [];
+
+  if (packageLock.version !== version || packageLock.packages?.['']?.version !== version) {
+    errors.push(
+      `package-lock.json version metadata does not match package.json version ${version}`,
+    );
+  }
 
   if (tag !== expectedTag) {
     errors.push(`tag ${tag} does not match package.json version ${version} (${expectedTag})`);
@@ -90,7 +97,12 @@ function verify({ root, tag, notesFile }) {
   }
 
   const headCommit = git(root, ['rev-parse', 'HEAD']);
-  const tagCommit = git(root, ['rev-list', '-n', '1', `refs/tags/${tag}`]);
+  const tagRef = `refs/tags/${tag}`;
+  const tagType = git(root, ['cat-file', '-t', tagRef]);
+  if (tagType !== 'tag') {
+    errors.push(`tag ${tag} must be an annotated tag, received ${tagType}`);
+  }
+  const tagCommit = git(root, ['rev-list', '-n', '1', tagRef]);
   if (headCommit !== tagCommit) {
     errors.push(`tag ${tag} points to ${tagCommit}, but checked-out HEAD is ${headCommit}`);
   }

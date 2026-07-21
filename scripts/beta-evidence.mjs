@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const OS = new Set(['ubuntu', 'macos', 'windows']);

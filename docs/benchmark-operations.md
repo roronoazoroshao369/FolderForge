@@ -64,3 +64,32 @@ The runner:
 The result still must pass `npm run benchmark:validate`. Comparative publication
 requires the frozen task hash, the minimum run count for every task, no duplicate
 or omitted runs, and compatible hardware for latency claims.
+
+## Local governance microbenchmark
+
+The separate local overhead benchmark measures FolderForge itself without making
+competitor claims:
+
+```bash
+npm run benchmark:governance
+```
+
+It preserves all five samples and records Node, operating system, architecture,
+CPU model/count, and memory. The tracked baseline is
+`benchmarks/baselines/local-governance.json` and covers:
+
+- construction of a 1,000-tool governed registry;
+- `tools/list` over 1,000 synthetic definitions;
+- one policy decision through a 500-rule policy-as-code set;
+- cold process startup, MCP initialization, and one real stdio `tools/list` call.
+
+The July 20, 2026 local baseline passes the initial limits with p95 values of
+0.0443 ms for `tools/list`, 0.0878 ms for 500-rule evaluation, and 613.4203 ms
+for cold stdio initialize plus `tools/list`. These values apply only to the
+hardware and software recorded in that JSON file. They are not a comparison with
+ToolHive, Docker MCP Gateway, MetaMCP, ContextForge, or another system.
+
+CI reruns the microbenchmark on its disclosed runner and stores the complete JSON
+as an artifact. A public comparative result additionally requires pinned versions,
+equivalent configuration, raw evidence from every system, and independent
+reproduction.

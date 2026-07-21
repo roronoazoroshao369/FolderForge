@@ -30,6 +30,7 @@ material and historical records.
 | [Beta program](beta-program.md) | User / Maintainer | Entry, evidence, privacy, and graduation criteria for external beta testing. |
 | [Benchmark protocol](../benchmarks/README.md) | Contributor / Maintainer | Neutral tasks, immutable result validation, and publication rules. |
 | [Benchmark operations](benchmark-operations.md) | Contributor / Maintainer | No-shell harness execution, evidence, environment isolation, and result creation. |
+| [Production-readiness action plan](production-readiness-action-plan.md) | Maintainer / Contributor | Approved epics, dependencies, proof gates, and 30/60/90-day execution sequence. |
 
 ## Reference
 
@@ -47,6 +48,12 @@ material and historical records.
 | --- | --- | --- |
 | [Vulnerability reporting](../SECURITY.md) | User / Researcher | How to report a suspected vulnerability privately. |
 | [Technical security model](security.md) | Operator / Contributor | Path, command, secret, approval, auth, and audit controls. |
+| [Audit durability ADR](adr-0006-audit-durability.md) | Operator / Contributor | Required versus best-effort evidence writes and failure semantics. |
+| [Evidence store v2 ADR](adr-0007-evidence-store-v2.md) | Operator / Contributor | Hash chaining, signatures, strict migration, verification, and threat-model limits. |
+| [Core/runtime boundary ADR](adr-0008-core-runtime-package-boundary.md) | Contributor / Maintainer | Dependency direction, cycle gates, and the Godot adapter extraction. |
+| [Child MCP compatibility](child-mcp-compatibility.md) | Operator / Contributor | Deterministic protocol profiles, evidence, and third-party certification limits. |
+| [Maturity and proof matrix](maturity-and-proof.md) | User / Maintainer | Capability maturity, reproducible gates, prohibited claims, and external evidence backlog. |
+| [Release inventory](release-inventory.md) | Maintainer / Researcher | Factual npm, tag, and hosted-release provenance snapshot with explicit unknowns. |
 | [OAuth ADR](adr-0004-oauth-resource-server.md) | Contributor / Maintainer | Resource-server architecture and trade-offs. |
 
 ## Architecture

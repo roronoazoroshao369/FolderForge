@@ -46,7 +46,7 @@ agent (Claude Desktop / Codex / ...)
    image blocks render directly in vision-capable clients
    embedded resource (e.g. text/x-diff for git_diff)
         v
-  Container services                        src/core/container.ts
+  Runtime composition                       src/runtime/container.ts
    (workspace, processes, db, adapters, audit)
 ```
 
@@ -60,13 +60,13 @@ when the MCP client does not advertise the `elicitation` capability.
 | Area | Path | Responsibility |
 | --- | --- | --- |
 | Entrypoint | `src/main.ts` | Parse args, `loadConfig`, build `Container` + registry, start server + dashboard |
-| Config | `src/core/config.ts` | Defaults + YAML merge + path normalization |
-| Container | `src/core/container.ts` | Dependency container shared by all handlers |
+| Config | `src/runtime/config.ts` | Defaults + YAML merge + path normalization |
+| Runtime composition | `src/runtime/container.ts` | Concrete local services behind narrow contracts |
 | Registry | `src/tools/registry.ts` | Tool catalog, active subset, policy + audit pipeline |
 | Server | `src/server/mcp-server.ts` | MCP `tools/list` and `tools/call` handlers |
 | Transports | `src/server/transports/*` | stdio and Streamable HTTP binding |
 | Policy | `src/policy/*` | Path, command, secret policies; risk; approvals |
-| Audit | `src/audit/*` | Append-only JSONL log + ring buffer |
+| Audit/evidence | `src/audit/*`, `src/evidence/*` | Governed event facade, durable hash chain, storage ports, verification |
 | Managers | `src/managers/*` | Long-running processes, DB connections |
 | Workspace | `src/workspace/*` | Project detection, activation, memory store |
 | Adapters | `src/adapters/child-mcp/*` | Proxy child MCP servers (Serena, Playwright) |

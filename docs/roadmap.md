@@ -374,7 +374,7 @@ typecheck, lint, `npm test` (29 files, 279 tests), and build. See
   Verification: typecheck, lint, `npm test` (29 files, 246 tests), and build all
   green.
 - **Step 1 - adapter + headless read tier** - **Done.** New `GodotCli`
-  (`src/adapters/godot/cli.ts`) is the CLI/file-read channel; six read-only
+  (`packages/adapter-godot/src/cli.ts`) is the CLI/file-read channel; six read-only
   `game_*` tools route through it (`src/tools/game-tools.ts`, group `game`):
   `game_get_godot_version`, `game_get_project_info`, `game_read_scene`,
   `game_read_project_settings`, `game_list_project_files`, `game_read_file`. All

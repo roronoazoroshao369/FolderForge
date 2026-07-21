@@ -3,7 +3,7 @@ import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { onboardProject } from '../workspace/onboarding.js';
-import { TASK_PRESETS } from './index.js';
+import { TASK_PRESETS } from './task-presets.js';
 
 export function workspaceTools(): ToolDefinition[] {
   return [

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir, platform, arch, cpus, totalmem } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';

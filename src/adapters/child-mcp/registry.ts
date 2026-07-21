@@ -584,8 +584,7 @@ export class ChildMcpRegistry {
     entry.startAttempts += 1;
     entry.lastStartAt = new Date(this.now()).toISOString();
 
-    let startPromise: Promise<StdioChildClient>;
-    startPromise = this.startEntry(entry).finally(() => {
+    const startPromise = this.startEntry(entry).finally(() => {
       if (entry.startPromise === startPromise) entry.startPromise = null;
       this.refreshLifecycleState(entry);
     });

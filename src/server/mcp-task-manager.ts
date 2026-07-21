@@ -1,19 +1,15 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { ErrorCode, McpError, type Task } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolPrincipal, ToolResult } from '../core/types.js';
-import type { ToolRegistry } from '../tools/registry.js';
+import type {
+  ToolCallControl,
+  ToolDefinition,
+  ToolPrincipal,
+  ToolResult,
+} from '../core/types.js';
 import type { AuditLog } from '../audit/audit-log.js';
+import { FileRecordStore } from '../evidence/file-stores.js';
+import type { RecordStore } from '../evidence/ports.js';
 
 const SCHEMA_VERSION = 1;
 const DEFAULT_TTL_MS = 60 * 60 * 1000;
@@ -38,8 +34,17 @@ interface PersistedTaskRecord {
   result?: ToolResult;
 }
 
+export interface TaskToolExecutor {
+  get(name: string): ToolDefinition | undefined;
+  callAgent(
+    name: string,
+    args: Record<string, unknown>,
+    control?: ToolCallControl,
+  ): Promise<ToolResult>;
+}
+
 export interface CreateToolTaskOptions {
-  registry: ToolRegistry;
+  registry: TaskToolExecutor;
   principal: ToolPrincipal;
   tool: string;
   args: Record<string, unknown>;
@@ -64,19 +69,13 @@ function stable(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-function atomicWrite(path: string, content: string): void {
-  const temp = `${path}.tmp-${process.pid}-${randomUUID()}`;
-  writeFileSync(temp, content, { encoding: 'utf8', mode: 0o600 });
-  renameSync(temp, path);
-  if (process.platform !== 'win32') chmodSync(path, 0o600);
-}
-
 function isTerminal(status: Task['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
 export class McpTaskManager {
   private readonly directory: string;
+  private readonly store: RecordStore<PersistedTaskRecord>;
   private readonly records = new Map<string, PersistedTaskRecord>();
   private readonly controllers = new Map<string, AbortController>();
 
@@ -84,8 +83,11 @@ export class McpTaskManager {
     projectRoot: string,
     private readonly redact: (text: string) => string,
     private readonly audit: AuditLog,
+    store?: RecordStore<PersistedTaskRecord>,
   ) {
     this.directory = join(projectRoot, '.folderforge', 'mcp-tasks');
+    this.store =
+      store ?? new FileRecordStore(this.directory, validateTaskRecord);
     this.load();
   }
 
@@ -127,8 +129,8 @@ export class McpTaskManager {
       argsSummary,
       hasOutputSchema: Boolean(definition.outputSchema),
     };
-    this.records.set(task.taskId, record);
     this.persist(record);
+    this.records.set(task.taskId, record);
     this.audit.record({
       type: 'task_event',
       tool: options.tool,
@@ -327,28 +329,18 @@ export class McpTaskManager {
   }
 
   private load(): void {
-    if (!existsSync(this.directory)) return;
-    for (const name of readdirSync(this.directory)) {
-      if (!name.endsWith('.json')) continue;
-      try {
-        const record = JSON.parse(
-          readFileSync(join(this.directory, name), 'utf8'),
-        ) as PersistedTaskRecord;
-        if (record.schemaVersion !== SCHEMA_VERSION || !record.task?.taskId) continue;
-        if (record.task.status === 'working' || record.task.status === 'input_required') {
-          record.task.status = 'failed';
-          record.task.statusMessage = 'Server restarted; task was not replayed.';
-          record.task.lastUpdatedAt = new Date().toISOString();
-          record.result = {
-            ok: false,
-            error: 'Server restarted while the task was active. FolderForge does not replay uncertain tool calls.',
-          };
-          this.persist(record);
-        }
-        this.records.set(record.task.taskId, record);
-      } catch {
-        // Invalid records are ignored rather than preventing server startup.
+    for (const record of this.store.load()) {
+      if (record.task.status === 'working' || record.task.status === 'input_required') {
+        record.task.status = 'failed';
+        record.task.statusMessage = 'Server restarted; task was not replayed.';
+        record.task.lastUpdatedAt = new Date().toISOString();
+        record.result = {
+          ok: false,
+          error: 'Server restarted while the task was active. FolderForge does not replay uncertain tool calls.',
+        };
+        this.persist(record);
       }
+      this.records.set(record.task.taskId, record);
     }
     this.cleanupExpired();
   }
@@ -362,17 +354,30 @@ export class McpTaskManager {
       this.controllers.get(taskId)?.abort(new Error('MCP task expired'));
       this.controllers.delete(taskId);
       this.records.delete(taskId);
-      try {
-        unlinkSync(join(this.directory, `${taskId}.json`));
-      } catch {
-        // Expiry cleanup is best effort; an absent file is already clean.
-      }
+      this.store.delete(taskId);
     }
   }
 
   private persist(record: PersistedTaskRecord): void {
-    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    if (process.platform !== 'win32') chmodSync(this.directory, 0o700);
-    atomicWrite(join(this.directory, `${record.task.taskId}.json`), `${JSON.stringify(record, null, 2)}\n`);
+    this.store.write(record.task.taskId, record);
   }
+}
+
+function validateTaskRecord(value: unknown, location: string): PersistedTaskRecord {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${location} is not an MCP task record.`);
+  }
+  const record = value as Partial<PersistedTaskRecord>;
+  if (
+    record.schemaVersion !== SCHEMA_VERSION ||
+    !record.task ||
+    typeof record.task.taskId !== 'string' ||
+    typeof record.ownerId !== 'string' ||
+    typeof record.tool !== 'string' ||
+    typeof record.argsSha256 !== 'string' ||
+    typeof record.hasOutputSchema !== 'boolean'
+  ) {
+    throw new Error(`${location} does not match the MCP task record schema.`);
+  }
+  return record as PersistedTaskRecord;
 }

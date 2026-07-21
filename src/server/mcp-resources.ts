@@ -5,7 +5,7 @@ import type {
   Resource,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import type { Container } from '../core/container.js';
+import type { Container } from '../runtime/container.js';
 import type { ToolPrincipal } from '../core/types.js';
 import type { McpTaskManager } from './mcp-task-manager.js';
 

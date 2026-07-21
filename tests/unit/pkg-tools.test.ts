@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { loadConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { runPm } from '../../src/tools/pkg-tools.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
 

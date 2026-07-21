@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { loadConfig } from '../../src/core/config.js';
-import { Container } from '../../src/core/container.js';
+import { loadConfig } from '../../src/runtime/config.js';
+import { Container } from '../../src/runtime/container.js';
 import { buildRegistry, registerAdapterTools } from '../../src/tools/index.js';
 import { namespacedName, NS_SEP } from '../../src/tools/adapter-tools.js';
 import { TS_FIXTURE } from './fixtures.js';

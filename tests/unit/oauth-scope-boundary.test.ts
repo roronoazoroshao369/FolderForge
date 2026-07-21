@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Container } from '../../src/core/container.js';
+import type { Container } from '../../src/runtime/container.js';
 import { defineTool, ToolRegistry } from '../../src/tools/registry.js';
 
 function registryWithProbe(mutates: boolean): { registry: ToolRegistry; calls: { count: number } } {

@@ -55,7 +55,7 @@ describe('approval separation from MCP elicitation', () => {
   it('never lets the requesting MCP client resolve its own approval', async () => {
     const state: FakeApprovalState = { created: [] };
     const container = fakeContainer(state);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const registry = new ToolRegistry(container as any);
     let ran = false;
     let elicited = false;
@@ -82,7 +82,7 @@ describe('approval separation from MCP elicitation', () => {
     const state: FakeApprovalState = { created: [] };
     const summaries: string[] = [];
     const container = fakeContainer(state, summaries);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const registry = new ToolRegistry(container as any);
     registry.register(approvalTool());
     const token = ['plain', 'token', 'value'].join('-');

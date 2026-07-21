@@ -5,8 +5,8 @@ import type { Server } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { defaultConfig } from "../../src/core/config.js";
-import { Container } from "../../src/core/container.js";
+import { defaultConfig } from "../../src/runtime/config.js";
+import { Container } from "../../src/runtime/container.js";
 import { startDashboard } from "../../src/dashboard/server.js";
 import { buildRegistry } from "../../src/tools/index.js";
 import {

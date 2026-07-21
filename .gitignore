@@ -26,7 +26,7 @@ nohup.out
 **/.folderforge/worker-inputs/
 **/.folderforge/worker-identity/
 
-# Auto-generated default config (written on first run when none exists).
+# Explicit local onboarding config created by `folderforge init`.
 .folderforge/config.yaml
 
 # OS / editor noise

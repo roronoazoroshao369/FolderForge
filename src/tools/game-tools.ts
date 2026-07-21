@@ -1,8 +1,7 @@
 import { defineTool } from './registry.js';
 import type { ToolDefinition, ToolContext } from '../core/types.js';
 import { defaultShell, quoteShellArg } from '../core/shell.js';
-import { GodotCli } from '../adapters/godot/cli.js';
-import { GodotRuntime } from '../adapters/godot/runtime.js';
+import { GodotCli, GodotRuntime } from '#adapter-godot';
 
 /**
  * Godot `game_*` tools - Step 1: adapter + headless read tier.

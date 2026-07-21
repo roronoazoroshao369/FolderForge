@@ -398,8 +398,7 @@ export class ChildMcpRegistry {
         entry.state = circuitProbe ? 'half_open' : 'starting';
         entry.startAttempts += 1;
         entry.lastStartAt = new Date(this.now()).toISOString();
-        let startPromise;
-        startPromise = this.startEntry(entry).finally(() => {
+        const startPromise = this.startEntry(entry).finally(() => {
             if (entry.startPromise === startPromise)
                 entry.startPromise = null;
             this.refreshLifecycleState(entry);
