@@ -38,7 +38,10 @@ function initialize(id, params) {
     : mode === 'legacy-protocol'
       ? '2024-11-05'
       : params?.protocolVersion;
-  const listChanged = mode === 'list-change';
+  const listChanged =
+    mode === 'list-change' ||
+    mode === 'list-change-delayed' ||
+    mode === 'list-change-invalid-refresh';
   send({
     jsonrpc: '2.0',
     id,
@@ -199,8 +202,17 @@ lines.on('line', (line) => {
       });
       return;
     }
-    if (mode === 'list-change' || mode === 'unadvertised-list-change') {
+    if (
+      mode === 'list-change' ||
+      mode === 'list-change-delayed' ||
+      mode === 'list-change-invalid-refresh' ||
+      mode === 'unadvertised-list-change'
+    ) {
       listCount += 1;
+      if (mode === 'list-change-invalid-refresh' && listCount > 1) {
+        send({ jsonrpc: '2.0', id: message.id, result: {} });
+        return;
+      }
       send({
         jsonrpc: '2.0',
         id: message.id,
@@ -210,7 +222,7 @@ lines.on('line', (line) => {
         catalogRevision = 2;
         setTimeout(() => {
           send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} });
-        }, 10);
+        }, mode === 'list-change-delayed' || mode === 'list-change-invalid-refresh' ? 100 : 10);
       }
       return;
     }

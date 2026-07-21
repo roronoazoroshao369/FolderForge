@@ -9,11 +9,13 @@ import {
   CallToolResultSchema,
   ErrorCode,
   RELATED_TASK_META_KEY,
+  ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { createMcpServer } from '../../src/server/mcp-server.js';
 import { buildRegistry } from '../../src/tools/index.js';
+import { defineTool } from '../../src/tools/registry.js';
 
 const roots: string[] = [];
 
@@ -62,6 +64,7 @@ describe('MCP platform protocol', () => {
       await client.connect(clientTransport);
 
       expect(client.getServerCapabilities()).toMatchObject({
+        tools: { listChanged: true },
         resources: { subscribe: true, listChanged: false },
         prompts: { listChanged: false },
         tasks: { list: {}, cancel: {}, requests: { tools: { call: {} } } },
@@ -129,6 +132,26 @@ describe('MCP platform protocol', () => {
       await expect(
         client.experimental.tasks.cancelTask(created.task.taskId),
       ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+
+      const toolListChanged = new Promise<void>((resolveNotification) => {
+        client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+          resolveNotification();
+        });
+      });
+      registry.register(
+        defineTool({
+          name: 'dynamic_mcp_probe',
+          description: 'Proves parent tool-list change propagation.',
+          group: 'test',
+          mutates: false,
+          inputSchema: { type: 'object', properties: {} },
+          handler: async () => ({ ok: true, data: { dynamic: true } }),
+        }),
+      );
+      await toolListChanged;
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
+        'dynamic_mcp_probe',
+      );
 
       const taskResource = await client.readResource({ uri: 'folderforge://tasks' });
       expect(taskResource.contents[0]?.text).toContain(created.task.taskId);

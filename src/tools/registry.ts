@@ -114,19 +114,31 @@ export interface GovernanceRuntime {
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>();
   private activeSet: Set<string> | null = null;
+  private readonly listChangedListeners = new Set<() => void>();
 
   constructor(private container: GovernanceRuntime) {}
 
+  /** Subscribe to changes in the agent-visible MCP tool catalog. */
+  onListChanged(listener: () => void): () => void {
+    this.listChangedListeners.add(listener);
+    return () => this.listChangedListeners.delete(listener);
+  }
+
   register(tool: ToolDefinition): void {
+    const before = this.agentSurfaceSnapshot();
     this.tools.set(tool.name, tool);
+    this.emitListChangedIfNeeded(before);
   }
 
   registerAll(tools: ToolDefinition[]): void {
-    for (const t of tools) this.register(t);
+    const before = this.agentSurfaceSnapshot();
+    for (const tool of tools) this.tools.set(tool.name, tool);
+    this.emitListChangedIfNeeded(before);
   }
 
   /** Remove registered tools matching a predicate and hide them from routing. */
   unregisterWhere(predicate: (tool: ToolDefinition) => boolean): string[] {
+    const before = this.agentSurfaceSnapshot();
     const removed: string[] = [];
     for (const [name, tool] of this.tools) {
       if (!predicate(tool)) continue;
@@ -134,13 +146,44 @@ export class ToolRegistry {
       this.activeSet?.delete(name);
       removed.push(name);
     }
+    this.emitListChangedIfNeeded(before);
+    return removed;
+  }
+
+  /**
+   * Atomically replace a logical tool group and emit at most one catalog change.
+   * When routing is active, replacement tools inherit visibility if any removed
+   * tool was visible, unless `activate` is supplied explicitly.
+   */
+  replaceWhere(
+    predicate: (tool: ToolDefinition) => boolean,
+    replacements: ToolDefinition[],
+    activate?: boolean,
+  ): string[] {
+    const before = this.agentSurfaceSnapshot();
+    const removed: string[] = [];
+    let removedVisible = false;
+    for (const [name, tool] of this.tools) {
+      if (!predicate(tool)) continue;
+      removedVisible ||= this.activeSet === null || this.activeSet.has(name);
+      this.tools.delete(name);
+      this.activeSet?.delete(name);
+      removed.push(name);
+    }
+    for (const tool of replacements) this.tools.set(tool.name, tool);
+    if (this.activeSet && (activate ?? removedVisible)) {
+      for (const tool of replacements) this.activeSet.add(tool.name);
+    }
+    this.emitListChangedIfNeeded(before);
     return removed;
   }
 
   /** Make newly registered tools visible when a routed subset is active. */
   activate(names: string[]): void {
     if (!this.activeSet) return;
+    const before = this.agentSurfaceSnapshot();
     for (const name of names) this.activeSet.add(name);
+    this.emitListChangedIfNeeded(before);
   }
 
   get(name: string): ToolDefinition | undefined {
@@ -149,7 +192,37 @@ export class ToolRegistry {
 
   /** Restrict the visible tool set (routing). Pass null to show all. */
   setActive(names: readonly string[] | null): void {
+    const before = this.agentSurfaceSnapshot();
     this.activeSet = names ? new Set(names) : null;
+    this.emitListChangedIfNeeded(before);
+  }
+
+  private agentSurfaceSnapshot(): string {
+    return JSON.stringify(
+      this.listAgentActive()
+        .map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          outputSchema: tool.outputSchema,
+          annotations: tool.annotations,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    );
+  }
+
+  private emitListChangedIfNeeded(before: string): void {
+    if (before === this.agentSurfaceSnapshot()) return;
+    for (const listener of this.listChangedListeners) {
+      try {
+        listener();
+      } catch (error) {
+        logger.warn(
+          { err: error instanceof Error ? error.message : String(error) },
+          "Tool list change listener failed",
+        );
+      }
+    }
   }
 
   listActive(): ToolDefinition[] {

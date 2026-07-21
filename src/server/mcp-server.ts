@@ -75,11 +75,15 @@ export function createMcpServer(registry: ToolRegistry, info: McpServerInfo): Se
     : '';
   const principal: ToolPrincipal = info.principal ?? { id: 'agent:mcp', role: 'agent' };
   const advancedProtocol = info.container !== undefined;
+  const listChangedRegistry = registry as ToolRegistry & {
+    onListChanged?: (listener: () => void) => () => void;
+  };
+  const supportsToolListChanged = typeof listChangedRegistry.onListChanged === 'function';
   const server = new Server(
     { name: info.name, version: info.version },
     {
       capabilities: {
-        tools: {},
+        tools: supportsToolListChanged ? { listChanged: true } : {},
         ...(advancedProtocol
           ? {
               resources: { subscribe: true, listChanged: false },
@@ -109,6 +113,15 @@ export function createMcpServer(registry: ToolRegistry, info: McpServerInfo): Se
   const subscriptions = resources
     ? new McpResourceSubscriptions(server, resources)
     : undefined;
+  const disposeToolListChanged =
+    listChangedRegistry.onListChanged?.(() => {
+      void server.sendToolListChanged().catch((error: unknown) => {
+        logger.warn(
+          { err: error instanceof Error ? error.message : String(error) },
+          'Failed to notify MCP client that the tool list changed',
+        );
+      });
+    }) ?? (() => undefined);
   const notifyTask = async (task: Task): Promise<void> => {
     await server.notification({
       method: 'notifications/tasks/status',
@@ -315,6 +328,7 @@ export function createMcpServer(registry: ToolRegistry, info: McpServerInfo): Se
   });
 
   server.onclose = () => {
+    disposeToolListChanged();
     subscriptions?.dispose();
   };
   server.onerror = (err) => {

@@ -33,9 +33,11 @@ export function createMcpServer(registry, info) {
         : '';
     const principal = info.principal ?? { id: 'agent:mcp', role: 'agent' };
     const advancedProtocol = info.container !== undefined;
+    const listChangedRegistry = registry;
+    const supportsToolListChanged = typeof listChangedRegistry.onListChanged === 'function';
     const server = new Server({ name: info.name, version: info.version }, {
         capabilities: {
-            tools: {},
+            tools: supportsToolListChanged ? { listChanged: true } : {},
             ...(advancedProtocol
                 ? {
                     resources: { subscribe: true, listChanged: false },
@@ -62,6 +64,11 @@ export function createMcpServer(registry, info) {
     const subscriptions = resources
         ? new McpResourceSubscriptions(server, resources)
         : undefined;
+    const disposeToolListChanged = listChangedRegistry.onListChanged?.(() => {
+        void server.sendToolListChanged().catch((error) => {
+            logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'Failed to notify MCP client that the tool list changed');
+        });
+    }) ?? (() => undefined);
     const notifyTask = async (task) => {
         await server.notification({
             method: 'notifications/tasks/status',
@@ -243,6 +250,7 @@ export function createMcpServer(registry, info) {
         return toCallToolResult(result, Boolean(tool?.outputSchema));
     });
     server.onclose = () => {
+        disposeToolListChanged();
         subscriptions?.dispose();
     };
     server.onerror = (err) => {

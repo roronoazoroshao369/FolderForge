@@ -10,6 +10,7 @@ a transparent subprocess wrapper. The maintained compatibility contract covers:
 - malformed or oversized frame rejection;
 - bounded stderr and stdout buffering;
 - heartbeat, crash classification, shutdown, and process cleanup;
+- child tool-list invalidation, direct-wrapper refresh, and parent notification;
 - explicit no-replay behavior after an uncertain mutation.
 
 ## Deterministic protocol corpus
@@ -33,7 +34,9 @@ The corpus exercises:
 The wider `tests/unit/child-mcp-client.test.ts` suite covers request isolation,
 timeouts, cancellation notifications, message and catalog limits, list-change
 notifications, heartbeat behavior, bounded stderr, process-tree cleanup, and
-failure classification.
+failure classification. `tests/integration/adapters.test.ts` additionally starts
+a real child process and proves that an advertised list-change refreshes direct
+wrappers atomically and reaches a connected parent MCP client.
 
 ## Evidence and limitations
 

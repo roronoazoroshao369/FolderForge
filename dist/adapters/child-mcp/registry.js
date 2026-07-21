@@ -139,6 +139,7 @@ function createEntry(name, def, now) {
 /** Lazily spawns and manages built-in and installed child MCP servers. */
 export class ChildMcpRegistry {
     entries = new Map();
+    catalogChangedListeners = new Set();
     lifecycle;
     constructor(config, extras = [], options = {}) {
         const retryBaseMs = positiveSafeInteger(options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS, 'retryBaseMs');
@@ -162,6 +163,21 @@ export class ChildMcpRegistry {
     }
     names() {
         return [...this.entries.keys()].sort();
+    }
+    /** Subscribe to child-advertised tool catalog changes. */
+    onCatalogChanged(listener) {
+        this.catalogChangedListeners.add(listener);
+        return () => this.catalogChangedListeners.delete(listener);
+    }
+    emitCatalogChanged(name) {
+        for (const listener of this.catalogChangedListeners) {
+            try {
+                listener(name);
+            }
+            catch (error) {
+                logger.warn({ adapter: name, err: error instanceof Error ? error.message : String(error) }, 'Child MCP catalog change listener failed');
+            }
+        }
     }
     upsert(name, def) {
         const existing = this.entries.get(name);
@@ -343,6 +359,7 @@ export class ChildMcpRegistry {
                 entry.catalog = null;
                 entry.catalogGeneration += 1;
                 logger.info({ adapter: entry.name }, 'Child MCP tool catalog invalidated');
+                this.emitCatalogChanged(entry.name);
             },
         });
     }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
+import { defineTool } from '../../src/tools/registry.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
 
 /**
@@ -52,5 +53,37 @@ describe('registry MCP metadata', () => {
     const fileRead = registry.get('file_read');
     expect(fileRead).toBeDefined();
     expect(fileRead?.outputSchema).toBeUndefined();
+  });
+
+  it('emits one change only when the agent-visible catalog actually changes', () => {
+    const dynamicRegistry = liveRegistry();
+    let changes = 0;
+    const dispose = dynamicRegistry.onListChanged(() => {
+      changes += 1;
+    });
+    const dynamicTool = defineTool({
+      name: 'dynamic_probe',
+      description: 'Dynamic probe v1',
+      group: 'test',
+      mutates: false,
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => ({ ok: true }),
+    });
+
+    dynamicRegistry.registerAll([dynamicTool]);
+    expect(changes).toBe(1);
+
+    dynamicRegistry.register(dynamicTool);
+    expect(changes).toBe(1);
+
+    dynamicRegistry.register({ ...dynamicTool, description: 'Dynamic probe v2' });
+    expect(changes).toBe(2);
+
+    dynamicRegistry.setActive(dynamicRegistry.listAgentActive().map((tool) => tool.name));
+    expect(changes).toBe(2);
+
+    dynamicRegistry.unregisterWhere((tool) => tool.name === 'dynamic_probe');
+    expect(changes).toBe(3);
+    dispose();
   });
 });

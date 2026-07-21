@@ -61,18 +61,29 @@ export class ToolRegistry {
     container;
     tools = new Map();
     activeSet = null;
+    listChangedListeners = new Set();
     constructor(container) {
         this.container = container;
     }
+    /** Subscribe to changes in the agent-visible MCP tool catalog. */
+    onListChanged(listener) {
+        this.listChangedListeners.add(listener);
+        return () => this.listChangedListeners.delete(listener);
+    }
     register(tool) {
+        const before = this.agentSurfaceSnapshot();
         this.tools.set(tool.name, tool);
+        this.emitListChangedIfNeeded(before);
     }
     registerAll(tools) {
-        for (const t of tools)
-            this.register(t);
+        const before = this.agentSurfaceSnapshot();
+        for (const tool of tools)
+            this.tools.set(tool.name, tool);
+        this.emitListChangedIfNeeded(before);
     }
     /** Remove registered tools matching a predicate and hide them from routing. */
     unregisterWhere(predicate) {
+        const before = this.agentSurfaceSnapshot();
         const removed = [];
         for (const [name, tool] of this.tools) {
             if (!predicate(tool))
@@ -81,21 +92,75 @@ export class ToolRegistry {
             this.activeSet?.delete(name);
             removed.push(name);
         }
+        this.emitListChangedIfNeeded(before);
+        return removed;
+    }
+    /**
+     * Atomically replace a logical tool group and emit at most one catalog change.
+     * When routing is active, replacement tools inherit visibility if any removed
+     * tool was visible, unless `activate` is supplied explicitly.
+     */
+    replaceWhere(predicate, replacements, activate) {
+        const before = this.agentSurfaceSnapshot();
+        const removed = [];
+        let removedVisible = false;
+        for (const [name, tool] of this.tools) {
+            if (!predicate(tool))
+                continue;
+            removedVisible ||= this.activeSet === null || this.activeSet.has(name);
+            this.tools.delete(name);
+            this.activeSet?.delete(name);
+            removed.push(name);
+        }
+        for (const tool of replacements)
+            this.tools.set(tool.name, tool);
+        if (this.activeSet && (activate ?? removedVisible)) {
+            for (const tool of replacements)
+                this.activeSet.add(tool.name);
+        }
+        this.emitListChangedIfNeeded(before);
         return removed;
     }
     /** Make newly registered tools visible when a routed subset is active. */
     activate(names) {
         if (!this.activeSet)
             return;
+        const before = this.agentSurfaceSnapshot();
         for (const name of names)
             this.activeSet.add(name);
+        this.emitListChangedIfNeeded(before);
     }
     get(name) {
         return this.tools.get(name);
     }
     /** Restrict the visible tool set (routing). Pass null to show all. */
     setActive(names) {
+        const before = this.agentSurfaceSnapshot();
         this.activeSet = names ? new Set(names) : null;
+        this.emitListChangedIfNeeded(before);
+    }
+    agentSurfaceSnapshot() {
+        return JSON.stringify(this.listAgentActive()
+            .map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            outputSchema: tool.outputSchema,
+            annotations: tool.annotations,
+        }))
+            .sort((left, right) => left.name.localeCompare(right.name)));
+    }
+    emitListChangedIfNeeded(before) {
+        if (before === this.agentSurfaceSnapshot())
+            return;
+        for (const listener of this.listChangedListeners) {
+            try {
+                listener();
+            }
+            catch (error) {
+                logger.warn({ err: error instanceof Error ? error.message : String(error) }, "Tool list change listener failed");
+            }
+        }
     }
     listActive() {
         const all = [...this.tools.values()];

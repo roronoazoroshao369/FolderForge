@@ -1,8 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
+import { createMcpServer } from '../../src/server/mcp-server.js';
 import { buildRegistry, registerAdapterTools } from '../../src/tools/index.js';
 import { namespacedName, NS_SEP } from '../../src/tools/adapter-tools.js';
 import { TS_FIXTURE } from './fixtures.js';
@@ -10,6 +14,20 @@ import { TS_FIXTURE } from './fixtures.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_SERVER = resolve(__dirname, '..', 'fixtures', 'fake-mcp-server.mjs');
 const DIAGNOSTIC_SERVER = resolve(__dirname, '..', 'fixtures', 'diagnostic-mcp-server.mjs');
+
+async function within<T>(promise: Promise<T>, timeoutMs = 2_000): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /**
  * Build a container whose `serena` adapter points at the fake stdio MCP server,
@@ -81,6 +99,78 @@ describe('child MCP adapter wiring', () => {
 
     expect(added).toBe(0);
     expect(registry.listAll().some((t) => t.name.startsWith('serena__'))).toBe(false);
+  });
+
+  it('retains direct wrappers when child catalog refresh validation fails', async () => {
+    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    config.policy.defaultMode = 'dev';
+    config.adapters.serena = {
+      enabled: true,
+      command: process.execPath,
+      args: [DIAGNOSTIC_SERVER, 'list-change-invalid-refresh'],
+    };
+    config.adapters.playwright.enabled = false;
+    config.adapters.desktopCommander.enabled = false;
+    const container = new Container(config);
+    const registry = buildRegistry(container);
+    await registerAdapterTools(container, registry);
+    teardown = () => container.adapters.stopAll();
+
+    let parentChanges = 0;
+    const dispose = registry.onListChanged(() => {
+      parentChanges += 1;
+    });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+    dispose();
+
+    expect(registry.get('serena__echo-v1')).toBeDefined();
+    expect(registry.get('serena__echo-v2')).toBeUndefined();
+    expect(parentChanges).toBe(0);
+  });
+
+  it('propagates a direct child tool-list change through the parent MCP connection', async () => {
+    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    config.policy.defaultMode = 'dev';
+    config.adapters.serena = {
+      enabled: true,
+      command: process.execPath,
+      args: [DIAGNOSTIC_SERVER, 'list-change-delayed'],
+    };
+    config.adapters.playwright.enabled = false;
+    config.adapters.desktopCommander.enabled = false;
+    const container = new Container(config);
+    const registry = buildRegistry(container);
+    await registerAdapterTools(container, registry);
+    teardown = () => container.adapters.stopAll();
+
+    expect(registry.get('serena__echo-v1')).toBeDefined();
+    const server = createMcpServer(registry, {
+      name: 'folderforge-adapter-refresh-test',
+      version: '0.0.0-test',
+    });
+    const client = new Client(
+      { name: 'folderforge-adapter-refresh-client', version: '1.0.0' },
+      { capabilities: {} },
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const changed = new Promise<void>((resolveNotification) => {
+        client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+          resolveNotification();
+        });
+      });
+
+      await within(changed);
+      const names = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(names).toContain('serena__echo-v2');
+      expect(names).not.toContain('serena__echo-v1');
+    } finally {
+      await client.close().catch(() => undefined);
+      await server.close().catch(() => undefined);
+    }
   });
 
   it('continues degraded without advertising browser wrappers and retains the failure diagnostic', async () => {

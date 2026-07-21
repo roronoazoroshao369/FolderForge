@@ -22,7 +22,8 @@ import { workflowTools } from './workflow-tools.js';
 import { artifactTools } from './artifact-tools.js';
 import { distributedTools } from './distributed-tools.js';
 import { marketplaceTools } from './marketplace-tools.js';
-import { buildAdapterTools } from './adapter-tools.js';
+import { buildAdapterTools, buildAdapterToolsFor } from './adapter-tools.js';
+import { logger } from '../core/logger.js';
 
 /**
  * Build the full tool registry with every group registered.
@@ -59,6 +60,48 @@ export function buildRegistry(container: Container): ToolRegistry {
   return registry;
 }
 
+const catalogRefreshRegistries = new WeakSet<ToolRegistry>();
+
+function subscribeToAdapterCatalogChanges(
+  container: Container,
+  registry: ToolRegistry,
+  activateNewTools: boolean,
+): void {
+  if (catalogRefreshRegistries.has(registry)) return;
+  catalogRefreshRegistries.add(registry);
+  const refreshes = new Map<string, Promise<void>>();
+
+  container.adapters.onCatalogChanged((name) => {
+    if (container.adapters.isFacade(name)) return;
+    const previous = refreshes.get(name) ?? Promise.resolve();
+    const refresh = previous
+      .catch(() => undefined)
+      .then(async () => {
+        if (!container.adapters.isEnabled(name)) return;
+        const replacements = await buildAdapterToolsFor(container, [name], { strict: true });
+        const removed = registry.replaceWhere(
+          (tool) => tool.group === `adapter:${name}`,
+          replacements,
+          activateNewTools ? true : undefined,
+        );
+        logger.info(
+          { adapter: name, removed: removed.length, registered: replacements.length },
+          'Refreshed direct child MCP tool wrappers',
+        );
+      })
+      .catch((error: unknown) => {
+        logger.warn(
+          { adapter: name, err: error instanceof Error ? error.message : String(error) },
+          'Retaining previous direct child MCP wrappers after catalog refresh failure',
+        );
+      })
+      .finally(() => {
+        if (refreshes.get(name) === refresh) refreshes.delete(name);
+      });
+    refreshes.set(name, refresh);
+  });
+}
+
 /**
  * Discover and register tools exposed by enabled child MCP adapters (Serena,
  * Playwright, ...). Each child tool is namespaced (e.g. `serena__find_symbol`)
@@ -70,6 +113,7 @@ export async function registerAdapterTools(
   registry: ToolRegistry,
   activate = false
 ): Promise<number> {
+  subscribeToAdapterCatalogChanges(container, registry, activate);
   const adapterTools = await buildAdapterTools(container);
   registry.registerAll(adapterTools);
   if (activate) registry.activate(adapterTools.map((tool) => tool.name));

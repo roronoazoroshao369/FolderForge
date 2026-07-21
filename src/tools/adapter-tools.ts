@@ -55,7 +55,8 @@ export async function buildAdapterTools(container: Container): Promise<ToolDefin
 /** Build wrappers for a selected adapter set (used by hot plugin lifecycle). */
 export async function buildAdapterToolsFor(
   container: Container,
-  names: AdapterName[]
+  names: AdapterName[],
+  options: { strict?: boolean } = {},
 ): Promise<ToolDefinition[]> {
   const tools: ToolDefinition[] = [];
 
@@ -73,6 +74,7 @@ export async function buildAdapterToolsFor(
           'Registered facade adapter (2 tools)'
         );
       } catch (err) {
+        if (options.strict) throw err;
         logger.warn({ adapter: name, err: String(err) }, 'Skipping facade adapter; discovery failed');
       }
       continue;
@@ -80,9 +82,9 @@ export async function buildAdapterToolsFor(
 
     let childTools: SubToolDescriptor[];
     try {
-      const client = await container.adapters.ensure(name);
-      childTools = await client.listTools();
+      childTools = await container.adapters.catalog(name);
     } catch (err) {
+      if (options.strict) throw err;
       logger.warn({ adapter: name, err: String(err) }, 'Skipping adapter; tool discovery failed');
       continue;
     }
