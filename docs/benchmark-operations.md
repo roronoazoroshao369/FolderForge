@@ -61,9 +61,13 @@ The runner:
 - records failed, timed-out, and malformed harness runs instead of dropping them;
 - deletes temporary workdirs unless `--keep-workdirs` is explicit.
 
-The result still must pass `npm run benchmark:validate`. Comparative publication
-requires the frozen task hash, the minimum run count for every task, no duplicate
-or omitted runs, and compatible hardware for latency claims.
+The result still must pass `npm run benchmark:validate`. For publishable evidence,
+run `npm run benchmark:validate -- --verify-evidence <result.json>`; this reads every
+recorded evidence file and verifies its SHA-256. The comparison command performs
+that verification by default and requires `--allow-unverified` for diagnostic-only
+legacy results. Comparative publication requires the frozen task hash, the minimum
+run count for every task, no duplicate or omitted runs, and compatible hardware
+for latency claims.
 
 ## Local governance microbenchmark
 

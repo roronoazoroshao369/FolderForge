@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 
 export const TASK_MANIFEST = resolve('benchmarks/tasks/agent-evaluation.json');
 
@@ -62,6 +62,9 @@ export function validateResult(result, source = '<memory>') {
     if (run.evidenceSha256 !== undefined && !/^[a-f0-9]{64}$/.test(run.evidenceSha256)) {
       throw new Error(`${prefix}.evidenceSha256 must be lowercase SHA-256.`);
     }
+    if (run.evidenceFile !== undefined && (typeof run.evidenceFile !== 'string' || !run.evidenceFile.trim())) {
+      throw new Error(`${prefix}.evidenceFile must be a non-empty relative path.`);
+    }
     if (run.notes !== undefined && (typeof run.notes !== 'string' || run.notes.length > 2000)) {
       throw new Error(`${prefix}.notes must be at most 2000 characters.`);
     }
@@ -75,8 +78,36 @@ export function validateResult(result, source = '<memory>') {
   return { manifest, hash, result };
 }
 
-export function loadResult(path) {
-  return validateResult(JSON.parse(readFileSync(path, 'utf8')), path);
+export function verifyResultEvidence(result, resultPath) {
+  const root = dirname(resolve(resultPath));
+  for (const [index, run] of result.runs.entries()) {
+    const prefix = `${resultPath}: runs[${index}]`;
+    nonEmpty(run.evidenceFile, `${prefix}.evidenceFile`);
+    if (!run.evidenceSha256) {
+      throw new Error(`${prefix}.evidenceSha256 is required for evidence verification.`);
+    }
+    const evidencePath = resolve(root, run.evidenceFile);
+    if (evidencePath !== root && !evidencePath.startsWith(`${root}${sep}`)) {
+      throw new Error(`${prefix}.evidenceFile escapes the result directory.`);
+    }
+    let bytes;
+    try {
+      bytes = readFileSync(evidencePath);
+    } catch (error) {
+      throw new Error(`${prefix}.evidenceFile cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const actual = sha256(bytes);
+    if (actual !== run.evidenceSha256) {
+      throw new Error(`${prefix}.evidenceSha256 does not match ${run.evidenceFile}.`);
+    }
+  }
+  return { verified: result.runs.length };
+}
+
+export function loadResult(path, options = {}) {
+  const loaded = validateResult(JSON.parse(readFileSync(path, 'utf8')), path);
+  if (options.verifyEvidence) verifyResultEvidence(loaded.result, path);
+  return loaded;
 }
 
 export function median(values) {

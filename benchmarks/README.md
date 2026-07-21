@@ -37,8 +37,10 @@ npm run benchmark:compare -- \
 
 Latency is displayed only when all submissions declare the same OS/hardware
 fingerprint. Token comparisons are displayed only when every run reports tokens.
-The comparison script cannot prove that self-reported evidence is honest, so a
-public report must publish raw evidence or independently verifiable hashes.
+The comparison script now reads every referenced raw evidence file and verifies its
+SHA-256 by default; `--allow-unverified` is diagnostic-only. This proves bundle
+integrity, not that a self-reported harness is neutral or honest, so a public report
+still requires reviewable raw evidence and independent reproduction.
 
 ## Publication gate
 

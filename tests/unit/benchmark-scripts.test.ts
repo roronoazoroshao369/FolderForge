@@ -73,7 +73,7 @@ describe('benchmark result validation and comparison scripts', () => {
 
     const compared = spawnSync(
       process.execPath,
-      ['scripts/compare-benchmarks.mjs', first, second],
+      ['scripts/compare-benchmarks.mjs', '--allow-unverified', first, second],
       { cwd: process.cwd(), encoding: 'utf8' }
     );
     expect(compared.status).toBe(0);
@@ -108,7 +108,7 @@ describe('benchmark result validation and comparison scripts', () => {
 
     const compared = spawnSync(
       process.execPath,
-      ['scripts/compare-benchmarks.mjs', first, second],
+      ['scripts/compare-benchmarks.mjs', '--allow-unverified', first, second],
       { cwd: process.cwd(), encoding: 'utf8' }
     );
     expect(compared.status).toBe(0);

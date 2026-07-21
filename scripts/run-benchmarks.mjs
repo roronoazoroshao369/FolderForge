@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir, platform, arch, cpus, totalmem } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadManifest, sha256 } from './benchmark-lib.mjs';
 
@@ -148,6 +148,11 @@ function nonNegative(value, fallback = 0) {
 }
 
 export async function runBenchmarkSuite(options) {
+  const outputRoot = dirname(resolve(options.output));
+  const evidenceBundleRoot = resolve(options.evidenceDir);
+  if (evidenceBundleRoot !== outputRoot && !evidenceBundleRoot.startsWith(`${outputRoot}${sep}`)) {
+    throw new Error('--evidence-dir must be inside the result output directory so the evidence bundle is portable.');
+  }
   const { manifest, hash } = loadManifest(options.manifest);
   const runsPerTask = options.runs ?? Number(manifest.minimumRunsPerTask ?? 5);
   const machine = machineFingerprint();
@@ -219,6 +224,7 @@ export async function runBenchmarkSuite(options) {
         approvals: nonNegative(metrics.approvals),
         unintendedFiles: nonNegative(metrics.unintendedFiles),
         evidenceSha256: sha256(Buffer.from(evidenceText)),
+        evidenceFile: relative(outputRoot, evidencePath).split(sep).join('/'),
         ...(notes ? { notes } : {}),
       });
       if (!options.keepWorkdirs) rmSync(workdir, { recursive: true, force: true });
