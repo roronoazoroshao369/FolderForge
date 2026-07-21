@@ -18,6 +18,7 @@ material and historical records.
 | --- | --- | --- |
 | [ChatGPT connection](chatgpt-connect.md) | Operator | Guided Auth0/DCR lifecycle for ChatGPT connectors. |
 | [Mission Control](mission-control.md) | Operator | Active calls, sessions, tasks, approvals, processes, isolation containment, and persistent write freeze. |
+| [Durable structured verification](structured-verification.md) | Agent / operator | Owner-bound passed/failed/skipped/unavailable verification evidence with restart recovery. |
 | [OAuth](oauth.md) | Operator | External authorization-server and protected-resource configuration. |
 | [Workflows](workflows.md) | User / Contributor | Persistent governed workflow usage. |
 | [MCP platform](mcp-platform.md) | User / Contributor | Resources, prompts, progress, cancellation, subscriptions, and principal-bound tasks. |

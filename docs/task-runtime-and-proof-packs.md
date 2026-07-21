@@ -78,6 +78,8 @@ the new owner must request a fresh approval bound to the new task context.
 
 ## Proof Pack
 
+Durable `project_verify` child calls are task-bound; their verification ID, explicit check statuses, redacted outputs, and diagnostics are retained as workflow evidence and copied into Proof Pack `testResults`.
+
 A terminal task can create a Proof Pack through `workflow_proof_pack`. The pack
 is stored below the control-plane-only directory:
 

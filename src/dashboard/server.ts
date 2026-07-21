@@ -492,6 +492,7 @@ function missionControlSnapshot(
   const isolations = container.isolation.list();
   const processes = container.processes.list();
   const approvals = container.policy.approvals.pending();
+  const verifications = container.verifications.list(principal, 100);
   const activeCalls = registry.listActiveCalls();
   const recentActivity = container.audit
     .recent(100)
@@ -532,6 +533,11 @@ function missionControlSnapshot(
       activeProcesses: processes.filter((process) => process.status === 'running').length,
       isolations: isolations.length,
       proofPacks: proofPackCount,
+      verificationRuns: verifications.length,
+      runningVerifications: verifications.filter((run) => run.state === 'running').length,
+      verificationIssues: verifications.filter(
+        (run) => run.overall === 'failed' || run.overall === 'unavailable',
+      ).length,
     },
     activeCalls,
     authorizedSessions: activeCapsules.map((capsule) => ({
@@ -547,6 +553,7 @@ function missionControlSnapshot(
     })),
     tasks,
     approvals,
+    verifications,
     processes,
     isolations,
     recentActivity,

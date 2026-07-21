@@ -29,6 +29,7 @@ describe('config loading + validation', () => {
         '**/.folderforge/audit/**',
         '**/.folderforge/proof-packs/**',
         '**/.folderforge/workflows/**',
+        '**/.folderforge/verifications/**',
         '**/.folderforge/mission-control.json',
         '**/.folderforge/mission-control.json.*.tmp',
       ]),

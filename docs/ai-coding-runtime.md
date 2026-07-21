@@ -62,14 +62,19 @@ history layer; persisting stale rollback snapshots would be unsafe.
 
 ### `project_verify`
 
-Plans or executes detected `typecheck`, `lint`, `test`, and `build` commands in a
-fixed order. Every result contains the resolved command, exit code, duration,
-redacted stdout/stderr, parsed diagnostics, and pass/fail state.
+Plans, runs, lists, or inspects detected `typecheck`, `lint`, `test`, and
+`build` checks in fixed order. `run` creates an owner/project/client/task-bound
+verification ID before executing project code. Every requested check remains in
+the report with authoritative `passed`, `failed`, `skipped`, or `unavailable`
+status, resolved command, exit code, duration, redacted stdout/stderr, and parsed
+diagnostics.
 
-Only `dryRun:true` is LOW/read-only. Real project scripts are executable code and
-remain MEDIUM/mutating even when the requested check is only lint or test.
-Failure data is preserved in MCP text and `structuredContent`, so clients no
-longer lose the evidence behind `isError:true`.
+`plan`, `status`, and `list` are LOW/read-only; `dryRun:true` remains an alias for
+`plan`. Real project scripts remain MEDIUM/mutating. Runs survive reconnect and
+restart, dead executors are closed as interrupted without replay, and MCP
+cancellation terminates the active subprocess. Failure data remains in MCP text
+and `structuredContent`; task workflows and Proof Packs reuse the same durable
+report. See [`structured-verification.md`](./structured-verification.md).
 
 ### `change_summary`
 

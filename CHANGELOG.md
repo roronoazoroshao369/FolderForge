@@ -14,6 +14,9 @@ semantic versioning.
 - Add persistent integrity-checked write freeze with restart restoration,
   prior-policy-mode recovery, and dashboard containment actions for pause/cancel,
   stop/kill, and rollback/discard.
+- Make `project_verify` a durable owner-bound pipeline with `plan/run/status/list`,
+  explicit passed/failed/skipped/unavailable check states, cancellation, restart
+  interruption recovery, Proof Pack propagation, and Mission Control summaries.
 - Add owner/project/client-bound durable workflow tasks with objective, acceptance
   criteria, persistent pause/cancel, reconnect-safe resume, targeted one-time
   handoff, state integrity, optimistic revisions, and task-bound child audit and
@@ -42,6 +45,10 @@ semantic versioning.
   write-freeze bypass to a server-generated dashboard role plus an exact
   containment allowlist; normal agents remain fully readonly and HIGH actions
   retain approval and audit requirements.
+- Deny native agent access to verification state, integrity-check every run,
+  bind reads to principal/project/OAuth client, block execution when evidence
+  preflight fails, and return an uncertain-outcome error when post-run persistence
+  fails.
 - Deny native agent access to workflow and Proof Pack state, detect workflow state
   tampering and stale writers, serialize one-time claims with per-run locks, and
   preserve operator pause/cancel during in-flight child completion.

@@ -13,6 +13,7 @@ It does not create a second execution path.
 - active tool calls;
 - active Workspace Capsules and their principal/client/session/task binding;
 - durable tasks, current step, pause state, and attached Proof Pack count;
+- recent durable verification summaries and issue counts;
 - pending approvals;
 - FolderForge-managed processes;
 - managed Git worktree isolations;

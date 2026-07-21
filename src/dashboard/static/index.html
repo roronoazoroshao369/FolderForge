@@ -700,12 +700,15 @@
           [summary.activeProcesses || 0, "active processes"],
           [summary.isolations || 0, "isolations"],
           [summary.proofPacks || 0, "Proof Packs"],
+          [summary.verificationRuns || 0, "verification runs"],
+          [summary.verificationIssues || 0, "verification issues"],
         ];
         const activeCalls = data.activeCalls || [];
         const sessions = data.authorizedSessions || [];
         const tasks = data.tasks || [];
         const processes = data.processes || [];
         const isolations = data.isolations || [];
+        const verifications = data.verifications || [];
         const activity = data.recentActivity || [];
 
         el.innerHTML = `
@@ -735,6 +738,11 @@
                 return `<tr><td class="mono">${esc(task.id)}</td><td>${esc(task.state)}</td><td>${esc(task.task?.objective || task.name || "-")}</td><td class="mono">${esc(task.currentStepId || "-")}</td><td>${esc((task.proofPacks || []).length)}</td><td>${terminal ? "-" : `${missionButton("Pause", `/mission-control/tasks/${encodeURIComponent(task.id)}/pause`, "primary") } ${missionButton("Cancel", `/mission-control/tasks/${encodeURIComponent(task.id)}/cancel`, "danger")}`}</td></tr>`;
               }),
               "No durable tasks.",
+            )}</div></div>
+            <div class="mission-section"><h3>Verification runs</h3><div class="content">${missionTable(
+              ["Run", "State", "Overall", "Checks", "Task", "Updated"],
+              verifications.map((run) => `<tr><td class="mono">${esc(run.id)}</td><td>${esc(run.state)}</td><td>${esc(run.overall)}</td><td class="mono">${esc((run.requested || []).join(", "))}</td><td class="mono">${esc(run.taskId || "-")}</td><td class="mono">${esc(run.updatedAt ? new Date(run.updatedAt).toLocaleString() : "-")}</td></tr>`),
+              "No verification runs.",
             )}</div></div>
             <div class="mission-section"><h3>Managed processes</h3><div class="content">${missionTable(
               ["Session", "Status", "PID", "Command", "Containment"],

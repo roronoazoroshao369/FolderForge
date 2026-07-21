@@ -135,6 +135,27 @@ using FolderForge itself to implement the AI/browser roadmap.
   denial during freeze, blocked policy change, and successful managed-process stop
   through the dashboard while frozen.
 
+### FF-048 — Verification results were transient and semantically incomplete
+
+- Severity: high for autonomous completion evidence
+- Status: fixed and locally verified
+- Root cause: `project_verify` returned one in-memory response; missing commands
+  were labeled skipped, downstream checks vanished after stop-on-failure, status
+  could not be inspected after reconnect/restart, and cancellation did not
+  terminate the active subprocess.
+- Fix: retain the existing tool but add `plan/run/status/list`, owner/project/client
+  and task binding, atomic SHA-256 run records, explicit
+  `passed/failed/skipped/unavailable` check states, dead-executor interruption
+  recovery without replay, in-flight subprocess cancellation, readonly-safe
+  inspection, Proof Pack propagation, and Mission Control summaries.
+- Failure semantics: evidence preflight failure blocks command execution; failure
+  after a command ran returns `VERIFICATION_OUTCOME_UNCERTAIN` with a no-auto-retry
+  instruction.
+- Regression coverage: success/failure/unavailable/downstream-skip matrix,
+  cancellation, restart interruption, tamper and native-file denial, cross-owner/
+  project/client reads, readonly classification, storage failures, task Proof Pack
+  inclusion, and dashboard visibility.
+
 ## Milestone 1.7 — Browser intelligence foundation
 
 ### FF-001 — Screenshot image was flattened into JSON text

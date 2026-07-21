@@ -140,3 +140,21 @@ The registry also exposes a process-local active-call inventory containing tool,
 risk, principal/session/task metadata, start time, and argument keys only. Raw
 argument values are never retained by Mission Control. See
 [`mission-control.md`](./mission-control.md).
+
+
+## Durable verification boundary
+
+`VerificationManager` persists each `project_verify run` before executing project
+code, checkpoints every terminal check result, and marks dead executors
+`interrupted` without replay. Reports are bound to principal, project, OAuth
+client, and optional task ID. The existing `project_verify` tool exposes
+`plan/run/status/list`; only `run` is mutating. Per-check status is one of
+`passed`, `failed`, `skipped`, or `unavailable` after completion, with `pending`
+reserved for active state.
+
+The store lives under denied `.folderforge/verifications`, uses atomic mode-0600
+writes plus a complete-record SHA-256 digest, and fails before execution if the
+initial evidence record cannot be written. A failed checkpoint after command
+execution returns `VERIFICATION_OUTCOME_UNCERTAIN` rather than implying a safe
+retry. Workflow evidence and Proof Packs reuse the same report. See
+[`structured-verification.md`](./structured-verification.md).

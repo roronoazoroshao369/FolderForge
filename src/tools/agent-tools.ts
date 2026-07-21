@@ -5,12 +5,17 @@ import { simpleGit } from 'simple-git';
 import { analyzeProject } from '../agent/project-analyzer.js';
 import { buildCodeContext } from '../agent/code-context.js';
 import type { PatchFileSnapshot, PatchTransactionView } from '../managers/patch-transaction-manager.js';
-import type { ToolContentBlock, ToolDefinition, ToolResult } from '../core/types.js';
+import type { ToolContentBlock, ToolDefinition, ToolPrincipal, ToolResult } from '../core/types.js';
 import { detectCommands } from '../workspace/project-detector.js';
 import { defineTool } from './registry.js';
 import { simpleDiff } from './diff-util.js';
 import { parseErrors } from './error-parser.js';
 import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
+import {
+  VERIFICATION_CHECKS,
+  type VerificationCheck,
+  type VerificationRun,
+} from '../verification/verification-manager.js';
 import {
   CHANGE_SUMMARY_OUTPUT_SCHEMA,
   CODE_CONTEXT_OUTPUT_SCHEMA,
@@ -22,8 +27,8 @@ import {
 const MAX_PATCH_FILES = 25;
 const MAX_PATCH_FILE_BYTES = 256_000;
 const MAX_PATCH_TOTAL_BYTES = 2_000_000;
-const VERIFY_ORDER = ['typecheck', 'lint', 'test', 'build'] as const;
-type VerifyCheck = (typeof VERIFY_ORDER)[number];
+const VERIFY_ORDER = VERIFICATION_CHECKS;
+type VerifyCheck = VerificationCheck;
 
 interface PatchOperation {
   path: string;
@@ -197,24 +202,117 @@ async function patchTransaction(
 }
 
 function requestedChecks(args: Record<string, unknown>, available: Record<string, string>): VerifyCheck[] {
-  const requested = Array.isArray(args.checks)
-    ? args.checks.map(String).filter((value): value is VerifyCheck => VERIFY_ORDER.includes(value as VerifyCheck))
-    : VERIFY_ORDER.filter((check) => available[check]);
-  return [...new Set(requested)];
+  if (args.checks === undefined) return VERIFY_ORDER.filter((check) => available[check]);
+  if (!Array.isArray(args.checks)) throw new Error('checks must be an array.');
+  const raw = args.checks.map(String);
+  const invalid = [...new Set(raw.filter((value) => !VERIFY_ORDER.includes(value as VerifyCheck)))];
+  if (invalid.length > 0) throw new Error(`Unknown verification checks: ${invalid.join(', ')}`);
+  return VERIFY_ORDER.filter((check) => raw.includes(check));
+}
+
+function verificationPrincipal(ctx: Parameters<ToolDefinition['handler']>[1]): ToolPrincipal {
+  return ctx.control?.principal ?? { id: 'agent:unknown', role: 'agent' };
+}
+
+function markPendingSkipped(
+  run: VerificationRun,
+  reason: string,
+): void {
+  for (const result of run.results) {
+    if (result.status !== 'pending') continue;
+    result.status = 'skipped';
+    result.skipped = true;
+    result.reason = reason;
+  }
+}
+
+function commandUnavailable(exitCode: number | null | undefined, stderr: string): boolean {
+  return (
+    exitCode === 127 ||
+    exitCode === 9009 ||
+    /command not found|not recognized as an internal or external command|no such file or directory/i.test(stderr)
+  );
+}
+
+function verificationError(overall: string): string {
+  if (overall === 'unavailable') {
+    return 'Project verification is unavailable. Inspect the structured results for missing commands or executables.';
+  }
+  if (overall === 'incomplete') {
+    return 'Project verification is incomplete. Inspect skipped checks and retry only when safe.';
+  }
+  return 'Project verification failed. Inspect the structured results.';
+}
+
+function uncertainVerification(run: VerificationRun, error: unknown): ToolResult {
+  return {
+    ok: false,
+    error:
+      `VERIFICATION_OUTCOME_UNCERTAIN: a check completed or may have partially completed, ` +
+      `but durable verification evidence could not be checkpointed. Do not retry automatically. ${error instanceof Error ? error.message : String(error)}`,
+    data: {
+      id: run.id,
+      state: run.state,
+      overall: run.overall,
+      requested: run.requested,
+      results: run.results,
+    },
+  };
 }
 
 async function projectVerify(
   args: Record<string, unknown>,
   ctx: Parameters<ToolDefinition['handler']>[1]
 ): Promise<ToolResult> {
+  const action = typeof args.action === 'string'
+    ? args.action
+    : args.dryRun === true
+      ? 'plan'
+      : 'run';
+  const principal = verificationPrincipal(ctx);
+  const manager = ctx.container.verifications;
+
+  if (action === 'status') {
+    try {
+      const run = manager.get(String(args.id ?? ''), principal);
+      return { ok: true, data: manager.report(run) };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  if (action === 'list') {
+    return {
+      ok: true,
+      data: {
+        runs: manager.list(principal, Number(args.limit ?? 50)),
+      },
+    };
+  }
+  if (action !== 'run' && action !== 'plan') {
+    return { ok: false, error: `Unknown project_verify action: ${action}.` };
+  }
+
   const detected = detectCommands(ctx.projectRoot);
   const checks = requestedChecks(args, detected.scripts);
   if (checks.length === 0) {
-    return { ok: false, error: 'No requested verification commands were detected.', data: { detected } };
+    return { ok: false, error: 'No requested verification checks were recognized.', data: { detected } };
   }
-  const plan = checks.map((check) => ({ check, command: detected.scripts[check] ?? null }));
-  if (args.dryRun === true) {
-    return { ok: true, data: { dryRun: true, packageManager: detected.packageManager, plan } };
+  const plan = checks.map((check) => ({
+    check,
+    command: detected.scripts[check] ?? null,
+    status: detected.scripts[check] ? 'available' : 'unavailable',
+  }));
+  if (action === 'plan') {
+    return {
+      ok: true,
+      data: {
+        dryRun: true,
+        action: 'plan',
+        packageManager: detected.packageManager,
+        requested: checks,
+        plan,
+      },
+    };
   }
 
   const stopOnFailure = args.stopOnFailure !== false;
@@ -226,66 +324,149 @@ async function projectVerify(
     ctx.config.terminal.maxOutputBytes,
     Math.max(1000, Number(args.maxOutputBytes ?? ctx.config.terminal.maxOutputBytes))
   );
-  const results: Array<Record<string, unknown>> = [];
-  let passed = true;
+  let run: VerificationRun;
+  try {
+    run = manager.create({
+      principal,
+      packageManager: detected.packageManager,
+      requested: checks,
+      commands: detected.scripts,
+      stopOnFailure,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Verification evidence store unavailable before execution: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 
-  for (let index = 0; index < checks.length; index++) {
+  for (let index = 0; index < run.results.length; index++) {
+    const result = run.results[index]!;
     if (ctx.control?.signal?.aborted) {
+      markPendingSkipped(run, 'Verification cancelled before this check ran.');
+      try {
+        run = manager.finish(run, 'cancelled');
+      } catch (error) {
+        return uncertainVerification(run, error);
+      }
       return {
         ok: false,
         error: 'Verification cancelled.',
-        data: { passed: false, cancelled: true, results },
+        data: manager.report(run),
       };
     }
-    const check = checks[index]!;
-    const command = detected.scripts[check];
-    if (!command) {
-      passed = false;
-      results.push({ check, command: null, skipped: true, reason: 'not detected' });
-      if (stopOnFailure) break;
+
+    if (result.status === 'unavailable') {
+      if (stopOnFailure) {
+        for (const later of run.results.slice(index + 1)) {
+          if (later.status !== 'pending') continue;
+          later.status = 'skipped';
+          later.skipped = true;
+          later.reason = `Not run after unavailable ${result.check} check.`;
+        }
+        try {
+          run = manager.finish(run, 'completed');
+        } catch (error) {
+          return uncertainVerification(run, error);
+        }
+        return { ok: false, error: verificationError(run.overall), data: manager.report(run) };
+      }
       continue;
     }
-    await ctx.control?.reportProgress?.(index, checks.length, `Running ${check}: ${command}`);
-    const started = Date.now();
-    const sub = await execa(
-      ctx.config.terminal.shell,
-      shellCommandArgs(ctx.config.terminal.shell, command),
-      {
-        cwd: ctx.projectRoot,
-        timeout,
-        reject: false,
-        maxBuffer: maxOutput * 4,
-        ...shellSpawnOptions(ctx.config.terminal.shell),
-      }
-    );
-    const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, maxOutput));
-    const stderr = ctx.container.policy.secret.redact((sub.stderr ?? '').slice(0, maxOutput));
-    const success = sub.exitCode === 0;
-    passed &&= success;
-    results.push({
-      check,
-      command,
-      exitCode: sub.exitCode,
-      durationMs: Date.now() - started,
-      stdout,
-      stderr,
-      errors: parseErrors(`${stdout}\n${stderr}`),
-      passed: success,
-    });
-    if (!success && stopOnFailure) break;
-  }
-  await ctx.control?.reportProgress?.(checks.length, checks.length, passed ? 'Verification passed.' : 'Verification failed.');
 
-  const data = {
-    passed,
-    packageManager: detected.packageManager,
-    requested: checks,
-    completed: results.length,
-    results,
-  };
-  return passed
+    const command = result.command!;
+    await ctx.control?.reportProgress?.(index, checks.length, `Running ${result.check}: ${command}`);
+    const started = Date.now();
+    try {
+      const sub = await execa(
+        ctx.config.terminal.shell,
+        shellCommandArgs(ctx.config.terminal.shell, command),
+        {
+          cwd: ctx.projectRoot,
+          timeout,
+          reject: false,
+          maxBuffer: maxOutput * 4,
+          ...(ctx.control?.signal ? { cancelSignal: ctx.control.signal } : {}),
+          ...shellSpawnOptions(ctx.config.terminal.shell),
+        }
+      );
+      const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, maxOutput));
+      const stderr = ctx.container.policy.secret.redact((sub.stderr ?? '').slice(0, maxOutput));
+      const unavailable = commandUnavailable(sub.exitCode, stderr);
+      const success = sub.exitCode === 0;
+      result.exitCode = sub.exitCode ?? null;
+      result.durationMs = Date.now() - started;
+      result.stdout = stdout;
+      result.stderr = stderr;
+      result.errors = parseErrors(`${stdout}\n${stderr}`);
+      result.status = success ? 'passed' : unavailable ? 'unavailable' : 'failed';
+      result.passed = success;
+      if (unavailable) result.reason = 'The verification executable or command is unavailable.';
+      else if (!success && (sub as { timedOut?: boolean }).timedOut) {
+        result.reason = `Verification timed out after ${timeout}ms.`;
+      }
+    } catch (error) {
+      const message = ctx.container.policy.secret.redact(
+        error instanceof Error ? error.message : String(error),
+      );
+      result.status = 'failed';
+      result.passed = false;
+      result.durationMs = Date.now() - started;
+      result.stderr = message.slice(0, maxOutput);
+      result.errors = parseErrors(message);
+      result.reason = 'Verification command could not be executed.';
+    }
+
+    if (ctx.control?.signal?.aborted) {
+      result.status = 'skipped';
+      result.skipped = true;
+      result.passed = false;
+      result.reason = 'Verification cancelled while this check was running.';
+    }
+    try {
+      run = manager.checkpoint(run);
+    } catch (error) {
+      return uncertainVerification(run, error);
+    }
+    if (ctx.control?.signal?.aborted) {
+      markPendingSkipped(run, 'Verification cancelled before this check ran.');
+      try {
+        run = manager.finish(run, 'cancelled');
+      } catch (error) {
+        return uncertainVerification(run, error);
+      }
+      return { ok: false, error: 'Verification cancelled.', data: manager.report(run) };
+    }
+    if (result.status !== 'passed' && stopOnFailure) {
+      markPendingSkipped(run, `Not run after ${result.check} ${result.status}.`);
+      try {
+        run = manager.finish(run, 'completed');
+      } catch (error) {
+        return uncertainVerification(run, error);
+      }
+      await ctx.control?.reportProgress?.(
+        checks.length,
+        checks.length,
+        run.overall === 'passed' ? 'Verification passed.' : 'Verification stopped.',
+      );
+      return { ok: false, error: verificationError(run.overall), data: manager.report(run) };
+    }
+  }
+
+  try {
+    run = manager.finish(run, 'completed');
+  } catch (error) {
+    return uncertainVerification(run, error);
+  }
+  await ctx.control?.reportProgress?.(
+    checks.length,
+    checks.length,
+    run.overall === 'passed' ? 'Verification passed.' : 'Verification completed with issues.',
+  );
+  const data = manager.report(run);
+  return run.overall === 'passed'
     ? { ok: true, data }
-    : { ok: false, error: 'Project verification failed. Inspect the structured results.', data };
+    : { ok: false, error: verificationError(run.overall), data };
 }
 
 interface NumstatEntry {
@@ -463,18 +644,22 @@ export function agentTools(): ToolDefinition[] {
     defineTool({
       name: 'project_verify',
       description:
-        'Plan or execute detected typecheck, lint, test, and build checks sequentially, returning commands, durations, outputs, and parsed failures.',
+        'Plan, execute, list, or inspect durable owner-bound typecheck/lint/test/build verification runs with explicit passed/failed/skipped/unavailable evidence.',
       group: 'agent',
       mutates: true,
       inputSchema: {
         type: 'object',
         properties: {
+          action: { type: 'string', enum: ['run', 'plan', 'status', 'list'] },
+          id: { type: 'string' },
+          limit: { type: 'integer', minimum: 1, maximum: 200 },
           checks: { type: 'array', items: { type: 'string', enum: VERIFY_ORDER } },
-          dryRun: { type: 'boolean' },
+          dryRun: { type: 'boolean', description: 'Backward-compatible alias for action=plan.' },
           stopOnFailure: { type: 'boolean' },
           timeoutMs: { type: 'integer', minimum: 1000, maximum: 1800000 },
           maxOutputBytes: { type: 'integer', minimum: 1000 },
         },
+        additionalProperties: false,
       },
       outputSchema: PROJECT_VERIFY_OUTPUT_SCHEMA,
       handler: projectVerify,

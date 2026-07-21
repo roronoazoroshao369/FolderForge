@@ -66,6 +66,56 @@ describe('ProofPackManager', () => {
     expect(readFileSync(join(pack.directory, 'changes.diff'), 'utf8')).toContain('diff --git');
   });
 
+  it('carries structured verification evidence into task Proof Packs', () => {
+    const projectRoot = root();
+    const workflows = new WorkflowManager(projectRoot);
+    const verifyDefinition: WorkflowDefinition = {
+      name: 'verified task',
+      roles: { verifier: { allowedTools: ['project_verify'] } },
+      steps: [{ id: 'verify', role: 'verifier', tool: 'project_verify' }],
+    };
+    const run = workflows.create(verifyDefinition, { id: 'credential:owner', role: 'agent' });
+    run.state = 'completed';
+    run.completedAt = Date.now();
+    run.steps[0]!.state = 'succeeded';
+    run.steps[0]!.attempts = 1;
+    run.steps[0]!.evidence = {
+      ok: true,
+      data: {
+        id: 'verify_0123456789abcdef',
+        taskId: run.id,
+        state: 'completed',
+        overall: 'passed',
+        results: [{ check: 'test', command: 'npm test', status: 'passed', exitCode: 0 }],
+      },
+    };
+    workflows.save(run);
+    const manager = new ProofPackManager(projectRoot, (text) => text);
+    const pack = manager.create({
+      run,
+      approvals: [],
+      auditEvents: [],
+      auditVerification: {
+        ok: true,
+        schemaVersion: 2,
+        records: 0,
+        headHash: null,
+        signedRecords: 0,
+        verifiedSignatures: 0,
+        unverifiedSignatures: 0,
+        issues: [],
+      },
+    });
+    const report = JSON.parse(readFileSync(join(pack.directory, 'report.json'), 'utf8')) as {
+      testResults: Array<{ evidence: { data: { id: string; overall: string; taskId: string } } }>;
+    };
+    expect(report.testResults[0]?.evidence.data).toMatchObject({
+      id: 'verify_0123456789abcdef',
+      overall: 'passed',
+      taskId: run.id,
+    });
+  });
+
   it('fails closed on content or manifest tampering and rejects non-terminal workflows', () => {
     const projectRoot = root();
     const workflows = new WorkflowManager(projectRoot);

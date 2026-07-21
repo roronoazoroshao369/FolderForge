@@ -228,8 +228,13 @@ export class ToolRegistry {
                     };
         }
         else if (name === "project_verify") {
+            const action = typeof args.action === "string"
+                ? args.action
+                : args.dryRun === true
+                    ? "plan"
+                    : "run";
             classification =
-                args.dryRun === true
+                action === "plan" || action === "status" || action === "list"
                     ? { name, risk: "LOW", mutates: false, governanceArgs: args }
                     : { name, risk: "MEDIUM", mutates: true, governanceArgs: args };
         }

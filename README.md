@@ -145,6 +145,8 @@ advertise unusable `browser_*` wrappers. See
   evidence.
 - **Mission Control:** local active-call/session/task/process/isolation view with
   persistent write freeze and governed containment actions.
+- **Durable verification:** owner-bound typecheck/lint/test/build reports with
+  explicit passed, failed, skipped, and unavailable evidence across restart.
 - **Artifacts and UI quality:** content-addressed evidence, screenshot baselines,
   pixel comparison, bounded accessibility/contrast audit, device/network
   emulation, and governed composed UI flows.

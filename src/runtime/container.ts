@@ -25,6 +25,7 @@ import { WorkspaceCapsuleManager } from '../capsule/workspace-capsule-manager.js
 import { WorktreeManager } from '../isolation/worktree-manager.js';
 import { ProofPackManager } from '../proof/proof-pack-manager.js';
 import { MissionControlState } from '../operator/mission-control.js';
+import { VerificationManager } from '../verification/verification-manager.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -51,6 +52,7 @@ export class Container {
   readonly isolation: WorktreeManager;
   readonly proofPacks: ProofPackManager;
   readonly missionControl: MissionControlState;
+  readonly verifications: VerificationManager;
   workspaceStartupError: string | null = null;
   /**
    * Narrow routing contract assigned by `buildRegistry` after construction.
@@ -64,6 +66,7 @@ export class Container {
       config.workspace.defaultProject,
       this.policy,
     );
+    this.verifications = new VerificationManager(config.workspace.defaultProject);
     this.rateLimiter = new RateLimiter(config.rateLimit);
     this.workspace = new WorkspaceManager(config.workspace.allowedDirectories);
     this.audit = new AuditLog(config.workspace.defaultProject, config.audit);

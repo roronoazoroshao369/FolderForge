@@ -203,15 +203,32 @@ describe('dashboard admin authorization plane', () => {
       harness.root,
       harness.container.config.terminal.shell,
     );
+    let verification = harness.container.verifications.create({
+      principal: { id: 'credential:verification-owner', role: 'agent', taskId: 'wf_dashboard' },
+      packageManager: 'npm',
+      requested: ['test'],
+      commands: { test: 'npm test' },
+      stopOnFailure: true,
+    });
+    verification.results[0]!.status = 'passed';
+    verification.results[0]!.passed = true;
+    verification.results[0]!.exitCode = 0;
+    verification = harness.container.verifications.finish(verification, 'completed');
 
     const initial = await fetch(`${harness.baseUrl}/mission-control`);
     expect(initial.status).toBe(200);
     const initialBody = (await initial.json()) as {
-      summary: { activeProcesses: number };
+      summary: { activeProcesses: number; verificationRuns: number; verificationIssues: number };
       control: { writeFreeze: boolean };
+      verifications: Array<{ id: string; overall: string }>;
     };
     expect(initialBody.control.writeFreeze).toBe(false);
     expect(initialBody.summary.activeProcesses).toBe(1);
+    expect(initialBody.summary.verificationRuns).toBe(1);
+    expect(initialBody.summary.verificationIssues).toBe(0);
+    expect(initialBody.verifications).toContainEqual(
+      expect.objectContaining({ id: verification.id, overall: 'passed' }),
+    );
 
     const freeze = await fetch(`${harness.baseUrl}/mission-control/write-freeze`, {
       method: 'POST',

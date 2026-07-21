@@ -173,16 +173,22 @@ export const PATCH_TRANSACTION_OUTPUT_SCHEMA = {
   required: ['id', 'projectRoot', 'createdAt', 'updatedAt', 'state', 'files'],
 } as const;
 
-/** Output of project_verify on both success and failure. */
+/** Output of project_verify for plan/run/status/list actions. */
 export const PROJECT_VERIFY_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
     dryRun: { type: 'boolean' },
+    action: { type: 'string' },
+    id: { type: 'string' },
+    state: { type: 'string', enum: ['running', 'completed', 'cancelled', 'interrupted'] },
+    overall: { type: 'string', enum: ['passed', 'failed', 'unavailable', 'incomplete'] },
     passed: { type: 'boolean' },
-    packageManager: { type: 'string' },
+    packageManager: { type: ['string', 'null'] },
     requested: { type: 'array', items: { type: 'string' } },
     completed: { type: 'integer' },
+    counts: { type: 'object', additionalProperties: { type: 'integer' } },
     plan: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    runs: { type: 'array', items: { type: 'object', additionalProperties: true } },
     results: {
       type: 'array',
       items: {
@@ -190,6 +196,7 @@ export const PROJECT_VERIFY_OUTPUT_SCHEMA = {
         properties: {
           check: { type: 'string' },
           command: { type: ['string', 'null'] },
+          status: { type: 'string', enum: ['pending', 'passed', 'failed', 'skipped', 'unavailable'] },
           exitCode: { type: ['integer', 'null'] },
           durationMs: { type: 'integer' },
           stdout: { type: 'string' },
@@ -199,7 +206,7 @@ export const PROJECT_VERIFY_OUTPUT_SCHEMA = {
           skipped: { type: 'boolean' },
           reason: { type: 'string' },
         },
-        required: ['check'],
+        required: ['check', 'command', 'status'],
       },
     },
   },
