@@ -53,6 +53,7 @@ material and historical records.
 | [Core/runtime boundary ADR](adr-0008-core-runtime-package-boundary.md) | Contributor / Maintainer | Dependency direction, cycle gates, and the Godot adapter extraction. |
 | [Child MCP compatibility](child-mcp-compatibility.md) | Operator / Contributor | Deterministic protocol profiles, evidence, and third-party certification limits. |
 | [Pinned third-party MCP compatibility](third-party-mcp-compatibility.md) | Operator / Contributor | Exact server/package pins, isolated execution, cross-platform artifacts, and claim boundaries. |
+| [Runtime soak evidence](runtime-soak.md) | Operator / Maintainer | Resumable long-run harness, hash-chained samples, fault injection, verification, and 24-hour claim boundary. |
 | [Maturity and proof matrix](maturity-and-proof.md) | User / Maintainer | Capability maturity, reproducible gates, prohibited claims, and external evidence backlog. |
 | [Release inventory](release-inventory.md) | Maintainer / Researcher | Factual npm, tag, and hosted-release provenance snapshot with explicit unknowns. |
 | [OAuth ADR](adr-0004-oauth-resource-server.md) | Contributor / Maintainer | Resource-server architecture and trade-offs. |

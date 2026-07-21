@@ -41,6 +41,10 @@ to npm, or created as a hosted GitHub release.
 - Add dynamic MCP tool-surface propagation so routed/plugin/direct-child catalog
   changes replace wrappers atomically and notify clients without emitting false
   changes when refresh validation fails.
+- Add a resumable runtime-soak harness with governed/audited samples, planned child
+  restarts, fsynced SHA-256 JSONL evidence, full failure/outlier retention,
+  SIGTERM resume, audit verification, safe reset ownership, CI artifacts, and a
+  maintained 24-hour profile with explicit proof boundaries.
 - Extract `GodotCli` and `GodotRuntime` into the independently buildable and
   packable `@folderforge/adapter-godot` candidate while retaining the existing
   root tool schema through a private transition import map.

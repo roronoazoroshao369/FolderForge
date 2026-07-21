@@ -59,6 +59,9 @@
     "scripts/child-mcp-compatibility.mjs",
     "scripts/child-mcp-third-party.mjs",
     "compatibility/child-mcp-third-party.json",
+    "scripts/runtime-soak.mjs",
+    "scripts/runtime-soak-lib.mjs",
+    "scripts/test-runtime-soak-volume.mjs",
     "scripts/run-governance-benchmarks.mjs"
   ],
   "engines": {
@@ -100,7 +103,11 @@
     "smoke:onboarding": "npm run build && node scripts/smoke-onboarding.mjs",
     "smoke:adapter-godot": "node scripts/smoke-adapter-godot.mjs",
     "smoke:inspector": "npm run build && node scripts/smoke-inspector.mjs",
-    "quality:check": "npm run test:coverage && npm run test:fuzz && npm run test:stress && npm run smoke:inspector && npm run test:audit-concurrency && npm run smoke:evidence && npm run compatibility:child-mcp && node scripts/child-mcp-third-party.mjs --validate-only && npm run smoke:onboarding && npm run smoke:adapter-godot && npm run benchmark:governance",
+    "smoke:runtime-soak": "npm run build && node scripts/runtime-soak.mjs --output-dir .folderforge-ci/runtime-soak-smoke --duration-ms 5000 --interval-ms 250 --fault-every 5 --reset",
+    "soak:runtime": "npm run build && node scripts/runtime-soak.mjs",
+    "soak:runtime:24h": "npm run build && node scripts/runtime-soak.mjs --duration-ms 86400000 --interval-ms 1000 --fault-every 300",
+    "test:runtime-soak-volume": "node scripts/test-runtime-soak-volume.mjs",
+    "quality:check": "npm run test:coverage && npm run test:fuzz && npm run test:stress && npm run smoke:inspector && npm run test:audit-concurrency && npm run smoke:evidence && npm run compatibility:child-mcp && node scripts/child-mcp-third-party.mjs --validate-only && npm run smoke:runtime-soak && npm run test:runtime-soak-volume && npm run smoke:onboarding && npm run smoke:adapter-godot && npm run benchmark:governance",
     "benchmark:validate": "node scripts/validate-benchmark-results.mjs",
     "benchmark:compare": "node scripts/compare-benchmarks.mjs",
     "smoke:sandbox": "node scripts/smoke-sandbox.mjs",

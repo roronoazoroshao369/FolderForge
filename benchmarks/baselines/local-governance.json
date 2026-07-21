@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "benchmark": "folderforge-governance-microbenchmark-v1",
-  "generatedAt": "2026-07-21T01:53:10.859Z",
+  "generatedAt": "2026-07-21T01:55:45.501Z",
   "runsPerWorkload": 5,
   "system": {
     "node": "v22.23.0",
@@ -13,55 +13,55 @@
   "workloads": {
     "registryBuild1000": {
       "samplesMs": [
-        8.0906,
-        8.7476,
-        19.9574,
-        27.7748,
-        33.6152
+        4.2721,
+        3.8412,
+        7.275,
+        6.3146,
+        7.9533
       ],
-      "minMs": 8.0906,
-      "medianMs": 19.9574,
-      "p95Ms": 33.6152,
-      "maxMs": 33.6152
+      "minMs": 3.8412,
+      "medianMs": 6.3146,
+      "p95Ms": 7.9533,
+      "maxMs": 7.9533
     },
     "toolsList1000": {
       "samplesMs": [
-        0.0543,
-        0.017,
-        0.0538,
-        0.0219,
-        0.0099
+        0.0495,
+        0.0146,
+        0.0391,
+        0.0218,
+        0.0292
       ],
-      "minMs": 0.0099,
-      "medianMs": 0.0219,
-      "p95Ms": 0.0543,
-      "maxMs": 0.0543
+      "minMs": 0.0146,
+      "medianMs": 0.0292,
+      "p95Ms": 0.0495,
+      "maxMs": 0.0495
     },
     "policyEvaluate500Rules": {
       "samplesMs": [
-        0.2096,
-        0.2072,
-        0.2146,
-        0.22,
-        0.2019
+        0.0864,
+        0.0782,
+        0.0772,
+        0.0753,
+        0.0766
       ],
-      "minMs": 0.2019,
-      "medianMs": 0.2096,
-      "p95Ms": 0.22,
-      "maxMs": 0.22
+      "minMs": 0.0753,
+      "medianMs": 0.0772,
+      "p95Ms": 0.0864,
+      "maxMs": 0.0864
     },
     "coldStdioInitializeAndToolsList": {
       "samplesMs": [
-        1856.6603,
-        1304.0382,
-        1305.2364,
-        1100.4547,
-        1080.4219
+        619.5059,
+        576.1285,
+        579.485,
+        582.1691,
+        555.1856
       ],
-      "minMs": 1080.4219,
-      "medianMs": 1304.0382,
-      "p95Ms": 1856.6603,
-      "maxMs": 1856.6603
+      "minMs": 555.1856,
+      "medianMs": 579.485,
+      "p95Ms": 619.5059,
+      "maxMs": 619.5059
     }
   },
   "targets": {
@@ -72,7 +72,7 @@
   "pass": {
     "toolsList1000": true,
     "policyEvaluate500Rules": true,
-    "coldStdioInitializeAndToolsList": false
+    "coldStdioInitializeAndToolsList": true
   },
   "limitations": [
     "This is a local FolderForge microbenchmark, not a competitor comparison.",

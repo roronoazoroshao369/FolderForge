@@ -10,6 +10,7 @@ production guarantee.
 | Policy, approvals, path and command boundary | Beta / hardened local path | Critical coverage gate, exact-approval tests, escape and self-approval tests | Design-partner incident exercises |
 | Audit durability and evidence v2 | Beta / hardened local path | Failure injection, hash-chain tamper corpus, migration smoke, 8-process writer test | External witness/key operations for stronger non-repudiation |
 | Child MCP runtime | Beta | 46 child-client tests, stress suite, five deterministic protocol profiles, and a five-product exact-version/integrity-pinned runner with local Linux evidence | Passing exact-commit artifacts on all required operating systems plus independent reproduction and maintenance ownership |
+| Runtime soak evidence | Harness complete; long-duration proof pending | Governed/audited samples, planned child restart, SIGTERM resume, SHA-256 JSONL verification, reset fail-closed, CI smoke, and 90,001-record volume test | A retained passing 24-hour active-duration chain for the exact revision plus independent review |
 | Godot adapter package | Extraction candidate | Independent build/pack/install/import smoke | Separate publication/versioning decision |
 | Browser and UI quality | Experimental integration | Local/integration tests and explicit browser setup | Broader OS/browser beta evidence |
 | Distributed workers | Labs | Local reference tests, signed evidence and lease/fencing fixtures | Real multi-host operation, SRE ownership, HA design |
@@ -25,6 +26,7 @@ npm run smoke:evidence
 npm run test:audit-concurrency
 npm run compatibility:child-mcp
 npm run compatibility:child-mcp:third-party  # network-backed exact pins
+npm run smoke:runtime-soak
 npm run smoke:onboarding
 npm run smoke:adapter-godot
 npm run smoke:package

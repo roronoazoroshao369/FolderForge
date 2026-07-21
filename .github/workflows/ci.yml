@@ -134,6 +134,34 @@ jobs:
         if: matrix.node == 22
         run: node scripts/smoke-evidence.mjs
 
+      - name: Resumable runtime soak smoke
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: node scripts/runtime-soak.mjs --output-dir .folderforge-ci/runtime-soak-smoke --duration-ms 5000 --interval-ms 250 --fault-every 5
+
+      - name: Preserve runtime soak smoke evidence
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: runtime-soak-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            .folderforge-ci/runtime-soak-smoke/evidence.jsonl
+            .folderforge-ci/runtime-soak-smoke/summary.json
+
+      - name: Full-day soak evidence volume gate
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: node scripts/test-runtime-soak-volume.mjs --output .folderforge-ci/runtime-soak-volume.json
+
+      - name: Preserve soak volume evidence
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: runtime-soak-volume-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: .folderforge-ci/runtime-soak-volume.json
+
       - name: Five-minute onboarding smoke
         if: matrix.node == 22
         run: node scripts/smoke-onboarding.mjs

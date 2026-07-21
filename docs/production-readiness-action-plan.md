@@ -287,7 +287,7 @@ Choose Godot or ChatGPT based on dependency analysis and migration risk.
 
 **Outcome:** Performance, safety, reliability, and onboarding claims are backed by raw evidence.
 
-**Implementation status (2026-07-20):** Local benchmark tooling and baseline complete. Five disclosed runs pass the initial targets: `tools/list` at 1,000 tools p95 0.0443 ms, 500-rule evaluation p95 0.0878 ms, and cold stdio initialize plus `tools/list` p95 613.4203 ms on the recorded machine. The frozen agent-evaluation harness, raw evidence hashes, onboarding smoke, security/failure corpora, and limitations are present. Named competitor runs, 24-hour soak, and independent reproduction remain external evidence gates; no comparative performance claim is made.
+**Implementation status (2026-07-21):** Local benchmark tooling and baseline complete. Five disclosed runs pass the initial targets: `tools/list` at 1,000 tools p95 0.0443 ms, 500-rule evaluation p95 0.0878 ms, and cold stdio initialize plus `tools/list` p95 613.4203 ms on the recorded machine. The frozen agent-evaluation harness, raw evidence hashes, onboarding smoke, security/failure corpora, and limitations are present. A resumable runtime-soak harness now fsyncs a SHA-256 JSONL chain for every governed/audited sample, child MCP list/call, planned restart, failure, and outlier; automated tests prove SIGTERM resume, tamper rejection, safe reset, and 90,001-record volume. A completed 24-hour chain, named competitor runs, and independent reproduction remain external evidence gates; no comparative performance or 24-hour reliability claim is made.
 
 ### Systems under test
 

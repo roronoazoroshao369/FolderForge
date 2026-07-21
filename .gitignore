@@ -5,6 +5,8 @@ node_modules/
 dist/
 coverage/
 benchmarks/results/
+.folderforge-ci/
+.folderforge-soak/
 
 # Logs
 *.log

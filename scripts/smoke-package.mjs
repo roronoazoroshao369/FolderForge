@@ -165,6 +165,8 @@ try {
     'docs/browser-emulation-flows.md',
     'docs/benchmark-operations.md',
     'docs/third-party-mcp-compatibility.md',
+    'docs/runtime-soak.md',
+    'docs/adr-0010-resumable-runtime-soak-evidence.md',
     'benchmarks/tasks/agent-evaluation.json',
     'benchmarks/schema/result.schema.json',
     'beta/schema/evidence.schema.json',
@@ -172,6 +174,9 @@ try {
     'scripts/run-benchmarks.mjs',
     'scripts/beta-evidence.mjs',
     'scripts/child-mcp-third-party.mjs',
+    'scripts/runtime-soak.mjs',
+    'scripts/runtime-soak-lib.mjs',
+    'scripts/test-runtime-soak-volume.mjs',
   ]) {
     if (!packagedFiles.has(required)) {
       throw new Error(`Packed tarball is missing required file: ${required}`);
