@@ -27,6 +27,8 @@ describe('config loading + validation', () => {
         '**/.folderforge/capsules.json',
         '**/.folderforge/approvals.jsonl',
         '**/.folderforge/audit/**',
+        '**/.folderforge/proof-packs/**',
+        '**/.folderforge/workflows/**',
       ]),
     );
     expect(cfg.capsule).toEqual({

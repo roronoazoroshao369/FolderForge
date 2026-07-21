@@ -1,14 +1,19 @@
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { ToolContentBlock, ToolResult } from '../core/types.js';
+import type { ToolContentBlock, ToolPrincipal, ToolResult } from '../core/types.js';
+import { logger } from '../core/logger.js';
 
 export type WorkflowState =
   | 'created'
@@ -54,6 +59,34 @@ export interface WorkflowDefinition {
   steps: WorkflowStepDefinition[];
 }
 
+export interface WorkflowOwnerBinding {
+  principalId: string;
+  projectId?: string;
+  clientId?: string;
+  createdSessionId?: string;
+  createdCapsuleId?: string;
+}
+
+export interface WorkflowTaskMetadata {
+  objective: string;
+  acceptanceCriteria: string[];
+  isolationId?: string;
+  knownLimitations: string[];
+}
+
+export interface WorkflowHandoff {
+  targetPrincipalId: string;
+  tokenSha256: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface WorkflowProofPackRef {
+  id: string;
+  manifestSha256: string;
+  createdAt: string;
+}
+
 export interface WorkflowEvidence {
   ok: boolean;
   data?: unknown;
@@ -79,11 +112,17 @@ export interface WorkflowStepRun {
 }
 
 export interface WorkflowRun {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
+  revision: number;
+  integritySha256: string;
   definition: WorkflowDefinition;
   definitionHash: string;
   projectRoot: string;
+  owner: WorkflowOwnerBinding;
+  task: WorkflowTaskMetadata;
+  handoff?: WorkflowHandoff;
+  proofPacks: WorkflowProofPackRef[];
   state: WorkflowState;
   createdAt: number;
   updatedAt: number;
@@ -101,6 +140,10 @@ export interface WorkflowRunView {
   description?: string;
   definitionHash: string;
   projectRoot: string;
+  owner: WorkflowOwnerBinding;
+  task: WorkflowTaskMetadata;
+  handoff?: Omit<WorkflowHandoff, 'tokenSha256'>;
+  proofPacks: WorkflowProofPackRef[];
   state: WorkflowState;
   createdAt: number;
   updatedAt: number;
@@ -118,6 +161,56 @@ const MAX_DEFINITION_BYTES = 256_000;
 const MAX_STEP_ARGS_BYTES = 64_000;
 const MAX_EVIDENCE_BYTES = 64_000;
 const MAX_TEXT_CONTENT = 8_000;
+const MAX_ACCEPTANCE_CRITERIA = 50;
+const MAX_LIMITATIONS = 50;
+const DEFAULT_HANDOFF_TTL_MS = 15 * 60 * 1000;
+const MAX_HANDOFF_TTL_MS = 24 * 60 * 60 * 1000;
+const STALE_LOCK_MS = 5 * 60 * 1000;
+
+function ownerBinding(principal: ToolPrincipal): WorkflowOwnerBinding {
+  return {
+    principalId: principal.id,
+    ...(principal.projectId ? { projectId: principal.projectId } : {}),
+    ...(principal.oauthClientId ? { clientId: principal.oauthClientId } : {}),
+    ...(principal.sessionId ? { createdSessionId: principal.sessionId } : {}),
+    ...(principal.capsuleId ? { createdCapsuleId: principal.capsuleId } : {}),
+  };
+}
+
+function ownerMatches(owner: WorkflowOwnerBinding, principal: ToolPrincipal): boolean {
+  if (principal.role === 'admin') return true;
+  if (owner.principalId !== principal.id) return false;
+  if (owner.projectId && owner.projectId !== principal.projectId) return false;
+  if (owner.clientId && owner.clientId !== principal.oauthClientId) return false;
+  return true;
+}
+
+function taskMetadata(
+  definition: WorkflowDefinition,
+  value: Partial<WorkflowTaskMetadata> = {},
+): WorkflowTaskMetadata {
+  const objective = String(value.objective ?? definition.description ?? definition.name).trim();
+  if (!objective) throw new Error('workflow objective is required.');
+  const criteria = [...new Set((value.acceptanceCriteria ?? []).map((item) => String(item).trim()).filter(Boolean))];
+  const limitations = [...new Set((value.knownLimitations ?? []).map((item) => String(item).trim()).filter(Boolean))];
+  if (criteria.length > MAX_ACCEPTANCE_CRITERIA) throw new Error(`acceptanceCriteria exceeds ${MAX_ACCEPTANCE_CRITERIA} items.`);
+  if (limitations.length > MAX_LIMITATIONS) throw new Error(`knownLimitations exceeds ${MAX_LIMITATIONS} items.`);
+  return {
+    objective: objective.slice(0, 8_000),
+    acceptanceCriteria: criteria.map((item) => item.slice(0, 2_000)),
+    ...(value.isolationId ? { isolationId: String(value.isolationId) } : {}),
+    knownLimitations: limitations.map((item) => item.slice(0, 2_000)),
+  };
+}
+
+function tokenHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function runIntegrity(run: WorkflowRun): string {
+  const { integritySha256: _integrity, ...unsigned } = run;
+  return createHash('sha256').update(stable(unsigned)).digest('hex');
+}
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
@@ -360,15 +453,24 @@ export class WorkflowManager {
     this.runsDir = join(this.root, 'runs');
   }
 
-  create(definition: WorkflowDefinition): WorkflowRun {
+  create(
+    definition: WorkflowDefinition,
+    principal: ToolPrincipal = { id: 'agent:unknown', role: 'agent' },
+    metadata: Partial<WorkflowTaskMetadata> = {},
+  ): WorkflowRun {
     this.ensureStore();
     const now = Date.now();
     const run: WorkflowRun = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: `wf_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+      revision: 0,
+      integritySha256: '',
       definition,
       definitionHash: simpleHash(stable(definition)),
       projectRoot: this.projectRoot,
+      owner: ownerBinding(principal),
+      task: taskMetadata(definition, metadata),
+      proofPacks: [],
       state: 'created',
       createdAt: now,
       updatedAt: now,
@@ -384,22 +486,30 @@ export class WorkflowManager {
     return run;
   }
 
-  get(id: string): WorkflowRun {
+  get(id: string, principal?: ToolPrincipal): WorkflowRun {
     if (!/^wf_[a-z0-9]+$/i.test(id)) throw new Error('Invalid workflow run id.');
     const path = join(this.runsDir, `${id}.json`);
     if (!existsSync(path)) throw new Error(`Workflow run not found: ${id}`);
-    const run = JSON.parse(readFileSync(path, 'utf8')) as WorkflowRun;
-    if (run.schemaVersion !== 1 || run.id !== id) throw new Error(`Invalid workflow run file: ${id}`);
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    const run = this.normalizeRun(raw, id);
+    if (principal && !ownerMatches(run.owner, principal)) {
+      throw new Error(`Workflow access denied for principal ${principal.id}.`);
+    }
     return run;
   }
 
-  list(limit = 50): WorkflowRunView[] {
+  list(
+    principal?: ToolPrincipal,
+    limit = 50,
+  ): WorkflowRunView[] {
     if (!existsSync(this.runsDir)) return [];
     return readdirSync(this.runsDir)
       .filter((name) => /^wf_[a-z0-9]+\.json$/i.test(name))
       .map((name) => {
         try {
-          return this.view(this.get(name.slice(0, -5)));
+          const run = this.get(name.slice(0, -5));
+          if (principal && !ownerMatches(run.owner, principal)) return null;
+          return this.view(run);
         } catch {
           return null;
         }
@@ -411,21 +521,153 @@ export class WorkflowManager {
 
   save(run: WorkflowRun): void {
     this.ensureStore();
-    run.updatedAt = Date.now();
+    if (run.projectRoot !== this.projectRoot) throw new Error('Workflow project root mismatch.');
     const path = join(this.runsDir, `${run.id}.json`);
-    const temp = `${path}.tmp-${process.pid}`;
+    if (existsSync(path)) {
+      const currentRaw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+      const current = this.normalizeRun(currentRaw, run.id);
+      if (current.revision !== run.revision) {
+        throw new Error(
+          `Workflow state changed concurrently: expected revision ${run.revision}, current ${current.revision}.`,
+        );
+      }
+    }
+    run.updatedAt = Date.now();
+    run.revision += 1;
+    run.integritySha256 = runIntegrity(run);
+    const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
     writeFileSync(temp, JSON.stringify(run, null, 2) + '\n', { mode: 0o600 });
     renameSync(temp, path);
   }
 
-  cancel(id: string): WorkflowRun {
-    const run = this.get(id);
-    if (['completed', 'failed', 'cancelled'].includes(run.state)) return run;
-    run.state = 'cancelled';
-    run.completedAt = Date.now();
-    run.pauseReason = 'Cancelled by operator.';
-    this.save(run);
-    return run;
+  cancel(id: string, principal?: ToolPrincipal): WorkflowRun {
+    return this.withRunLock(id, () => {
+      const run = this.get(id, principal);
+      if (['completed', 'failed', 'cancelled'].includes(run.state)) return run;
+      run.state = 'cancelled';
+      run.completedAt = Date.now();
+      run.pauseReason = 'Cancelled by operator.';
+      this.save(run);
+      return run;
+    });
+  }
+
+  pause(id: string, principal: ToolPrincipal, reason = 'Paused by operator.'): WorkflowRun {
+    return this.withRunLock(id, () => {
+      const run = this.get(id, principal);
+      if (['completed', 'failed', 'cancelled'].includes(run.state)) {
+        throw new Error(`Workflow ${id} is terminal (${run.state}).`);
+      }
+      run.state = 'paused';
+      run.pauseReason = reason.trim().slice(0, 2_000) || 'Paused by operator.';
+      this.save(run);
+      return run;
+    });
+  }
+
+  handoff(
+    id: string,
+    principal: ToolPrincipal,
+    targetPrincipalId: string,
+    ttlMs = DEFAULT_HANDOFF_TTL_MS,
+  ): { run: WorkflowRun; token: string } {
+    return this.withRunLock(id, () => {
+      const run = this.get(id, principal);
+      if (!['created', 'paused'].includes(run.state)) {
+        throw new Error('Workflow handoff requires created or paused state.');
+      }
+      if (run.steps.some((step) => step.state === 'running')) {
+        throw new Error('Workflow handoff waits for the current running step to checkpoint.');
+      }
+      const target = targetPrincipalId.trim();
+    if (!target || target === run.owner.principalId) throw new Error('Handoff target must be a different principal.');
+    if (!Number.isSafeInteger(ttlMs) || ttlMs < 1_000 || ttlMs > MAX_HANDOFF_TTL_MS) {
+      throw new Error(`handoff ttlMs must be between 1000 and ${MAX_HANDOFF_TTL_MS}.`);
+    }
+    const token = `wf_claim_${randomUUID().replaceAll('-', '')}${randomUUID().replaceAll('-', '')}`;
+    const now = Date.now();
+    for (const step of run.steps.filter((item) => item.state === 'awaiting_approval')) {
+      step.state = 'pending';
+      step.note = 'Previous approval invalidated by workflow handoff.';
+      delete step.approvalId;
+    }
+    run.handoff = {
+      targetPrincipalId: target,
+      tokenSha256: tokenHash(token),
+      createdAt: now,
+      expiresAt: now + ttlMs,
+    };
+      this.save(run);
+      return { run, token };
+    });
+  }
+
+  claim(id: string, token: string, principal: ToolPrincipal): WorkflowRun {
+    return this.withRunLock(id, () => {
+      const run = this.get(id);
+    const handoff = run.handoff;
+    if (!handoff) throw new Error('Workflow has no pending handoff.');
+    if (handoff.expiresAt <= Date.now()) {
+      delete run.handoff;
+      this.save(run);
+      throw new Error('Workflow handoff has expired.');
+    }
+    if (handoff.targetPrincipalId !== principal.id) throw new Error('Workflow handoff target mismatch.');
+    if (tokenHash(token) !== handoff.tokenSha256) throw new Error('Workflow handoff token is invalid.');
+    run.owner = ownerBinding(principal);
+    delete run.handoff;
+      this.save(run);
+      return run;
+    });
+  }
+
+  addProofPack(id: string, ref: WorkflowProofPackRef, principal?: ToolPrincipal): WorkflowRun {
+    return this.withRunLock(id, () => {
+      const run = this.get(id, principal);
+      if (!run.proofPacks.some((item) => item.id === ref.id)) run.proofPacks.push({ ...ref });
+      this.save(run);
+      return run;
+    });
+  }
+
+  removeProofPack(id: string, proofPackId: string, principal?: ToolPrincipal): WorkflowRun {
+    return this.withRunLock(id, () => {
+      const run = this.get(id, principal);
+      run.proofPacks = run.proofPacks.filter((item) => item.id !== proofPackId);
+      this.save(run);
+      return run;
+    });
+  }
+
+  checkpoint(candidate: WorkflowRun, principal: ToolPrincipal): WorkflowRun {
+    return this.withRunLock(candidate.id, () => {
+      const current = this.get(candidate.id, principal);
+      if (current.revision === candidate.revision) {
+        this.save(candidate);
+        return candidate;
+      }
+      if (!['paused', 'cancelled'].includes(current.state)) {
+        throw new Error(
+          `Workflow state changed concurrently at revision ${current.revision}; refusing stale checkpoint.`,
+        );
+      }
+      if (candidate.currentStepId) {
+        const source = candidate.steps.find((step) => step.id === candidate.currentStepId);
+        const target = current.steps.find((step) => step.id === candidate.currentStepId);
+        if (source && target && source.attempts >= target.attempts) {
+          if (source.state === 'running' && !source.evidence) {
+            target.state = 'pending';
+            delete target.startedAt;
+            delete current.currentStepId;
+          } else {
+            Object.assign(target, structuredClone(source));
+            current.currentStepId = candidate.currentStepId;
+          }
+        }
+      }
+      this.save(current);
+      return current;
+    });
   }
 
   view(run: WorkflowRun): WorkflowRunView {
@@ -435,6 +677,18 @@ export class WorkflowManager {
       ...(run.definition.description ? { description: run.definition.description } : {}),
       definitionHash: run.definitionHash,
       projectRoot: run.projectRoot,
+      owner: { ...run.owner },
+      task: structuredClone(run.task),
+      ...(run.handoff
+        ? {
+            handoff: {
+              targetPrincipalId: run.handoff.targetPrincipalId,
+              createdAt: run.handoff.createdAt,
+              expiresAt: run.handoff.expiresAt,
+            },
+          }
+        : {}),
+      proofPacks: run.proofPacks.map((item) => ({ ...item })),
       state: run.state,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
@@ -466,6 +720,118 @@ export class WorkflowManager {
         successful: run.state === 'completed',
       },
     };
+  }
+
+  private normalizeRun(raw: Record<string, unknown>, id: string): WorkflowRun {
+    if (raw.id !== id) throw new Error(`Invalid workflow run file: ${id}`);
+    if (raw.schemaVersion === 2) {
+      const run = raw as unknown as WorkflowRun;
+      if (
+        !run.owner?.principalId ||
+        !run.task?.objective ||
+        !Array.isArray(run.proofPacks) ||
+        !Number.isSafeInteger(run.revision) ||
+        run.revision < 1 ||
+        !/^[a-f0-9]{64}$/.test(run.integritySha256)
+      ) {
+        throw new Error(`Invalid workflow run file: ${id}`);
+      }
+      if (runIntegrity(run) !== run.integritySha256) {
+        throw new Error(`Workflow state integrity check failed: ${id}`);
+      }
+      return run;
+    }
+    if (raw.schemaVersion === 1) {
+      const legacy = raw as unknown as Omit<WorkflowRun, 'schemaVersion' | 'owner' | 'task' | 'proofPacks'> & { schemaVersion: 1 };
+      return {
+        ...legacy,
+        schemaVersion: 2,
+        revision: 0,
+        integritySha256: '',
+        owner: { principalId: 'legacy:unowned' },
+        task: taskMetadata(legacy.definition),
+        proofPacks: [],
+      };
+    }
+    throw new Error(`Unsupported workflow schema for ${id}.`);
+  }
+
+  private clearStaleLock(lockPath: string): void {
+    if (!existsSync(lockPath)) return;
+    try {
+      const metadata = JSON.parse(readFileSync(lockPath, 'utf8')) as {
+        pid?: number;
+        createdAt?: string;
+      };
+      if (
+        !Number.isSafeInteger(metadata.pid) ||
+        !metadata.createdAt ||
+        !Number.isFinite(Date.parse(metadata.createdAt)) ||
+        Date.now() - Date.parse(metadata.createdAt) <= STALE_LOCK_MS
+      ) {
+        return;
+      }
+      try {
+        process.kill(metadata.pid!, 0);
+        return;
+      } catch (error) {
+        if (
+          !error ||
+          typeof error !== 'object' ||
+          !('code' in error) ||
+          (error as NodeJS.ErrnoException).code !== 'ESRCH'
+        ) {
+          return;
+        }
+      }
+      unlinkSync(lockPath);
+    } catch {
+      // Invalid or unreadable locks fail closed instead of being removed.
+    }
+  }
+
+  private withRunLock<T>(id: string, operation: () => T): T {
+    this.ensureStore();
+    if (!/^wf_[a-z0-9]+$/i.test(id)) throw new Error('Invalid workflow run id.');
+    const lockPath = join(this.runsDir, `${id}.lock`);
+    this.clearStaleLock(lockPath);
+    let descriptor: number | undefined;
+    let ownsLock = false;
+    try {
+      descriptor = openSync(lockPath, 'wx', 0o600);
+      ownsLock = true;
+      writeSync(
+        descriptor,
+        `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`,
+      );
+      closeSync(descriptor);
+      descriptor = undefined;
+      return operation();
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as NodeJS.ErrnoException).code === 'EEXIST'
+      ) {
+        throw new Error(`Workflow is busy: ${id}`);
+      }
+      throw error;
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor);
+      if (ownsLock) {
+        try {
+          unlinkSync(lockPath);
+        } catch (error) {
+          if (!(error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT')) {
+            logger.warn(
+              { workflowId: id, lockPath, err: error },
+              'Workflow lock cleanup failed; future mutations remain fail-closed',
+            );
+          }
+        }
+      }
+    }
   }
 
   private ensureStore(): void {

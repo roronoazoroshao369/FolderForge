@@ -1,4 +1,4 @@
-import type { ToolCallControl, ToolDefinition, ToolResult } from '../core/types.js';
+import type { ToolCallControl, ToolDefinition, ToolPrincipal, ToolResult } from '../core/types.js';
 import type { ApprovalState } from '../policy/approvals.js';
 import {
   checkWorkflowExpectation,
@@ -14,6 +14,10 @@ const runSchema = { type: 'object', additionalProperties: true } as const;
 
 function fail(error: unknown): ToolResult {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
+
+function workflowPrincipal(ctx: Parameters<ToolDefinition['handler']>[1]): ToolPrincipal {
+  return ctx.control?.principal ?? { id: 'agent:unknown', role: 'agent' };
 }
 
 function redactedArgs(args: Record<string, unknown>, redact: (text: string) => string): Record<string, unknown> {
@@ -42,6 +46,11 @@ async function executeWorkflow(
   control?: ToolCallControl
 ): Promise<ToolResult> {
   const manager = ctx.container.workflows;
+  const principal = workflowPrincipal(ctx);
+  const taskControl: ToolCallControl = {
+    ...(control ?? {}),
+    principal: { ...principal, taskId: run.id },
+  };
   if (run.state === 'completed') return { ok: true, data: manager.report(run) };
   if (run.state === 'cancelled' || run.state === 'failed') {
     return { ok: false, error: `Workflow ${run.id} is ${run.state}.`, data: manager.report(run) };
@@ -53,7 +62,7 @@ async function executeWorkflow(
     if (!state || state === 'pending') {
       run.state = 'paused';
       run.pauseReason = `Awaiting approval ${waiting.approvalId} for ${waiting.tool}.`;
-      manager.save(run);
+      run = manager.checkpoint(run, principal);
       return { ok: true, data: manager.report(run) };
     }
     if (state === 'denied' || state === 'expired') {
@@ -63,8 +72,8 @@ async function executeWorkflow(
       run.state = 'failed';
       run.failure = waiting.note;
       run.completedAt = Date.now();
-      manager.save(run);
-      return { ok: false, error: run.failure, data: manager.report(run) };
+      run = manager.checkpoint(run, principal);
+      return { ok: false, error: run.failure ?? 'Workflow failed.', data: manager.report(run) };
     }
     waiting.state = 'pending';
     delete waiting.approvalId;
@@ -73,17 +82,21 @@ async function executeWorkflow(
 
   run.state = 'running';
   run.startedAt ??= Date.now();
-  manager.save(run);
+  run = manager.checkpoint(run, principal);
 
   while (true) {
     if (control?.signal?.aborted) {
       run.state = 'paused';
       run.pauseReason = 'Execution cancelled by client; resume will continue from the next unfinished step.';
-      manager.save(run);
+      run = manager.checkpoint(run, principal);
       return { ok: true, data: manager.report(run) };
     }
-    if (manager.get(run.id).state === 'cancelled') {
-      return { ok: false, error: `Workflow ${run.id} was cancelled.`, data: manager.report(manager.get(run.id)) };
+    const persisted = manager.get(run.id, principal);
+    if (persisted.state === 'cancelled') {
+      return { ok: false, error: `Workflow ${run.id} was cancelled.`, data: manager.report(persisted) };
+    }
+    if (persisted.state === 'paused') {
+      return { ok: true, data: manager.report(persisted) };
     }
 
     for (const step of run.steps.filter((item) => item.state === 'pending')) {
@@ -108,7 +121,7 @@ async function executeWorkflow(
       else delete run.failure;
       run.completedAt = Date.now();
       delete run.currentStepId;
-      manager.save(run);
+      run = manager.checkpoint(run, principal);
       return failed
         ? { ok: false, error: run.failure ?? 'Workflow failed.', data: manager.report(run) }
         : { ok: true, data: manager.report(run) };
@@ -123,8 +136,8 @@ async function executeWorkflow(
       run.state = 'failed';
       run.failure = 'Workflow cannot make progress; dependencies are unresolved.';
       run.completedAt = Date.now();
-      manager.save(run);
-      return { ok: false, error: run.failure, data: manager.report(run) };
+      run = manager.checkpoint(run, principal);
+      return { ok: false, error: run.failure ?? 'Workflow failed.', data: manager.report(run) };
     }
 
     const def = definitionStep(run, step.id);
@@ -142,8 +155,8 @@ async function executeWorkflow(
       run.state = 'failed';
       run.failure = step.note ?? `Step ${step.id} failed.`;
       run.completedAt = Date.now();
-      manager.save(run);
-      return { ok: false, error: run.failure, data: manager.report(run) };
+      run = manager.checkpoint(run, principal);
+      return { ok: false, error: run.failure ?? 'Workflow failed.', data: manager.report(run) };
     }
 
     step.state = 'running';
@@ -151,14 +164,21 @@ async function executeWorkflow(
     step.startedAt = Date.now();
     step.resolvedArgs = redactedArgs(args, (text) => ctx.container.policy.secret.redact(text));
     run.currentStepId = step.id;
-    manager.save(run);
+    run = manager.checkpoint(run, principal);
+    if (run.state === 'paused' || run.state === 'cancelled') {
+      return {
+        ok: run.state === 'paused',
+        ...(run.state === 'cancelled' ? { error: `Workflow ${run.id} was cancelled.` } : {}),
+        data: manager.report(run),
+      };
+    }
     await control?.reportProgress?.(
       run.steps.filter((item) => ['succeeded', 'skipped'].includes(item.state)).length,
       run.steps.length,
       `${step.role}: ${step.tool}`
     );
 
-    const result = await ctx.container.registry.callAgent(step.tool, args, control);
+    const result = await ctx.container.registry.callAgent(step.tool, args, taskControl);
     const evidence = workflowEvidence(result, (text) => ctx.container.policy.secret.redact(text));
     step.evidence = evidence;
     step.completedAt = Date.now();
@@ -169,7 +189,7 @@ async function executeWorkflow(
       step.note = result.error ?? 'Approval required.';
       run.state = 'paused';
       run.pauseReason = `Awaiting approval ${result.approvalId} for ${step.tool}.`;
-      manager.save(run);
+      run = manager.checkpoint(run, principal);
       return { ok: true, data: manager.report(run) };
     }
 
@@ -177,19 +197,19 @@ async function executeWorkflow(
     if (result.ok && expectation.passed) {
       step.state = 'succeeded';
       delete step.note;
-      manager.save(run);
+      run = manager.checkpoint(run, principal);
       continue;
     }
 
     step.state = 'failed';
     step.note = expectation.reason ?? result.error ?? `${step.tool} failed.`;
-    manager.save(run);
+    run = manager.checkpoint(run, principal);
     if (def.continueOnError) continue;
     run.state = 'failed';
     run.failure = step.note ?? `${step.tool} failed.`;
     run.completedAt = Date.now();
-    manager.save(run);
-    return { ok: false, error: run.failure, data: manager.report(run) };
+    run = manager.checkpoint(run, principal);
+    return { ok: false, error: run.failure ?? 'Workflow failed.', data: manager.report(run) };
   }
 }
 
@@ -199,7 +219,18 @@ export function workflowTools(): ToolDefinition[] {
       name: 'workflow_create',
       description: 'Validate and persist a deterministic, role-scoped workflow definition. Recursive workflow tool calls and detected secrets are rejected.',
       group: 'workflow', mutates: true, risk: 'MEDIUM',
-      inputSchema: { type: 'object', properties: { definition: { type: 'object', additionalProperties: true } }, required: ['definition'] },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          definition: { type: 'object', additionalProperties: true },
+          objective: { type: 'string', maxLength: 8000 },
+          acceptanceCriteria: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 2000 } },
+          isolationId: { type: 'string' },
+          knownLimitations: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 2000 } },
+        },
+        required: ['definition'],
+        additionalProperties: false,
+      },
       outputSchema: runSchema,
       handler: async (args, ctx) => {
         try {
@@ -210,7 +241,24 @@ export function workflowTools(): ToolDefinition[] {
             ctx.container.registry.listAgentActive().map((tool: ToolDefinition) => tool.name)
           );
           const definition = validateWorkflowDefinition(args.definition, available);
-          const run = ctx.container.workflows.create(definition);
+          const isolationId = typeof args.isolationId === 'string' ? args.isolationId : undefined;
+          if (isolationId && !ctx.container.isolation.get(isolationId)) {
+            return { ok: false, error: `Unknown isolation: ${isolationId}` };
+          }
+          const run = ctx.container.workflows.create(
+            definition,
+            workflowPrincipal(ctx),
+            {
+              ...(typeof args.objective === 'string' ? { objective: args.objective } : {}),
+              ...(Array.isArray(args.acceptanceCriteria)
+                ? { acceptanceCriteria: args.acceptanceCriteria.map(String) }
+                : {}),
+              ...(isolationId ? { isolationId } : {}),
+              ...(Array.isArray(args.knownLimitations)
+                ? { knownLimitations: args.knownLimitations.map(String) }
+                : {}),
+            },
+          );
           return { ok: true, data: ctx.container.workflows.report(run) };
         } catch (error) { return fail(error); }
       },
@@ -223,7 +271,7 @@ export function workflowTools(): ToolDefinition[] {
       outputSchema: runSchema,
       handler: async (args, ctx) => {
         try {
-          const run = ctx.container.workflows.get(String(args.id ?? ''));
+          const run = ctx.container.workflows.get(String(args.id ?? ''), workflowPrincipal(ctx));
           if (run.state !== 'created') return { ok: false, error: `workflow_run requires created state; current=${run.state}.`, data: ctx.container.workflows.report(run) };
           return executeWorkflow(run, ctx, ctx.control);
         } catch (error) { return fail(error); }
@@ -237,7 +285,7 @@ export function workflowTools(): ToolDefinition[] {
       outputSchema: runSchema,
       handler: async (args, ctx) => {
         try {
-          const run = ctx.container.workflows.get(String(args.id ?? ''));
+          const run = ctx.container.workflows.get(String(args.id ?? ''), workflowPrincipal(ctx));
           if (run.state !== 'paused') return { ok: false, error: `workflow_resume requires paused state; current=${run.state}.`, data: ctx.container.workflows.report(run) };
           return executeWorkflow(run, ctx, ctx.control);
         } catch (error) { return fail(error); }
@@ -250,7 +298,7 @@ export function workflowTools(): ToolDefinition[] {
       inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
       outputSchema: runSchema,
       handler: async (args, ctx) => {
-        try { return { ok: true, data: ctx.container.workflows.view(ctx.container.workflows.get(String(args.id ?? ''))) }; }
+        try { return { ok: true, data: ctx.container.workflows.view(ctx.container.workflows.get(String(args.id ?? ''), workflowPrincipal(ctx))) }; }
         catch (error) { return fail(error); }
       },
     }),
@@ -260,7 +308,7 @@ export function workflowTools(): ToolDefinition[] {
       group: 'workflow', mutates: false, risk: 'LOW',
       inputSchema: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 200 } } },
       outputSchema: { type: 'object', properties: { runs: { type: 'array', items: runSchema } }, required: ['runs'] },
-      handler: async (args, ctx) => ({ ok: true, data: { runs: ctx.container.workflows.list(Number(args.limit ?? 50)) } }),
+      handler: async (args, ctx) => ({ ok: true, data: { runs: ctx.container.workflows.list(workflowPrincipal(ctx), Number(args.limit ?? 50)) } }),
     }),
     defineTool({
       name: 'workflow_cancel',
@@ -269,8 +317,85 @@ export function workflowTools(): ToolDefinition[] {
       inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
       outputSchema: runSchema,
       handler: async (args, ctx) => {
-        try { return { ok: true, data: ctx.container.workflows.report(ctx.container.workflows.cancel(String(args.id ?? ''))) }; }
+        try { return { ok: true, data: ctx.container.workflows.report(ctx.container.workflows.cancel(String(args.id ?? ''), workflowPrincipal(ctx))) }; }
         catch (error) { return fail(error); }
+      },
+    }),
+    defineTool({
+      name: 'workflow_pause',
+      description: 'Pause a non-terminal owned workflow. A running executor stops before the next step.',
+      group: 'workflow', mutates: true, risk: 'MEDIUM',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' }, reason: { type: 'string', maxLength: 2000 } },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      outputSchema: runSchema,
+      handler: async (args, ctx) => {
+        try {
+          const run = ctx.container.workflows.pause(
+            String(args.id ?? ''),
+            workflowPrincipal(ctx),
+            typeof args.reason === 'string' ? args.reason : undefined,
+          );
+          return { ok: true, data: ctx.container.workflows.report(run) };
+        } catch (error) { return fail(error); }
+      },
+    }),
+    defineTool({
+      name: 'workflow_handoff',
+      description: 'Create a short-lived, one-time workflow claim token for an exact target principal.',
+      group: 'workflow', mutates: true, risk: 'HIGH',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          targetPrincipalId: { type: 'string', minLength: 1, maxLength: 256 },
+          ttlMs: { type: 'integer', minimum: 1000, maximum: 86400000 },
+        },
+        required: ['id', 'targetPrincipalId'],
+        additionalProperties: false,
+      },
+      outputSchema: { type: 'object', additionalProperties: true },
+      handler: async (args, ctx) => {
+        try {
+          const result = ctx.container.workflows.handoff(
+            String(args.id ?? ''),
+            workflowPrincipal(ctx),
+            String(args.targetPrincipalId ?? ''),
+            Number(args.ttlMs ?? 15 * 60 * 1000),
+          );
+          return {
+            ok: true,
+            data: {
+              workflow: ctx.container.workflows.report(result.run),
+              claimToken: result.token,
+            },
+          };
+        } catch (error) { return fail(error); }
+      },
+    }),
+    defineTool({
+      name: 'workflow_claim',
+      description: 'Claim a workflow handoff as its exact target principal using the one-time token.',
+      group: 'workflow', mutates: true, risk: 'MEDIUM',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' }, claimToken: { type: 'string', minLength: 32, maxLength: 256 } },
+        required: ['id', 'claimToken'],
+        additionalProperties: false,
+      },
+      outputSchema: runSchema,
+      handler: async (args, ctx) => {
+        try {
+          const run = ctx.container.workflows.claim(
+            String(args.id ?? ''),
+            String(args.claimToken ?? ''),
+            workflowPrincipal(ctx),
+          );
+          return { ok: true, data: ctx.container.workflows.report(run) };
+        } catch (error) { return fail(error); }
       },
     }),
     defineTool({
@@ -280,7 +405,7 @@ export function workflowTools(): ToolDefinition[] {
       inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
       outputSchema: runSchema,
       handler: async (args, ctx) => {
-        try { return { ok: true, data: ctx.container.workflows.report(ctx.container.workflows.get(String(args.id ?? ''))) }; }
+        try { return { ok: true, data: ctx.container.workflows.report(ctx.container.workflows.get(String(args.id ?? ''), workflowPrincipal(ctx))) }; }
         catch (error) { return fail(error); }
       },
     }),

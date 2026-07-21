@@ -26,6 +26,7 @@ import { buildAdapterTools, buildAdapterToolsFor } from './adapter-tools.js';
 import { logger } from '../core/logger.js';
 import { capsuleTools } from './capsule-tools.js';
 import { isolationTools } from './isolation-tools.js';
+import { proofPackTools } from './proof-pack-tools.js';
 
 /**
  * Build the full tool registry with every group registered.
@@ -36,6 +37,7 @@ export function buildRegistry(container: Container): ToolRegistry {
     ...workspaceTools(),
     ...capsuleTools(),
     ...isolationTools(),
+    ...proofPackTools(),
     ...fileTools(),
     ...searchTools(),
     ...terminalTools(),

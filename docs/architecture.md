@@ -71,6 +71,8 @@ when the MCP client does not advertise the `elicitation` capability.
 | Workspace | `src/workspace/*` | Project detection, activation, memory store |
 | Capsules | `src/capsule/*` | Principal/session/workspace/profile/budget/expiry enforcement |
 | Isolation | `src/isolation/*` | Managed Git worktree lifecycle, review, safe apply/discard |
+| Task runtime | `src/workflows/*` | Durable owner-bound plans, pause/resume, handoff, bounded evidence |
+| Proof packs | `src/proof/*` | Secret-redacted immutable task evidence and integrity verification |
 | Adapters | `src/adapters/child-mcp/*` | Proxy child MCP servers (Serena, Playwright) |
 | Dashboard | `src/dashboard/*` | Local read/approve control plane UI |
 
@@ -104,3 +106,18 @@ Apply requires a clean unchanged source fingerprint and preflights tracked,
 untracked, conflict, path, symlink, size, and patch conditions. See
 [`task-isolation.md`](./task-isolation.md) and
 [ADR-0011](./adr-0011-workspace-capsules-and-isolation.md).
+
+
+## Durable task and Proof Pack boundary
+
+`WorkflowManager` is the durable task runtime. Each task is bound to its owner,
+project and optional OAuth client, protected by an integrity digest, optimistic
+revision, and per-run mutation lock. Child calls receive the workflow id as the
+server-owned task id before entering the shared registry, so approvals and audit
+events cannot be reused across tasks. Pause checkpoints a completed in-flight
+step without replay; targeted handoff transfers ownership with a one-time token.
+
+`ProofPackManager` packages terminal workflow evidence only after audit-chain
+verification. It writes redacted JSON, Markdown, diffs, approvals, task audit
+events, and an integrity manifest beneath the denied control-plane directory.
+See [`task-runtime-and-proof-packs.md`](./task-runtime-and-proof-packs.md).

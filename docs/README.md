@@ -98,4 +98,5 @@ tests take precedence.
 
 - [Workspace Capsules](workspace-capsules.md)
 - [Managed task isolation](task-isolation.md)
+- [Durable task runtime and Proof Packs](task-runtime-and-proof-packs.md)
 - [ADR-0011: Capsules and worktrees](adr-0011-workspace-capsules-and-isolation.md)

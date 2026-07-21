@@ -23,6 +23,7 @@ import { BrowserEmulationManager } from '../browser/emulation-manager.js';
 import { McpTaskManager } from '../server/mcp-task-manager.js';
 import { WorkspaceCapsuleManager } from '../capsule/workspace-capsule-manager.js';
 import { WorktreeManager } from '../isolation/worktree-manager.js';
+import { ProofPackManager } from '../proof/proof-pack-manager.js';
 
 /**
  * Dependency container shared by every tool handler.
@@ -47,6 +48,7 @@ export class Container {
   readonly mcpTasks: McpTaskManager;
   readonly capsules: WorkspaceCapsuleManager;
   readonly isolation: WorktreeManager;
+  readonly proofPacks: ProofPackManager;
   workspaceStartupError: string | null = null;
   /**
    * Narrow routing contract assigned by `buildRegistry` after construction.
@@ -80,6 +82,10 @@ export class Container {
     this.processes = new ProcessManager();
     this.plugins = new PluginManager(config.workspace.defaultProject, readFolderForgeVersion());
     this.workflows = new WorkflowManager(config.workspace.defaultProject);
+    this.proofPacks = new ProofPackManager(
+      config.workspace.defaultProject,
+      (text) => this.policy.secret.redact(text),
+    );
     this.artifacts = new ArtifactStore(config.workspace.defaultProject);
     this.marketplace = new MarketplaceManager(
       config.workspace.defaultProject,

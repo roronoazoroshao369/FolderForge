@@ -100,7 +100,7 @@ export class McpResourceCatalog {
       description: 'Recent governed workflow states and step evidence metadata.',
       mimeType: 'application/json',
       annotations: { audience: ['assistant'], priority: 0.9 },
-      read: () => this.container.workflows.list(50),
+      read: () => this.container.workflows.list(this.principal, 50),
     });
 
     this.register({

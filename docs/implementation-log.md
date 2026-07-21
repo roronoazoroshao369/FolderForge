@@ -74,6 +74,49 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Regression coverage: mismatch of each dimension, exact-context success, legacy
   records, restart, self-approval, and dashboard operator action.
 
+
+### FF-044 — Durable workflow tasks had no owner boundary
+
+- Severity: critical for multi-client remote use
+- Status: fixed and locally verified
+- Root cause: workflow ids were sufficient to list, inspect, run, cancel, and
+  report every persisted workflow; task child calls also inherited no durable
+  task identity for approval/audit binding.
+- Fix: bind new tasks to principal, project, and optional OAuth client; preserve
+  session/capsule creation provenance; make legacy tasks admin-only; propagate the
+  workflow id as `taskId` to every child registry call.
+- Regression coverage: cross-owner status/list/cancel denial, project/client
+  mismatch, same-owner reconnect, old-owner denial after handoff, and task-bound
+  child audit events.
+
+### FF-045 — Pause and handoff could lose state under concurrent execution
+
+- Severity: high
+- Status: fixed and locally verified
+- Root cause: plain atomic replacement prevented partial files but did not stop a
+  stale executor from overwriting a newer pause/cancel/claim; claim had no
+  cross-process one-time lock.
+- Fix: add monotonic revisions, SHA-256 state integrity, per-run lock files with
+  conservative stale-lock recovery, optimistic stale-write refusal, and checkpoint
+  merging that preserves pause/cancel while retaining the completed in-flight
+  step. Handoff waits for the running step and persists only a targeted token hash.
+- Regression coverage: manual pause during a delayed child, no replay after resume,
+  stale writer refusal, live-lock preservation, dead-process lock recovery, token
+  expiry/target/replay, and state tamper detection.
+
+### FF-046 — Task completion had no self-verifying Proof Pack
+
+- Severity: high for review and release evidence
+- Status: fixed and locally verified
+- Root cause: workflow reports and audit data existed separately and could not be
+  attached as one secret-redacted, machine/human-readable integrity artifact.
+- Fix: add terminal-task Proof Packs containing report JSON/Markdown, diff,
+  approvals, task-bound audit events, managed rollback checkpoint, per-file hashes,
+  audit head, and manifest hash. Protect the directory from native tools and clean
+  up incomplete attachment/audit failures.
+- Regression coverage: terminal gate, secret redaction, owner boundary, file and
+  manifest verification, content tamper rejection, and workflow attachment.
+
 ## Milestone 1.7 — Browser intelligence foundation
 
 ### FF-001 — Screenshot image was flattened into JSON text

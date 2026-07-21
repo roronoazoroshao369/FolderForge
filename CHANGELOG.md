@@ -8,6 +8,13 @@ semantic versioning.
 
 ### Added
 
+- Add owner/project/client-bound durable workflow tasks with objective, acceptance
+  criteria, persistent pause/cancel, reconnect-safe resume, targeted one-time
+  handoff, state integrity, optimistic revisions, and task-bound child audit and
+  approval context.
+- Add secret-redacted terminal-task Proof Packs with JSON/Markdown reports, diffs,
+  approvals, task audit events, rollback checkpoint metadata, per-file hashes, and
+  manifest verification.
 - Add server-enforced Workspace Capsules with permission profiles, exact
   workspace/principal/client/session/task binding, expiry, revocation, budgets,
   atomic integrity-checked persistence, tool/group scopes, dashboard lifecycle
@@ -25,6 +32,9 @@ semantic versioning.
 
 ### Security
 
+- Deny native agent access to workflow and Proof Pack state, detect workflow state
+  tampering and stale writers, serialize one-time claims with per-run locks, and
+  preserve operator pause/cancel during in-flight child completion.
 - Deny capsule/store and isolation metadata through native file policy, reject
   capsule path/symlink and cross-worktree escapes, reject tracked or untracked
   symlink task output, detect state corruption, and fail closed on all capsule
