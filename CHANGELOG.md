@@ -34,6 +34,13 @@ to npm, or created as a hosted GitHub release.
 - Add a deterministic five-profile child MCP compatibility corpus, an acyclic
   architecture/boundary checker, risk-weighted critical coverage gates, and a
   five-run governance microbenchmark with raw samples and disclosed hardware.
+- Add a five-product, exact-version and npm-integrity-pinned third-party child MCP
+  matrix with lifecycle-free installation, isolated environments, dependency
+  audit, bounded discovery, reviewed safe probes, cross-platform CI artifacts,
+  and explicit per-version claim boundaries.
+- Add dynamic MCP tool-surface propagation so routed/plugin/direct-child catalog
+  changes replace wrappers atomically and notify clients without emitting false
+  changes when refresh validation fails.
 - Extract `GodotCli` and `GodotRuntime` into the independently buildable and
   packable `@folderforge/adapter-godot` candidate while retaining the existing
   root tool schema through a private transition import map.

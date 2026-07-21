@@ -113,6 +113,19 @@ jobs:
           retention-days: 14
           path: .folderforge-ci/child-mcp-compatibility.json
 
+      - name: Pinned third-party child MCP compatibility
+        if: matrix.node == 22
+        run: node scripts/child-mcp-third-party.mjs --output .folderforge-ci/child-mcp-third-party.json
+
+      - name: Preserve third-party child MCP evidence
+        if: always() && matrix.node == 22
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: child-mcp-third-party-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: .folderforge-ci/child-mcp-third-party.json
+
       - name: Concurrent audit writer stress
         if: matrix.node == 22
         run: npm run test:audit-concurrency

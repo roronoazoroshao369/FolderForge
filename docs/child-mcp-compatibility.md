@@ -38,21 +38,32 @@ failure classification. `tests/integration/adapters.test.ts` additionally starts
 a real child process and proves that an advertised list-change refreshes direct
 wrappers atomically and reaches a connected parent MCP client.
 
+## Pinned third-party matrix
+
+The deterministic corpus is complemented by a separate network-backed runner:
+
+```bash
+npm run compatibility:child-mcp:third-party
+```
+
+It currently pins five published products/packages: the MCP Everything,
+Filesystem, Memory, and Sequential Thinking reference servers plus Microsoft
+Playwright MCP. Exact versions, npm integrity values, required tools, reviewed
+safe probes, environment isolation, audit behavior, and claim boundaries are
+documented in [Pinned third-party compatibility](third-party-mcp-compatibility.md).
+
 ## Evidence and limitations
 
 CI writes the deterministic result to
-`.folderforge-ci/child-mcp-compatibility.json` and preserves it as an artifact.
-The result records exact timings, negotiated protocol, tool catalogs, and failure
-diagnostics.
+`.folderforge-ci/child-mcp-compatibility.json`. Node 22 jobs on Ubuntu, macOS, and
+Windows additionally write `.folderforge-ci/child-mcp-third-party.json`. Both are
+preserved as artifacts. Reports record exact timings, protocol versions, catalog
+hashes, transport counters, package integrity, audit status, source-input hashes,
+and failure diagnostics.
 
-These profiles are **not** claims about five third-party MCP products. A public
-third-party compatibility matrix additionally requires:
-
-1. pinned server package/image version and digest;
-2. exact launch configuration and operating system;
-3. permission and sandbox profile;
-4. raw protocol/failure evidence;
-5. a named result owner and retest date.
-
-Until those external runs exist, FolderForge may claim that its deterministic
-protocol corpus passes, but not that an arbitrary third-party server is certified.
+The deterministic fixtures prove protocol behavior but are not third-party
+product claims. The pinned matrix proves only the exact package bytes and
+operating system recorded in each passing report; it does not certify every tool,
+mutation, remote API, browser binary, transport, future version, or arbitrary MCP
+server. Independent clean-machine reproduction and named maintenance ownership
+remain external evidence gates.

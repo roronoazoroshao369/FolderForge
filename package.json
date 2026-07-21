@@ -57,6 +57,8 @@
     "scripts/verify-release-bundle.mjs",
     "scripts/evidence.mjs",
     "scripts/child-mcp-compatibility.mjs",
+    "scripts/child-mcp-third-party.mjs",
+    "compatibility/child-mcp-third-party.json",
     "scripts/run-governance-benchmarks.mjs"
   ],
   "engines": {
@@ -89,6 +91,7 @@
     "test:stress": "node scripts/stress-child-mcp.mjs",
     "test:audit-concurrency": "node scripts/test-audit-concurrency.mjs",
     "compatibility:child-mcp": "npm run build && node scripts/child-mcp-compatibility.mjs",
+    "compatibility:child-mcp:third-party": "npm run build && node scripts/child-mcp-third-party.mjs",
     "release:inventory:capture": "node scripts/capture-release-inventory.mjs --output docs/release-inventory.json --markdown docs/release-inventory.md",
     "release:bundle:verify": "node scripts/verify-release-bundle.mjs",
     "evidence:verify": "npm run build && node scripts/evidence.mjs verify",
@@ -97,7 +100,7 @@
     "smoke:onboarding": "npm run build && node scripts/smoke-onboarding.mjs",
     "smoke:adapter-godot": "node scripts/smoke-adapter-godot.mjs",
     "smoke:inspector": "npm run build && node scripts/smoke-inspector.mjs",
-    "quality:check": "npm run test:coverage && npm run test:fuzz && npm run test:stress && npm run smoke:inspector && npm run test:audit-concurrency && npm run smoke:evidence && npm run compatibility:child-mcp && npm run smoke:onboarding && npm run smoke:adapter-godot && npm run benchmark:governance",
+    "quality:check": "npm run test:coverage && npm run test:fuzz && npm run test:stress && npm run smoke:inspector && npm run test:audit-concurrency && npm run smoke:evidence && npm run compatibility:child-mcp && node scripts/child-mcp-third-party.mjs --validate-only && npm run smoke:onboarding && npm run smoke:adapter-godot && npm run benchmark:governance",
     "benchmark:validate": "node scripts/validate-benchmark-results.mjs",
     "benchmark:compare": "node scripts/compare-benchmarks.mjs",
     "smoke:sandbox": "node scripts/smoke-sandbox.mjs",

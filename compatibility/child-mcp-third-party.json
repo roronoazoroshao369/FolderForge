@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "id": "mcp-everything",
+      "product": "Model Context Protocol Everything Server",
+      "package": "@modelcontextprotocol/server-everything",
+      "version": "2026.7.4",
+      "integrity": "sha512-ydMW/M6rk9tK23b+U38trsNLHhd5eF+ntiv2Vr+RPMDhbiKY/IKrZU25ukvSXVPUBvy7TxTPWpeV4KcYcXg72w==",
+      "bin": "mcp-server-everything",
+      "source": "https://github.com/modelcontextprotocol/servers",
+      "args": ["stdio"],
+      "expected": {
+        "minTools": 10,
+        "requiredTools": ["echo", "get-sum", "get-structured-content"]
+      },
+      "safeCall": {
+        "tool": "echo",
+        "args": { "message": "folderforge-third-party-compatibility" },
+        "expectTextIncludes": "folderforge-third-party-compatibility"
+      }
+    },
+    {
+      "id": "mcp-filesystem",
+      "product": "Model Context Protocol Filesystem Server",
+      "package": "@modelcontextprotocol/server-filesystem",
+      "version": "2026.7.4",
+      "integrity": "sha512-JwEaH4dRRzwcNMwX8WJVCJyXfFxXjFKdgwHxjQhFLhi02kszgyyj611LV9puBLDO1IiDQSCjfKFSPaemegnvwg==",
+      "bin": "mcp-server-filesystem",
+      "source": "https://github.com/modelcontextprotocol/servers",
+      "directories": ["{{profileRoot}}/filesystem-root"],
+      "args": ["{{profileRoot}}/filesystem-root"],
+      "expected": {
+        "minTools": 10,
+        "requiredTools": ["read_text_file", "list_allowed_directories"]
+      },
+      "safeCall": {
+        "tool": "list_allowed_directories",
+        "args": {},
+        "expectTextIncludes": "{{profileRoot}}/filesystem-root"
+      }
+    },
+    {
+      "id": "mcp-memory",
+      "product": "Model Context Protocol Memory Server",
+      "package": "@modelcontextprotocol/server-memory",
+      "version": "2026.7.4",
+      "integrity": "sha512-D+NNzChsOHN72y58ngDmO+TzjJijGi/sSY/gBydhB3TJCcm1XQEozVWwEpruHeXt/HSkMV3Z/BpHDhdt1MLD5w==",
+      "bin": "mcp-server-memory",
+      "source": "https://github.com/modelcontextprotocol/servers",
+      "directories": ["{{profileRoot}}/memory"],
+      "env": {
+        "MEMORY_FILE_PATH": "{{profileRoot}}/memory/memory.jsonl"
+      },
+      "args": [],
+      "expected": {
+        "minTools": 7,
+        "requiredTools": ["read_graph", "search_nodes", "open_nodes"]
+      },
+      "safeCall": {
+        "tool": "read_graph",
+        "args": {}
+      }
+    },
+    {
+      "id": "mcp-sequential-thinking",
+      "product": "Model Context Protocol Sequential Thinking Server",
+      "package": "@modelcontextprotocol/server-sequential-thinking",
+      "version": "2026.7.4",
+      "integrity": "sha512-tmR/ieGaeweffLNBrDp1H1w4sn4M6TN5yWSbMS+YMfS+0GDyPjnNKzqCl2uqfdRiX3D44PJUhwiDGqtJp6tFhw==",
+      "bin": "mcp-server-sequential-thinking",
+      "source": "https://github.com/modelcontextprotocol/servers",
+      "args": [],
+      "expected": {
+        "minTools": 1,
+        "requiredTools": ["sequentialthinking"]
+      },
+      "safeCall": {
+        "tool": "sequentialthinking",
+        "args": {
+          "thought": "FolderForge compatibility probe with no external side effect.",
+          "thoughtNumber": 1,
+          "totalThoughts": 1,
+          "nextThoughtNeeded": false
+        }
+      }
+    },
+    {
+      "id": "playwright-mcp",
+      "product": "Microsoft Playwright MCP",
+      "package": "@playwright/mcp",
+      "version": "0.0.78",
+      "integrity": "sha512-XLTUeA6mEN9sQ+hJ4dfG8EIkDbxS0K3Trc2RBkUJuf02TgE2FQRNTMtq/aJfhyRMINsRl/Ybc4sxcWLtFn4/TQ==",
+      "bin": "playwright-mcp",
+      "source": "https://github.com/microsoft/playwright-mcp",
+      "env": {
+        "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "1"
+      },
+      "args": ["--headless", "--isolated"],
+      "expected": {
+        "minTools": 20,
+        "requiredTools": ["browser_close", "browser_navigate", "browser_snapshot"]
+      }
+    }
+  ]
+}

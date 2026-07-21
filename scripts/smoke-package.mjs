@@ -164,11 +164,14 @@ try {
     'docs/marketplace.md',
     'docs/browser-emulation-flows.md',
     'docs/benchmark-operations.md',
+    'docs/third-party-mcp-compatibility.md',
     'benchmarks/tasks/agent-evaluation.json',
     'benchmarks/schema/result.schema.json',
     'beta/schema/evidence.schema.json',
+    'compatibility/child-mcp-third-party.json',
     'scripts/run-benchmarks.mjs',
     'scripts/beta-evidence.mjs',
+    'scripts/child-mcp-third-party.mjs',
   ]) {
     if (!packagedFiles.has(required)) {
       throw new Error(`Packed tarball is missing required file: ${required}`);

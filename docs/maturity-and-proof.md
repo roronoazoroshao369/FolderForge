@@ -9,7 +9,7 @@ production guarantee.
 | Local stdio governance | Beta / hardened local path | Cross-platform tests, MCP Inspector, packed-package and onboarding smoke | Independent user reproduction |
 | Policy, approvals, path and command boundary | Beta / hardened local path | Critical coverage gate, exact-approval tests, escape and self-approval tests | Design-partner incident exercises |
 | Audit durability and evidence v2 | Beta / hardened local path | Failure injection, hash-chain tamper corpus, migration smoke, 8-process writer test | External witness/key operations for stronger non-repudiation |
-| Child MCP runtime | Beta | 46 unit tests, stress suite, five deterministic protocol profiles | Pinned third-party server compatibility runs |
+| Child MCP runtime | Beta | 46 child-client tests, stress suite, five deterministic protocol profiles, and a five-product exact-version/integrity-pinned runner with local Linux evidence | Passing exact-commit artifacts on all required operating systems plus independent reproduction and maintenance ownership |
 | Godot adapter package | Extraction candidate | Independent build/pack/install/import smoke | Separate publication/versioning decision |
 | Browser and UI quality | Experimental integration | Local/integration tests and explicit browser setup | Broader OS/browser beta evidence |
 | Distributed workers | Labs | Local reference tests, signed evidence and lease/fencing fixtures | Real multi-host operation, SRE ownership, HA design |
@@ -24,6 +24,7 @@ npm run test:coverage
 npm run smoke:evidence
 npm run test:audit-concurrency
 npm run compatibility:child-mcp
+npm run compatibility:child-mcp:third-party  # network-backed exact pins
 npm run smoke:onboarding
 npm run smoke:adapter-godot
 npm run smoke:package
@@ -47,7 +48,7 @@ The remaining roadmap gates require elapsed time or independent participants and
 cannot be completed by changing repository code:
 
 1. at least one independent clean-machine reproduction of the benchmark;
-2. pinned compatibility runs against five representative third-party servers;
+2. passing exact-commit third-party compatibility artifacts on Ubuntu, macOS, and Windows, followed by an independent clean-machine reproduction and named retest owner;
 3. a 24-hour soak with all failures and outliers retained;
 4. 10–20 external beta participants or equivalent design-partner evidence;
 5. adoption thresholds before hosted marketplace or active-active investment.

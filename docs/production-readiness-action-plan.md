@@ -354,7 +354,7 @@ Choose Godot or ChatGPT based on dependency analysis and migration risk.
 
 **Outcome:** FolderForge publishes a maintained compatibility matrix and a reusable fault corpus.
 
-**Implementation status (2026-07-20):** Local protocol goal complete. The maintained deterministic corpus passes 5/5 profiles covering baseline initialize/list/call, pagination, child-initiated ping, malformed-frame rejection, and crash-without-replay, alongside the broader 46-test child client suite and heartbeat stress gate. Results and limitations are persisted in CI. Pinned runs against five named third-party servers remain an external evidence gate and are not claimed as complete.
+**Implementation status (2026-07-21):** The deterministic corpus passes 5/5 profiles covering baseline initialize/list/call, pagination, child-initiated ping, malformed-frame rejection, and crash-without-replay, alongside the broader 46-test child client suite and heartbeat stress gate. A separate exact-version and npm-integrity-pinned runner now installs five published products with lifecycle scripts disabled, audits the isolated dependency graph, runs bounded stdio discovery plus reviewed safe probes, and retains package, catalog, transport, source-input, and shutdown evidence. A local Linux/Node 22 development run passed all five products; Ubuntu/macOS/Windows Node 22 CI jobs are configured but are not cross-platform evidence until exact-commit artifacts exist. Independent reproduction and named maintenance ownership remain external gates.
 
 ### FF-P1-06 issues
 

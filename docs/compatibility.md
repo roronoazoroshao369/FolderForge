@@ -28,10 +28,12 @@ runs:
 
 Ubuntu/Node 22 additionally enforces coverage thresholds and property/fuzz checks.
 Ubuntu/Node 22 and Windows/Node 22 run repeated heartbeat stress plus official MCP
-Inspector stdio `tools/list`/`tools/call` conformance. These targeted jobs protect
-the runtime versions and platforms that exposed the original scheduling race.
-Dependency audits run once on Ubuntu/Node 22 to avoid repeating the same registry
-query across all six jobs.
+Inspector stdio `tools/list`/`tools/call` conformance. Every Node 22 operating-system
+job installs and exercises the exact-version/integrity-pinned third-party child MCP
+matrix and retains its JSON report. These targeted jobs protect the runtime versions
+and platforms that exposed the original scheduling race. Dependency audits for the
+FolderForge tree run once on Ubuntu/Node 22; the isolated third-party matrix audits
+its own temporary production dependency graph on every Node 22 operating system.
 
 ## Evidence rule
 

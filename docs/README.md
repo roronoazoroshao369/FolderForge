@@ -52,6 +52,7 @@ material and historical records.
 | [Evidence store v2 ADR](adr-0007-evidence-store-v2.md) | Operator / Contributor | Hash chaining, signatures, strict migration, verification, and threat-model limits. |
 | [Core/runtime boundary ADR](adr-0008-core-runtime-package-boundary.md) | Contributor / Maintainer | Dependency direction, cycle gates, and the Godot adapter extraction. |
 | [Child MCP compatibility](child-mcp-compatibility.md) | Operator / Contributor | Deterministic protocol profiles, evidence, and third-party certification limits. |
+| [Pinned third-party MCP compatibility](third-party-mcp-compatibility.md) | Operator / Contributor | Exact server/package pins, isolated execution, cross-platform artifacts, and claim boundaries. |
 | [Maturity and proof matrix](maturity-and-proof.md) | User / Maintainer | Capability maturity, reproducible gates, prohibited claims, and external evidence backlog. |
 | [Release inventory](release-inventory.md) | Maintainer / Researcher | Factual npm, tag, and hosted-release provenance snapshot with explicit unknowns. |
 | [OAuth ADR](adr-0004-oauth-resource-server.md) | Contributor / Maintainer | Resource-server architecture and trade-offs. |
