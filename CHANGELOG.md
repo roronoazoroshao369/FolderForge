@@ -13,8 +13,9 @@ semantic versioning.
   atomic integrity-checked persistence, tool/group scopes, dashboard lifecycle
   endpoints, and agent-visible status.
 - Add managed Git task worktrees with dirty-source preservation, reviewable diff,
-  clean-source drift checks, bounded tracked/untracked apply, rollback, and
-  operator-only apply/discard.
+  byte-level clean-source drift checks, pre-mutation apply journals, bounded
+  tracked/untracked apply, restart-safe exact rollback, and operator-only
+  apply/rollback/discard.
 
 ### Changed
 

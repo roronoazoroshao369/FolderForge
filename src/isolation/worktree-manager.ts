@@ -13,7 +13,12 @@ import {
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-export type IsolationState = 'active' | 'applied' | 'discarded';
+export type IsolationState = 'active' | 'applying' | 'applied' | 'rolled_back' | 'discarded';
+
+export interface AppliedUntrackedFile {
+  path: string;
+  sha256: string;
+}
 
 export interface WorktreeIsolation {
   id: string;
@@ -28,6 +33,11 @@ export interface WorktreeIsolation {
   createdAt: string;
   state: IsolationState;
   appliedAt?: string;
+  appliedSourceFingerprint?: string;
+  appliedTracked?: string[];
+  appliedUntracked?: AppliedUntrackedFile[];
+  rollbackPatchSha256?: string;
+  rolledBackAt?: string;
   discardedAt?: string;
 }
 
@@ -84,6 +94,14 @@ function validTimestamp(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
+function sha256(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function samePaths(left: string[], right: string[]): boolean {
+  return [...left].sort().join('\0') === [...right].sort().join('\0');
+}
+
 function sourceSnapshot(root: string): {
   head: string;
   status: string;
@@ -92,10 +110,31 @@ function sourceSnapshot(root: string): {
 } {
   const head = git(root, ['rev-parse', 'HEAD']).trim();
   const status = git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+  const digest = createHash('sha256').update(head).update('\0').update(status);
+  if (status.length > 0) {
+    digest.update('\0tracked\0').update(
+      git(root, ['diff', '--binary', '--full-index', 'HEAD', '--']),
+    );
+    const untracked = splitNul(git(root, ['ls-files', '--others', '--exclude-standard', '-z']));
+    for (const path of untracked.sort()) {
+      const target = resolve(root, assertRelativePath(path));
+      digest.update('\0untracked\0').update(path).update('\0');
+      if (!existsSync(target)) {
+        digest.update('missing');
+        continue;
+      }
+      const stats = lstatSync(target);
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        digest.update(`unsafe:${stats.mode}:${stats.size}`);
+        continue;
+      }
+      digest.update(readFileSync(target));
+    }
+  }
   return {
     head,
     status,
-    fingerprint: createHash('sha256').update(head).update('\0').update(status).digest('hex'),
+    fingerprint: digest.digest('hex'),
     dirty: status.length > 0,
   };
 }
@@ -113,6 +152,7 @@ export class WorktreeManager {
   private readonly isolations = new Map<string, WorktreeIsolation>();
   private readonly statePath: string;
   private readonly worktreesRoot: string;
+  private readonly rollbacksRoot: string;
   private readonly projectRoot: string;
   readonly available: boolean;
   readonly unavailableReason?: string;
@@ -133,6 +173,7 @@ export class WorktreeManager {
       this.unavailableReason = error instanceof Error ? error.message : String(error);
       this.statePath = resolve(this.projectRoot, '.folderforge', 'isolations-unavailable.json');
       this.worktreesRoot = resolve(this.projectRoot, '.folderforge', 'worktrees');
+      this.rollbacksRoot = resolve(this.projectRoot, '.folderforge', 'rollbacks');
       return;
     }
     if (topLevel !== this.projectRoot) {
@@ -140,12 +181,15 @@ export class WorktreeManager {
       this.unavailableReason = `Worktree isolation requires the activated workspace to be a Git repository root (repo root: ${topLevel}).`;
       this.statePath = resolve(this.projectRoot, '.folderforge', 'isolations-unavailable.json');
       this.worktreesRoot = resolve(this.projectRoot, '.folderforge', 'worktrees');
+      this.rollbacksRoot = resolve(this.projectRoot, '.folderforge', 'rollbacks');
       return;
     }
     this.statePath = resolve(commonDir, 'folderforge', 'isolations.json');
     this.worktreesRoot = resolve(commonDir, 'folderforge', 'worktrees');
+    this.rollbacksRoot = resolve(commonDir, 'folderforge', 'rollbacks');
     this.assertInsideProject(this.statePath);
     this.assertInsideProject(this.worktreesRoot);
+    this.assertInsideProject(this.rollbacksRoot);
     this.available = true;
     this.load();
   }
@@ -214,7 +258,7 @@ export class WorktreeManager {
   }
 
   status(id: string): WorktreeStatus {
-    const isolation = this.requireActive(id);
+    const isolation = this.requireExisting(id);
     this.assertWorktreePresent(isolation);
     const changed = splitNul(
       git(isolation.worktreeRoot, [
@@ -253,7 +297,7 @@ export class WorktreeManager {
   }
 
   apply(id: string): WorktreeStatus {
-    const isolation = this.requireActive(id);
+    const isolation = this.requireState(id, 'active');
     if (isolation.sourceDirty) {
       throw new Error('Cannot apply isolation onto a source workspace that was dirty at creation.');
     }
@@ -276,6 +320,23 @@ export class WorktreeManager {
     const untracked = this.preflightUntracked(isolation, status.untracked);
     if (patch) git(isolation.sourceRoot, ['apply', '--check', '--binary', '-'], patch);
 
+    const patchPath = this.rollbackPatchPath(isolation.id);
+    mkdirSync(dirname(patchPath), { recursive: true, mode: 0o700 });
+    const patchTemp = `${patchPath}.${process.pid}.${randomUUID()}.tmp`;
+    writeFileSync(patchTemp, patch, { mode: 0o600 });
+    renameSync(patchTemp, patchPath);
+    isolation.state = 'applying';
+    isolation.appliedTracked = [...status.changed];
+    isolation.appliedUntracked = untracked.map((entry) => ({
+      path: relative(isolation.sourceRoot, entry.target).split(sep).join('/'),
+      sha256: sha256(readFileSync(entry.source)),
+    }));
+    isolation.rollbackPatchSha256 = sha256(patch);
+    delete isolation.appliedAt;
+    delete isolation.appliedSourceFingerprint;
+    delete isolation.rolledBackAt;
+    this.persist();
+
     const copied: string[] = [];
     let patchApplied = false;
     try {
@@ -288,30 +349,113 @@ export class WorktreeManager {
         copyFileSync(entry.source, entry.target);
         copied.push(entry.target);
       }
+      isolation.state = 'applied';
+      isolation.appliedAt = new Date().toISOString();
+      isolation.appliedSourceFingerprint = sourceSnapshot(isolation.sourceRoot).fingerprint;
+      this.persist();
+      return this.statusSource(isolation);
     } catch (error) {
-      for (const target of copied.reverse()) rmSync(target, { force: true });
-      if (patchApplied) {
-        try {
-          git(isolation.sourceRoot, ['apply', '--reverse', '--binary', '-'], patch);
-        } catch {
-          throw new Error(
-            `Apply failed and automatic rollback also failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
+      let rollbackError: unknown;
+      try {
+        for (const target of copied.reverse()) rmSync(target, { force: true });
+        if (patchApplied) git(isolation.sourceRoot, ['apply', '--reverse', '--binary', '-'], patch);
+        isolation.state = 'active';
+        delete isolation.appliedTracked;
+        delete isolation.appliedUntracked;
+        delete isolation.rollbackPatchSha256;
+        rmSync(patchPath, { force: true });
+        this.persist();
+      } catch (rollbackFailure) {
+        rollbackError = rollbackFailure;
+        this.persist();
+      }
+      if (rollbackError) {
+        throw new Error(
+          `Apply failed and automatic rollback also failed: ${error instanceof Error ? error.message : String(error)}; rollback=${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  rollback(id: string): WorktreeStatus {
+    const isolation = this.requireExisting(id);
+    if (isolation.state !== 'applied' && isolation.state !== 'applying') {
+      throw new Error(`Isolation rollback requires applied or applying state; current=${isolation.state}.`);
+    }
+    const patchPath = this.rollbackPatchPath(isolation.id);
+    if (!existsSync(patchPath)) throw new Error('Isolation rollback patch is missing.');
+    const patch = readFileSync(patchPath, 'utf8');
+    if (sha256(patch) !== isolation.rollbackPatchSha256) {
+      throw new Error('Isolation rollback patch integrity check failed.');
+    }
+    const current = sourceSnapshot(isolation.sourceRoot);
+    if (current.fingerprint === isolation.sourceFingerprint) {
+      isolation.state = 'rolled_back';
+      isolation.rolledBackAt = new Date().toISOString();
+      delete isolation.appliedSourceFingerprint;
+      this.persist();
+      return this.statusSource(isolation);
+    }
+    if (isolation.state === 'applied' && current.fingerprint !== isolation.appliedSourceFingerprint) {
+      throw new Error('Source workspace changed after isolation apply; refusing rollback over user work.');
+    }
+    const expectedTracked = isolation.appliedTracked ?? [];
+    const expectedUntracked = isolation.appliedUntracked ?? [];
+    const actualTracked = splitNul(
+      git(isolation.sourceRoot, ['diff', '--name-only', '-z', isolation.sourceHead, '--']),
+    );
+    const actualUntracked = splitNul(
+      git(isolation.sourceRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
+    );
+    if (!samePaths(actualTracked, expectedTracked) || !samePaths(actualUntracked, expectedUntracked.map((item) => item.path))) {
+      throw new Error('Source workspace does not exactly match the recorded applied change set.');
+    }
+    for (const entry of expectedUntracked) {
+      const target = resolve(isolation.sourceRoot, assertRelativePath(entry.path));
+      this.assertInside(target, isolation.sourceRoot);
+      if (!existsSync(target) || !lstatSync(target).isFile() || lstatSync(target).isSymbolicLink()) {
+        throw new Error(`Applied untracked file is missing or unsafe: ${entry.path}`);
+      }
+      if (sha256(readFileSync(target)) !== entry.sha256) {
+        throw new Error(`Applied untracked file changed after apply: ${entry.path}`);
+      }
+    }
+    if (patch) git(isolation.sourceRoot, ['apply', '--reverse', '--check', '--binary', '-'], patch);
+
+    const removed: AppliedUntrackedFile[] = [];
+    try {
+      for (const entry of expectedUntracked) {
+        const target = resolve(isolation.sourceRoot, assertRelativePath(entry.path));
+        rmSync(target);
+        removed.push(entry);
+      }
+      if (patch) git(isolation.sourceRoot, ['apply', '--reverse', '--binary', '-'], patch);
+    } catch (error) {
+      for (const entry of removed) {
+        const source = resolve(isolation.worktreeRoot, assertRelativePath(entry.path));
+        const target = resolve(isolation.sourceRoot, assertRelativePath(entry.path));
+        if (existsSync(source) && sha256(readFileSync(source)) === entry.sha256) {
+          mkdirSync(dirname(target), { recursive: true });
+          copyFileSync(source, target);
         }
       }
       throw error;
     }
-
-    isolation.state = 'applied';
-    isolation.appliedAt = new Date().toISOString();
+    isolation.state = 'rolled_back';
+    isolation.rolledBackAt = new Date().toISOString();
+    delete isolation.appliedSourceFingerprint;
     this.persist();
-    return this.statusApplied(isolation);
+    return this.statusSource(isolation);
   }
 
   discard(id: string): WorktreeIsolation {
     const isolation = this.isolations.get(id);
     if (!isolation) throw new Error(`Isolation not found: ${id}`);
     if (isolation.state === 'discarded') return cloneIsolation(isolation);
+    if (isolation.state === 'applied' || isolation.state === 'applying') {
+      throw new Error('Rollback applied isolation changes before discarding the recovery worktree.');
+    }
     if (existsSync(isolation.worktreeRoot)) {
       git(isolation.sourceRoot, ['worktree', 'remove', '--force', isolation.worktreeRoot]);
     } else {
@@ -323,22 +467,25 @@ export class WorktreeManager {
       { cwd: isolation.sourceRoot, windowsHide: true },
     ).status === 0;
     if (branchExists) git(isolation.sourceRoot, ['branch', '-D', isolation.branch]);
+    rmSync(this.rollbackPatchPath(isolation.id), { force: true });
     isolation.state = 'discarded';
     isolation.discardedAt = new Date().toISOString();
     this.persist();
     return cloneIsolation(isolation);
   }
 
-  private statusApplied(isolation: WorktreeIsolation): WorktreeStatus {
+  private statusSource(isolation: WorktreeIsolation): WorktreeStatus {
+    const changed = splitNul(
+      git(isolation.sourceRoot, ['diff', '--name-only', '-z', isolation.sourceHead, '--']),
+    );
+    const untracked = splitNul(
+      git(isolation.sourceRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
+    );
     return {
       isolation: cloneIsolation(isolation),
-      clean: false,
-      changed: splitNul(
-        git(isolation.sourceRoot, ['diff', '--name-only', '-z', isolation.sourceHead, '--']),
-      ),
-      untracked: splitNul(
-        git(isolation.sourceRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
-      ),
+      clean: changed.length === 0 && untracked.length === 0,
+      changed,
+      untracked,
       conflicts: [],
     };
   }
@@ -383,6 +530,12 @@ export class WorktreeManager {
     });
   }
 
+  private rollbackPatchPath(id: string): string {
+    const path = resolve(this.rollbacksRoot, `${id}.patch`);
+    this.assertInsideProject(path);
+    return path;
+  }
+
   describe(): { available: boolean; reason?: string; total: number; active: number } {
     return {
       available: this.available,
@@ -398,11 +551,19 @@ export class WorktreeManager {
     }
   }
 
-  private requireActive(id: string): WorktreeIsolation {
+  private requireExisting(id: string): WorktreeIsolation {
     this.requireAvailable();
     const isolation = this.isolations.get(id);
     if (!isolation) throw new Error(`Isolation not found: ${id}`);
     if (isolation.state === 'discarded') throw new Error(`Isolation has been discarded: ${id}`);
+    return isolation;
+  }
+
+  private requireState(id: string, state: IsolationState): WorktreeIsolation {
+    const isolation = this.requireExisting(id);
+    if (isolation.state !== state) {
+      throw new Error(`Isolation ${id} requires state=${state}; current=${isolation.state}.`);
+    }
     return isolation;
   }
 
@@ -466,17 +627,38 @@ export class WorktreeManager {
     if (typeof isolation.sourceDirty !== 'boolean' || !validTimestamp(isolation.createdAt)) {
       throw new Error('Isolation source state or creation timestamp is invalid.');
     }
-    if (!['active', 'applied', 'discarded'].includes(isolation.state)) {
+    if (!['active', 'applying', 'applied', 'rolled_back', 'discarded'].includes(isolation.state)) {
       throw new Error('Isolation lifecycle state is invalid.');
     }
     if (isolation.appliedAt !== undefined && !validTimestamp(isolation.appliedAt)) {
       throw new Error('Isolation applied timestamp is invalid.');
     }
+    if (isolation.rolledBackAt !== undefined && !validTimestamp(isolation.rolledBackAt)) {
+      throw new Error('Isolation rolled-back timestamp is invalid.');
+    }
+    if (isolation.appliedSourceFingerprint !== undefined && !/^[a-f0-9]{64}$/.test(isolation.appliedSourceFingerprint)) {
+      throw new Error('Isolation applied source fingerprint is invalid.');
+    }
+    if (isolation.appliedTracked !== undefined && (!Array.isArray(isolation.appliedTracked) || isolation.appliedTracked.some((path) => typeof path !== 'string'))) {
+      throw new Error('Isolation applied tracked paths are invalid.');
+    }
+    if (isolation.appliedUntracked !== undefined && (!Array.isArray(isolation.appliedUntracked) || isolation.appliedUntracked.some((entry) => !entry || typeof entry.path !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)))) {
+      throw new Error('Isolation applied untracked journal is invalid.');
+    }
+    if (isolation.rollbackPatchSha256 !== undefined && !/^[a-f0-9]{64}$/.test(isolation.rollbackPatchSha256)) {
+      throw new Error('Isolation rollback patch digest is invalid.');
+    }
     if (isolation.discardedAt !== undefined && !validTimestamp(isolation.discardedAt)) {
       throw new Error('Isolation discarded timestamp is invalid.');
     }
-    if (isolation.state === 'applied' && !isolation.appliedAt) {
-      throw new Error('Applied isolation is missing appliedAt.');
+    if (isolation.state === 'applied' && (!isolation.appliedAt || !isolation.appliedSourceFingerprint)) {
+      throw new Error('Applied isolation is missing apply evidence.');
+    }
+    if (['applying', 'applied', 'rolled_back'].includes(isolation.state) && (!isolation.appliedTracked || !isolation.appliedUntracked || !isolation.rollbackPatchSha256)) {
+      throw new Error('Isolation recovery journal is incomplete.');
+    }
+    if (isolation.state === 'rolled_back' && !isolation.rolledBackAt) {
+      throw new Error('Rolled-back isolation is missing rolledBackAt.');
     }
     if (isolation.state === 'discarded' && !isolation.discardedAt) {
       throw new Error('Discarded isolation is missing discardedAt.');

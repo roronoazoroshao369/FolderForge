@@ -45,6 +45,7 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'isolation_status', mutates: false, risk: 'LOW' },
   { name: 'isolation_diff', mutates: false, risk: 'LOW' },
   { name: 'isolation_apply', mutates: true, risk: 'HIGH' },
+  { name: 'isolation_rollback', mutates: true, risk: 'HIGH' },
   { name: 'isolation_discard', mutates: true, risk: 'HIGH' },
   { name: 'workspace_list', mutates: false, risk: 'LOW' },
   { name: 'workspace_health', mutates: false, risk: 'LOW' },

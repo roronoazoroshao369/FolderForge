@@ -23,6 +23,7 @@ describe('config loading + validation', () => {
       expect.arrayContaining([
         '**/.git/folderforge/isolations.json',
         '**/.git/folderforge/isolations.json.*.tmp',
+        '**/.git/folderforge/rollbacks/**',
         '**/.folderforge/capsules.json',
         '**/.folderforge/approvals.jsonl',
         '**/.folderforge/audit/**',

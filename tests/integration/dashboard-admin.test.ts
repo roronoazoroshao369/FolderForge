@@ -188,7 +188,7 @@ describe('dashboard admin authorization plane', () => {
     );
   });
 
-  it('creates, reviews, applies, and discards a managed isolation through the dashboard', async () => {
+  it('creates, reviews, applies, rolls back, and discards a managed isolation through the dashboard', async () => {
     const harness = await startHarness();
     harnesses.push(harness);
 
@@ -218,6 +218,13 @@ describe('dashboard admin authorization plane', () => {
     expect(appliedResponse.status).toBe(200);
     expect(readFileSync(join(harness.root, 'tracked.txt'), 'utf8')).toBe('after\n');
 
+    const rollbackResponse = await fetch(
+      `${harness.baseUrl}/isolations/${isolation.id}/rollback`,
+      { method: 'POST' },
+    );
+    expect(rollbackResponse.status).toBe(200);
+    expect(readFileSync(join(harness.root, 'tracked.txt'), 'utf8')).toBe('before\n');
+
     const discardedResponse = await fetch(
       `${harness.baseUrl}/isolations/${isolation.id}/discard`,
       { method: 'POST' },
@@ -231,7 +238,7 @@ describe('dashboard admin authorization plane', () => {
     const resolved = harness.container.audit
       .recent(50)
       .filter((event) => event.type === 'approval_resolved');
-    expect(resolved.length).toBeGreaterThanOrEqual(2);
+    expect(resolved.length).toBeGreaterThanOrEqual(3);
   });
 
 });

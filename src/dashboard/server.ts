@@ -599,10 +599,15 @@ async function handle(
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
-  const isolationActionMatch = /^\/isolations\/([^/]+)\/(apply|discard)$/.exec(path);
+  const isolationActionMatch = /^\/isolations\/([^/]+)\/(apply|rollback|discard)$/.exec(path);
   if (method === "POST" && isolationActionMatch) {
     const id = decodeURIComponent(isolationActionMatch[1]!);
-    const tool = isolationActionMatch[2] === 'apply' ? 'isolation_apply' : 'isolation_discard';
+    const action = isolationActionMatch[2];
+    const tool = action === 'apply'
+      ? 'isolation_apply'
+      : action === 'rollback'
+        ? 'isolation_rollback'
+        : 'isolation_discard';
     const result = await runOperatorTool(registry, container, principal, tool, { id });
     return sendJson(res, result.ok ? 200 : 409, result);
   }

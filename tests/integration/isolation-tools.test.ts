@@ -58,6 +58,21 @@ describe('isolation tools', () => {
     expect(applied.ok).toBe(true);
     expect(readFileSync(join(root, 'file.txt'), 'utf8')).toBe('after\n');
 
+    const prematureDiscard = await registry.call(
+      'isolation_discard',
+      { id: isolation.id },
+      { principal: LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL },
+    );
+    expect(prematureDiscard).toMatchObject({ ok: false, error: expect.stringMatching(/Rollback/) });
+
+    const rolledBack = await registry.call(
+      'isolation_rollback',
+      { id: isolation.id },
+      { principal: LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL },
+    );
+    expect(rolledBack).toMatchObject({ ok: true, data: { isolation: { state: 'rolled_back' }, clean: true } });
+    expect(readFileSync(join(root, 'file.txt'), 'utf8')).toBe('before\n');
+
     const discarded = await registry.call(
       'isolation_discard',
       { id: isolation.id },

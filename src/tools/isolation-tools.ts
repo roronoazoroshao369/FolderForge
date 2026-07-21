@@ -105,8 +105,27 @@ export function isolationTools(): ToolDefinition[] {
       }),
     }),
     defineTool({
+      name: 'isolation_rollback',
+      description:
+        'Rollback an exactly unchanged applied source change set using the pre-mutation journal and integrity-checked reverse patch.',
+      group: 'workspace',
+      audience: 'admin',
+      mutates: true,
+      risk: 'HIGH',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      handler: async (args, ctx) => ({
+        ok: true,
+        data: ctx.container.isolation.rollback(String(args.id)),
+      }),
+    }),
+    defineTool({
       name: 'isolation_discard',
-      description: 'Remove a managed task worktree and its task branch after explicit operator action.',
+      description: 'Remove a managed task worktree and task branch after explicit operator action; applied changes must be rolled back first.',
       group: 'workspace',
       audience: 'admin',
       mutates: true,

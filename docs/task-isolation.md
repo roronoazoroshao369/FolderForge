@@ -9,7 +9,9 @@ resetting, or modifying the user's working tree.
 isolation_create
 → work in returned worktree root
 → isolation_status / isolation_diff
-→ operator isolation_apply or isolation_discard
+→ operator isolation_apply
+→ operator isolation_rollback when needed
+→ isolation_discard after rollback or before apply
 ```
 
 Agent-visible tools:
@@ -22,10 +24,11 @@ Agent-visible tools:
 Admin-only tools:
 
 - `isolation_apply`
+- `isolation_rollback`
 - `isolation_discard`
 
-The dashboard exposes equivalent `/isolations` endpoints. HIGH-risk apply and
-discard calls are routed through the shared registry. In safe/dev modes, an
+The dashboard exposes equivalent `/isolations` endpoints. HIGH-risk apply,
+rollback, and discard calls are routed through the shared registry. In safe/dev modes, an
 explicit dashboard action resolves the exact operator-action approval before the
 retry executes.
 
@@ -74,6 +77,25 @@ claiming success.
 
 Discard removes the worktree and its generated task branch. It never runs
 `reset`, `stash`, `checkout`, or history rewrite in the source workspace.
+
+
+## Apply journal and rollback
+
+Before the first source mutation, FolderForge writes an integrity-checked binary
+patch plus a journal of exact tracked paths and SHA-256 hashes for bounded
+untracked files. The isolation enters `applying` before any file is changed. A
+process restart never replays apply; the operator can inspect the uncertain state
+and invoke `isolation_rollback`.
+
+After apply, FolderForge fingerprints source HEAD, binary diff bytes, porcelain
+status, and untracked file contents. Rollback succeeds only when the source still
+exactly matches the recorded applied change set. It removes exact untracked
+outputs and reverse-applies the checked patch. Any user edit, missing file, hash
+mismatch, extra path, or patch corruption causes a fail-closed refusal.
+
+Discard is rejected while an isolation is `applying` or `applied`, preserving the
+recovery worktree and rollback journal. After rollback, discard removes the
+worktree, task branch, and journal.
 
 ## Availability
 

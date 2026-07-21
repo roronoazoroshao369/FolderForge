@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdtempSync,
@@ -50,7 +51,7 @@ describe('WorktreeManager', () => {
     expect(() => manager.apply(isolation.id)).toThrow(/dirty at creation/);
   });
 
-  it('applies tracked and bounded untracked changes, then discards cleanly', () => {
+  it('applies, rolls back tracked and bounded untracked changes, then discards cleanly', () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);
     const isolation = manager.create('task-apply');
@@ -65,6 +66,13 @@ describe('WorktreeManager', () => {
     expect(applied.isolation.state).toBe('applied');
     expect(readFileSync(join(root, 'tracked.txt'), 'utf8')).toBe('changed\n');
     expect(readFileSync(join(root, 'new.txt'), 'utf8')).toBe('new file\n');
+
+    expect(() => manager.discard(isolation.id)).toThrow(/Rollback applied isolation/);
+    const rolledBack = manager.rollback(isolation.id);
+    expect(rolledBack.isolation.state).toBe('rolled_back');
+    expect(rolledBack.clean).toBe(true);
+    expect(readFileSync(join(root, 'tracked.txt'), 'utf8')).toBe('original\n');
+    expect(existsSync(join(root, 'new.txt'))).toBe(false);
 
     const discarded = manager.discard(isolation.id);
     expect(discarded.state).toBe('discarded');
@@ -124,6 +132,61 @@ describe('WorktreeManager', () => {
     state.isolations[0]!.taskId = 'tampered-task';
     writeFileSync(statePath, `${JSON.stringify(state)}\n`);
     expect(() => new WorktreeManager([root], root)).toThrow(/integrity/);
+  });
+
+  it('refuses rollback after post-apply user drift and preserves the recovery worktree', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('task-rollback-drift');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'task change\n');
+    manager.apply(isolation.id);
+    writeFileSync(join(root, 'tracked.txt'), 'user changed after apply\n');
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/changed after isolation apply/);
+    expect(manager.get(isolation.id)).toMatchObject({ state: 'applied' });
+    expect(existsSync(isolation.worktreeRoot)).toBe(true);
+  });
+
+  it('recovers an uncertain applying journal after restart without replaying apply', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('task-uncertain');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'uncertain change\n');
+    manager.apply(isolation.id);
+
+    const statePath = join(root, '.git', 'folderforge', 'isolations.json');
+    const state = JSON.parse(readFileSync(statePath, 'utf8')) as {
+      isolations: Array<Record<string, unknown>>;
+      digest: string;
+    };
+    const record = state.isolations[0]!;
+    record.state = 'applying';
+    delete record.appliedAt;
+    delete record.appliedSourceFingerprint;
+    state.digest = `sha256:${createHash('sha256')
+      .update(JSON.stringify(state.isolations))
+      .digest('hex')}`;
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+
+    const restarted = new WorktreeManager([root], root);
+    expect(restarted.get(isolation.id)).toMatchObject({ state: 'applying' });
+    const rolledBack = restarted.rollback(isolation.id);
+    expect(rolledBack).toMatchObject({ clean: true, isolation: { state: 'rolled_back' } });
+    expect(readFileSync(join(root, 'tracked.txt'), 'utf8')).toBe('original\n');
+  });
+
+  it('rejects a tampered rollback patch without touching applied source changes', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('task-patch-integrity');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'applied change\n');
+    manager.apply(isolation.id);
+    const patchPath = join(root, '.git', 'folderforge', 'rollbacks', `${isolation.id}.patch`);
+    writeFileSync(patchPath, 'tampered patch\n');
+
+    expect(() => manager.rollback(isolation.id)).toThrow(/patch integrity/);
+    expect(readFileSync(join(root, 'tracked.txt'), 'utf8')).toBe('applied change\n');
+    expect(manager.get(isolation.id)).toMatchObject({ state: 'applied' });
   });
 
 });

@@ -54,11 +54,13 @@ using FolderForge itself to implement the AI/browser roadmap.
 - Fix: added managed task branches/worktrees under the Git common directory,
   source dirty/fingerprint capture, review status/diff, clean-source-only apply,
   patch preflight, bounded regular untracked files, symlink/submodule rejection,
-  rollback on copy failure, integrity-checked lifecycle state, and branch/worktree discard. Apply/discard are
+  pre-mutation apply journaling, byte-level source fingerprints, restart-safe
+  exact rollback, integrity-checked lifecycle state, and guarded branch/worktree discard. Apply/discard are
   admin-only tools.
 - Regression coverage: dirty source preservation, source drift, tracked/untracked
   apply, conflict/symlink checks, traversal task id, reload, non-Git degradation,
-  agent/admin tool separation, and cleanup.
+  agent/admin tool separation, uncertain-apply restart recovery, rollback patch
+  tamper rejection, post-apply drift refusal, and cleanup.
 
 ### FF-043 — Approval reuse was principal-only across execution contexts
 
