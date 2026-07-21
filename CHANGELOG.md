@@ -6,6 +6,41 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-07-21
+
+This is a locally prepared release candidate. It has not been tagged, published
+to npm, or created as a hosted GitHub release.
+
+### Added
+
+- Add an exact-version and npm-integrity-pinned five-product child MCP
+  compatibility matrix with isolated installation, bounded discovery, reviewed
+  safe probes, dependency audits, and cross-platform CI artifacts.
+- Add dynamic MCP tool-surface propagation from child adapters, routing changes,
+  and hot plugin lifecycle operations to already-connected clients through
+  `notifications/tools/list_changed`.
+- Add portable comparative benchmark evidence bundles whose raw files are read and
+  SHA-256 verified before a result can support a publication claim.
+- Add resumable runtime-soak evidence with governed samples, planned child
+  restarts, fsynced hash-chained JSONL, interruption recovery, tamper verification,
+  CI smoke artifacts, and a maintained 24-hour execution profile.
+
+### Changed
+
+- Make plugin install, update, enable, disable, and uninstall catalog changes
+  atomic. Failed activation retains the previous facade and emits no transient or
+  false client catalog notification.
+- Refresh the local governance baseline on the disclosed Node 22/Linux machine;
+  all maintained thresholds now pass, including cold stdio initialize plus
+  `tools/list`.
+
+### Security
+
+- Reject benchmark evidence paths that escape their result bundle and detect raw
+  evidence modification before comparison.
+- Retain validated direct-child wrappers when catalog rediscovery fails instead of
+  replacing the public surface with malformed or partial metadata.
+
 ## [2.6.0] - 2026-07-21
 
 This is a locally prepared release candidate. It has not been tagged, published
@@ -34,17 +69,6 @@ to npm, or created as a hosted GitHub release.
 - Add a deterministic five-profile child MCP compatibility corpus, an acyclic
   architecture/boundary checker, risk-weighted critical coverage gates, and a
   five-run governance microbenchmark with raw samples and disclosed hardware.
-- Add a five-product, exact-version and npm-integrity-pinned third-party child MCP
-  matrix with lifecycle-free installation, isolated environments, dependency
-  audit, bounded discovery, reviewed safe probes, cross-platform CI artifacts,
-  and explicit per-version claim boundaries.
-- Add dynamic MCP tool-surface propagation so routed/plugin/direct-child catalog
-  changes replace wrappers atomically and notify clients without emitting false
-  changes when refresh validation fails.
-- Add a resumable runtime-soak harness with governed/audited samples, planned child
-  restarts, fsynced SHA-256 JSONL evidence, full failure/outlier retention,
-  SIGTERM resume, audit verification, safe reset ownership, CI artifacts, and a
-  maintained 24-hour profile with explicit proof boundaries.
 - Extract `GodotCli` and `GodotRuntime` into the independently buildable and
   packable `@folderforge/adapter-godot` candidate while retaining the existing
   root tool schema through a private transition import map.
