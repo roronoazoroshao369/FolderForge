@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { defaultConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
+import { createMcpServer } from '../../src/server/mcp-server.js';
 import { buildRegistry } from '../../src/tools/index.js';
 
 function writePlugin(source: string, version = '1.0.0'): void {
@@ -173,5 +177,85 @@ describe('plugin lifecycle tools', () => {
     expect(removed.ok).toBe(true);
     expect(container.plugins.list()).toEqual([]);
     expect(registry.get('demo-plugin__call_tool')).toBeUndefined();
+  });
+
+  it('publishes atomic plugin catalog changes to connected MCP clients', async () => {
+    const registry = container.registry;
+    const server = createMcpServer(registry, {
+      name: 'folderforge-plugin-lifecycle-test',
+      version: '0.0.0-test',
+      roots: [root],
+      principal: { id: 'agent:plugin-lifecycle-test', role: 'agent', authMode: 'stdio' },
+      container,
+    });
+    const client = new Client(
+      { name: 'folderforge-plugin-lifecycle-client', version: '1.0.0' },
+      { capabilities: {} },
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    let notifications = 0;
+    const waiters: Array<() => void> = [];
+    client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+      notifications += 1;
+      waiters.shift()?.();
+    });
+    const nextNotification = (): Promise<void> =>
+      new Promise((resolveNotification) => waiters.push(resolveNotification));
+
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).not.toContain(
+        'demo-plugin__call_tool',
+      );
+
+      let changed = nextNotification();
+      expect((await registry.call('plugin_install', { source, enable: true })).ok).toBe(true);
+      await changed;
+      expect(notifications).toBe(1);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining(['demo-plugin__list_tools', 'demo-plugin__call_tool']),
+      );
+
+      const brokenUpdate = join(root, 'notification-broken-update');
+      writeBrokenPlugin(brokenUpdate);
+      const beforeFailedUpdate = notifications;
+      expect((await registry.call('plugin_update', {
+        id: 'demo-plugin',
+        source: brokenUpdate,
+      })).ok).toBe(false);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+      expect(notifications).toBe(beforeFailedUpdate);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
+        'demo-plugin__call_tool',
+      );
+
+      changed = nextNotification();
+      expect((await registry.call('plugin_disable', { id: 'demo-plugin' })).ok).toBe(true);
+      await changed;
+      expect(notifications).toBe(2);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).not.toContain(
+        'demo-plugin__call_tool',
+      );
+
+      changed = nextNotification();
+      expect((await registry.call('plugin_enable', { id: 'demo-plugin' })).ok).toBe(true);
+      await changed;
+      expect(notifications).toBe(3);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain(
+        'demo-plugin__call_tool',
+      );
+
+      changed = nextNotification();
+      expect((await registry.call('plugin_uninstall', { id: 'demo-plugin' })).ok).toBe(true);
+      await changed;
+      expect(notifications).toBe(4);
+      expect((await client.listTools()).tools.map((tool) => tool.name)).not.toContain(
+        'demo-plugin__call_tool',
+      );
+    } finally {
+      await client.close().catch(() => undefined);
+      await server.close().catch(() => undefined);
+    }
   });
 });

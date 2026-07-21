@@ -56,7 +56,11 @@ plugin package.
 
 Install defaults to disabled. This lets a user inspect compatibility,
 permissions, risk declarations, and facade mode before starting executable code.
-Enable/disable/update are hot operations; no server restart is required.
+Enable/disable/update are hot operations; no server restart is required. Connected
+MCP clients receive `notifications/tools/list_changed` only when the public plugin
+tool surface actually changes. Candidate activation is verified before an atomic
+registry replacement, so a failed update keeps the previous facade visible and
+does not emit transient remove/re-add notifications.
 
 ## Storage and limits
 
@@ -151,5 +155,4 @@ Still external or deferred:
 - public registry/package hosting and availability operations;
 - real-world publisher identity proofing, dispute, takedown, and appeal processes;
 - automatic compatibility migration;
-- independently attested worker/container host evidence;
-- plugin capability-change notifications to clients.
+- independently attested worker/container host evidence.

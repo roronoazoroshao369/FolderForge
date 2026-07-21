@@ -17,11 +17,14 @@ async function loadPlugin(id: string, ctx: Parameters<ToolDefinition['handler']>
   registerAdapterRiskMap(adapter.name, adapter.riskDefault, adapter.riskMap);
   ctx.container.adapters.upsert(adapter.name, adapter.def);
   const registry = ctx.container.registry;
-  registry.unregisterWhere((tool: ToolDefinition) => tool.group === `adapter:${id}`);
-  const tools = await buildAdapterToolsFor(ctx.container, [id]);
+  const tools = await buildAdapterToolsFor(ctx.container, [id], { strict: true });
   if (tools.length === 0) throw new Error(`Plugin ${id} started but exposed no usable tools.`);
-  registry.registerAll(tools);
-  registry.activate(tools.map((tool: ToolDefinition) => tool.name));
+  registry.replaceWhere(
+    (tool: ToolDefinition) =>
+      tool.group === `adapter:${id}` || tool.name.startsWith(`${id}${NS_SEP}`),
+    tools,
+    true,
+  );
   return tools.map((tool) => tool.name);
 }
 
@@ -112,7 +115,6 @@ export function pluginTools(): ToolDefinition[] {
         let previousEnabled = false;
         try {
           previousEnabled = ctx.container.plugins.inspect(id).installed.enabled;
-          unloadPlugin(id, ctx);
           let tools: string[] = [];
           const updated = await ctx.container.plugins.update(
             id,
@@ -123,10 +125,9 @@ export function pluginTools(): ToolDefinition[] {
           );
           return { ok: true, data: { updated, tools, restartRequired: false } };
         } catch (error) {
-          // Manager-level update rollback restores the previous package and
-          // registry record. Replace any partially loaded candidate facade with
-          // the previously enabled facade so a failed update is not an outage.
-          unloadPlugin(id, ctx);
+          // Manager-level rollback restores the previous package and registry
+          // record. Reload its adapter behind the unchanged public tool surface;
+          // an identical facade replacement emits no false list-change event.
           if (previousEnabled) {
             try { await loadPlugin(id, ctx); } catch { /* preserve original update error */ }
           }
