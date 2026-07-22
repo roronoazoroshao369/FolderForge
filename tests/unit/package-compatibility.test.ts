@@ -45,6 +45,14 @@ describe('package and CI compatibility contract', () => {
     expect(smoke).not.toContain('commandInvocation');
   });
 
+  it('pins transitive security fixes required for publish audits', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      overrides?: Record<string, string>;
+    };
+    expect(pkg.overrides?.['@hono/node-server']).toBe('2.0.11');
+    expect(pkg.overrides?.['fast-uri']).toBe('3.1.4');
+  });
+
   it('tests both supported LTS lines on Linux, macOS, and Windows', () => {
     const workflow = parseYaml(readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')) as WorkflowMatrix;
     const matrix = workflow.jobs?.compatibility?.strategy?.matrix;

@@ -41,6 +41,7 @@ semantic versioning.
 
 ### Security
 
+- Override `@hono/node-server` to `2.0.11` and `fast-uri` to `3.1.4` so published installs avoid GHSA-frvp-7c67-39w9, GHSA-4c8g-83qw-93j6, and GHSA-v2hh-gcrm-f6hx while the MCP SDK v1 dependency ranges lag the patched releases.
 - Keep raw tool arguments out of Mission Control active-call state and restrict
   write-freeze bypass to a server-generated dashboard role plus an exact
   containment allowlist; normal agents remain fully readonly and HIGH actions
