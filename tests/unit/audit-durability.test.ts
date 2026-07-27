@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
   writeSync,
 } from 'node:fs';
@@ -13,6 +14,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuditLog } from '../../src/audit/audit-log.js';
 import { AuditUnavailableError } from '../../src/core/errors.js';
+import { FileAuditStore } from '../../src/evidence/file-audit-store.js';
 import type {
   AuditConfig,
   RiskLevel,
@@ -219,6 +221,49 @@ describe('audit durability', () => {
       () =>
         new AuditLog(root, auditConfig({ durability: 'required' })),
     ).toThrowError(AuditUnavailableError);
+  });
+
+  it('fails a required record when a write makes no forward progress', () => {
+    const audit = new AuditLog(tempRoot(), auditConfig(), {
+      writeSync: () => 0,
+    });
+
+    expect(() =>
+      audit.record(
+        { type: 'tool_call', tool: 'zero_progress_probe', risk: 'HIGH' },
+        { required: true },
+      ),
+    ).toThrowError(AuditUnavailableError);
+  });
+
+  it('reclaims a stale lock owned by a dead process before appending', () => {
+    const root = tempRoot();
+    const store = new FileAuditStore(root);
+    store.preflight(false);
+    const lockPath = join(root, '.folderforge', 'audit', 'audit.v2.lock');
+    writeFileSync(
+      lockPath,
+      `${JSON.stringify({ pid: 2_147_483_647, createdAt: '2000-01-01T00:00:00.000Z' })}\n`,
+    );
+    const stale = new Date(Date.now() - 60_000);
+    utimesSync(lockPath, stale, stale);
+
+    const appended = store.append(
+      {
+        ts: new Date().toISOString(),
+        type: 'tool_call',
+        tool: 'stale_lock_probe',
+        risk: 'HIGH',
+      },
+      { required: true },
+    );
+
+    expect(appended).toMatchObject({
+      schemaVersion: 2,
+      sequence: 1,
+      event: { tool: 'stale_lock_probe' },
+    });
+    expect(store.verify()).toMatchObject({ ok: true, records: 1 });
   });
 
   it('fails a required record when fsync fails', () => {

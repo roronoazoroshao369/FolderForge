@@ -100,6 +100,17 @@ describe('benchmark result validation and comparison scripts', () => {
     expect(executed.stderr).toMatch(/task manifest hash does not match/i);
   });
 
+  it('keeps host-sensitive cold startup informational while deterministic workloads gate releases', () => {
+    const source = readFileSync(resolve('scripts/run-governance-benchmarks.mjs'), 'utf8');
+    expect(source).toContain('releaseGate = {');
+    expect(source).toContain('toolsList1000: checks.toolsList1000');
+    expect(source).toContain('policyEvaluate500Rules: checks.policyEvaluate500Rules');
+    expect(source).toContain('informational: {');
+    expect(source).toContain('coldStdioInitializeAndToolsList: {');
+    expect(source).toContain('Object.values(result.releaseGate).every(Boolean)');
+    expect(source).not.toContain('Object.values(result.pass).every(Boolean)');
+  });
+
   it('hides latency when hardware declarations differ', () => {
     const first = join(root, 'first.json');
     const second = join(root, 'second.json');

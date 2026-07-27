@@ -1,6 +1,6 @@
 {
   "name": "@musashishao/folderforge",
-  "version": "2.7.1",
+  "version": "2.7.2",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "keywords": [
     "mcp",
@@ -84,11 +84,11 @@
     "verify": "npm run typecheck && npm run lint && npm run architecture:check && npm test && npm run build",
     "smoke:package": "node scripts/smoke-package.mjs",
     "smoke:http": "node scripts/smoke-http.mjs",
-    "release:check": "npm run verify && npm run quality:check && npm run docs:check && npm audit --omit=dev && npm audit && npm run smoke:package && npm run smoke:stdio && npm run smoke:http",
+    "release:check": "node scripts/run-release-check.mjs",
     "prepublishOnly": "npm run release:check",
     "smoke:stdio": "node scripts/smoke-stdio.mjs",
     "docs:check": "node scripts/check-docs.mjs",
-    "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=json --coverage.reporter=json-summary && npm run coverage:critical",
+    "test:coverage": "vitest run --coverage --maxWorkers=1 --coverage.reporter=text --coverage.reporter=json --coverage.reporter=json-summary && npm run coverage:critical",
     "coverage:critical": "node scripts/check-critical-coverage.mjs",
     "test:fuzz": "vitest run tests/fuzz/core.fuzz.test.ts",
     "test:stress": "node scripts/stress-child-mcp.mjs",
@@ -112,9 +112,12 @@
     "benchmark:compare": "node scripts/compare-benchmarks.mjs",
     "smoke:sandbox": "node scripts/smoke-sandbox.mjs",
     "benchmark:run": "node scripts/run-benchmarks.mjs",
-    "benchmark:governance": "npm run build && node scripts/run-governance-benchmarks.mjs",
+    "benchmark:governance": "npm run build && node scripts/run-governance-benchmarks.mjs --output .folderforge-ci/governance-benchmark.json",
     "beta:ingest": "node scripts/beta-evidence.mjs ingest",
-    "beta:report": "node scripts/beta-evidence.mjs report"
+    "beta:report": "node scripts/beta-evidence.mjs report",
+    "release:preflight": "node scripts/release-preflight.mjs",
+    "release:publish": "node scripts/publish-release.mjs",
+    "release:publish:dry-run": "node scripts/publish-release.mjs --dry-run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -126,13 +129,12 @@
     "pino": "^9.0.0",
     "pngjs": "7.0.0",
     "simple-git": "^3.25.0",
-    "tar": "^7.5.20",
+    "tar": "^7.5.22",
     "yaml": "^2.5.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@modelcontextprotocol/inspector": "1.0.0",
     "@types/node": "^22.0.0",
     "@types/pngjs": "6.0.5",
     "@vitest/coverage-v8": "^4.1.10",
@@ -149,6 +151,7 @@
   },
   "overrides": {
     "@hono/node-server": "2.0.11",
-    "fast-uri": "3.1.4"
+    "fast-uri": "3.1.4",
+    "postcss": "8.5.23"
   }
 }

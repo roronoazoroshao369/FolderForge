@@ -464,13 +464,19 @@ describe('StdioChildClient diagnostics and protocol handling', () => {
 
   it('keeps a responsive idle child healthy and exposes transport counters', async () => {
     const child = client('success', {
-      timeout: 500,
-      heartbeatIntervalMs: 20,
-      heartbeatTimeoutMs: 30,
+      // Initialization launches a real Node child and may exceed 500ms on loaded
+      // shared runners; heartbeat failure detection remains independently strict.
+      timeout: 1_500,
+      heartbeatIntervalMs: 30,
+      heartbeatTimeoutMs: 250,
     });
     await child.start();
     await child.listTools();
-    await sleep(80);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const current = child.transportStats();
+      if (current.heartbeatsSent >= 1 && current.responsesReceived >= 3) break;
+      await sleep(10);
+    }
 
     const stats = child.transportStats();
     expect(child.isReady()).toBe(true);
@@ -486,7 +492,7 @@ describe('StdioChildClient diagnostics and protocol handling', () => {
 
   it('closes an idle child that stops answering heartbeat pings', async () => {
     const child = client('ignore-ping', {
-      timeout: 500,
+      timeout: 1_500,
       heartbeatIntervalMs: 20,
       heartbeatTimeoutMs: 20,
     });

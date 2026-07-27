@@ -47,11 +47,11 @@ describe.sequential('runtime soak runner', () => {
       '--output-dir',
       output,
       '--duration-ms',
-      '2500',
+      '5000',
       '--interval-ms',
       '200',
       '--fault-every',
-      '2',
+      '1',
       '--outlier-ms',
       '1000',
     ]);
@@ -71,7 +71,7 @@ describe.sequential('runtime soak runner', () => {
     const verified = run(['--output-dir', output, '--verify']);
     expect(verified.status, verified.stderr).toBe(0);
     expect(JSON.parse(verified.stdout)).toMatchObject({ completed: true, failures: 0 });
-  }, 30_000);
+  }, 40_000);
 
   it.skipIf(process.platform === 'win32')(
     'resumes a verified incomplete chain after SIGTERM',

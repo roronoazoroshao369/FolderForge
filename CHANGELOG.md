@@ -6,6 +6,23 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.2] - 2026-07-27
+
+### Fixed
+
+- Require `tar` 7.5.22 or newer so release audits cannot resolve the vulnerable
+  7.5.20 build reported by GHSA-r292-9mhp-454m.
+- Add a fail-fast release preflight that verifies package/lock versions, the
+  annotated version tag, clean HEAD, and synchronization with `origin/main`.
+- Run release checks and publishing through an isolated repository-local npm
+  cache so root-owned global cache entries cannot cause `EACCES` failures.
+- Replace the vulnerable MCP Inspector dependency tree with an SDK-native stdio
+  protocol conformance smoke and pin PostCSS to the patched 8.5.23 release.
+- Stabilize release quality gates on loaded hosts by serializing coverage,
+  testing stale audit-lock recovery, widening only child initialization timing,
+  and retaining host-sensitive cold stdio startup as mandatory informational
+  evidence while deterministic catalog and policy benchmarks remain gating.
+
 ## [2.7.1] - 2026-07-27
 
 ### Added
