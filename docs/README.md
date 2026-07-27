@@ -22,6 +22,7 @@ material and historical records.
 | [OAuth](oauth.md) | Operator | External authorization-server and protected-resource configuration. |
 | [Workflows](workflows.md) | User / Contributor | Persistent governed workflow usage. |
 | [MCP platform](mcp-platform.md) | User / Contributor | Resources, prompts, progress, cancellation, subscriptions, and principal-bound tasks. |
+| [MCP session reliability](mcp-session-reliability.md) | Operator / Contributor | HTTP session lifetime, reconnect identity, mutation replay, and stable-endpoint requirements. |
 | [Policy as code](policy-as-code.md) | User / Operator | Restrictive project policy, RBAC selectors, execution identity, and audit correlation. |
 | [AI coding runtime](ai-coding-runtime.md) | User / Contributor | Analyze, patch, verify, and report workflow. |
 | [Artifacts and browser quality](artifacts.md) | User / Contributor | Content-addressed evidence, visual comparison, and accessibility checks. |

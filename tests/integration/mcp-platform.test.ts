@@ -23,7 +23,7 @@ function project(): string {
   const root = mkdtempSync(join(tmpdir(), 'folderforge-mcp-platform-'));
   roots.push(root);
   writeFileSync(join(root, 'hello.txt'), 'MCP task result\n');
-  execFileSync('git', ['init', '-q'], { cwd: root });
+  execFileSync('git', ['init', '-q', '-b', 'master'], { cwd: root });
   execFileSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'FolderForge Tests'], { cwd: root });
   execFileSync('git', ['add', '.'], { cwd: root });

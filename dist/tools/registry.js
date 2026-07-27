@@ -307,16 +307,23 @@ export class ToolRegistry {
     async runPipeline(descriptor, governanceArgs, control, handlerArgs = governanceArgs) {
         const { name, risk, mutates } = descriptor;
         const started = Date.now();
-        // P6 - cancellation: if the client already cancelled before we start (or
-        // cancels during the synchronous policy/rate-limit checks below), refuse
-        // early instead of doing work the caller no longer wants.
-        if (control?.signal?.aborted) {
-            return { ok: false, error: "Tool call cancelled before execution." };
-        }
         const principal = control?.principal ?? {
             id: "agent:unknown",
             role: "agent",
         };
+        const operationId = mutates
+            ? (control?.operationId ?? `op_${randomUUID().replaceAll("-", "").slice(0, 24)}`)
+            : undefined;
+        const finish = (result, execution) => mutates
+            ? { ...result, operationId: operationId, execution }
+            : result;
+        let executionStarted = false;
+        // P6 - cancellation: if the client already cancelled before we start (or
+        // cancels during the synchronous policy/rate-limit checks below), refuse
+        // early instead of doing work the caller no longer wants.
+        if (control?.signal?.aborted) {
+            return finish({ ok: false, error: "Tool call cancelled before execution." }, "not_started");
+        }
         const capsuleDecision = this.container.capsules
             ? this.container.capsules.check(principal, this.container.projectRoot(), { name, group: descriptor.group ?? "dynamic", risk, mutates, args: governanceArgs })
             : { kind: "allow" };
@@ -332,9 +339,10 @@ export class ToolRegistry {
         const containmentBypass = this.container.missionControl?.allowsContainmentAction(name, approvalPrincipal) ?? false;
         const identityDetail = {
             ...principalAuditDetail(approvalPrincipal),
+            ...(operationId ? { operationId } : {}),
             ...(containmentBypass ? { containmentAction: true } : {}),
         };
-        const activeCallId = `call_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+        const activeCallId = operationId ?? `call_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
         this.activeCalls.set(activeCallId, {
             id: activeCallId,
             tool: name,
@@ -356,7 +364,6 @@ export class ToolRegistry {
         const recordAudit = (event) => {
             this.container.audit.record(event, { required: auditRequired });
         };
-        let executionStarted = false;
         try {
             recordAudit({
                 type: "tool_call",
@@ -374,7 +381,7 @@ export class ToolRegistry {
                     summary: reason,
                     detail: identityDetail,
                 });
-                return { ok: false, error: `Denied: ${reason}` };
+                return finish({ ok: false, error: `Denied: ${reason}` }, "not_started");
             }
             const decision = this.container.policy.evaluate(name, risk, mutates, governanceArgs, approvalPrincipal, { bypassReadonly: containmentBypass });
             if (decision.kind === "deny") {
@@ -385,7 +392,7 @@ export class ToolRegistry {
                     summary: decision.reason,
                     detail: identityDetail,
                 });
-                return { ok: false, error: `Denied: ${decision.reason}` };
+                return finish({ ok: false, error: `Denied: ${decision.reason}` }, "not_started");
             }
             if (decision.kind === "approval") {
                 recordAudit({
@@ -397,11 +404,11 @@ export class ToolRegistry {
                 });
                 // Agent-facing protocol controls may report or render the request, but they
                 // cannot resolve it. Resolution is confined to the authenticated admin plane.
-                return {
+                return finish({
                     ok: false,
                     approvalId: decision.approvalId,
                     error: `Approval required (${risk}). Resolve in the dashboard admin plane. id=${decision.approvalId}`,
-                };
+                }, "not_started");
             }
             // Rate limit / quota: applied only to calls that policy would actually
             // run. Denied or approval-gated calls never consume quota.
@@ -419,10 +426,10 @@ export class ToolRegistry {
                         dailyCount: rl.dailyCount,
                     },
                 });
-                return {
+                return finish({
                     ok: false,
                     error: `${rl.reason} Retry in ~${Math.ceil((rl.retryAfterMs ?? 0) / 1000)}s.`,
-                };
+                }, "not_started");
             }
             try {
                 if (capsuleDecision.capsule && this.container.capsules) {
@@ -444,7 +451,7 @@ export class ToolRegistry {
                     summary: result.ok ? "ok" : (result.error ?? "error"),
                     detail: identityDetail,
                 });
-                return result;
+                return finish(result, "executed");
             }
             catch (err) {
                 if (err instanceof AuditUnavailableError)
@@ -456,7 +463,7 @@ export class ToolRegistry {
                         : err instanceof Error
                             ? err.message
                             : String(err);
-                logger.error({ tool: name, err: message }, "tool error");
+                logger.error({ tool: name, err: message, operationId }, "tool error");
                 recordAudit({
                     type: "tool_error",
                     tool: name,
@@ -466,20 +473,20 @@ export class ToolRegistry {
                     summary: message,
                     detail: identityDetail,
                 });
-                return { ok: false, error: message };
+                return finish({ ok: false, error: message }, "executed");
             }
         }
         catch (err) {
             if (!(err instanceof AuditUnavailableError))
                 throw err;
-            logger.error({ tool: name, risk, executionStarted, code: err.code }, "Required audit storage unavailable");
+            logger.error({ tool: name, risk, executionStarted, operationId, code: err.code }, "Required audit storage unavailable");
             if (executionStarted) {
-                return {
+                return finish({
                     ok: false,
                     error: "AUDIT_OUTCOME_UNCERTAIN: Tool execution completed or may have partially completed, but terminal audit evidence could not be persisted. Do not retry automatically.",
-                };
+                }, "outcome_uncertain");
             }
-            return { ok: false, error: `${err.code}: ${err.message}` };
+            return finish({ ok: false, error: `${err.code}: ${err.message}` }, "not_started");
         }
         finally {
             this.activeCalls.delete(activeCallId);

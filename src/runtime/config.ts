@@ -188,7 +188,7 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
     server: {
       name: 'folderforge',
       transport: 'stdio',
-      http: { host: '127.0.0.1', port: 7331 },
+      http: { host: '127.0.0.1', port: 7331, sessionTtlMs: 30 * 60_000 },
       dashboard: { enabled: true, host: '127.0.0.1', port: 7332 },
     },
     workspace: {
@@ -373,6 +373,12 @@ export function validateConfig(cfg: FolderForgeConfig): void {
   }
   if (cfg.server.http.port <= 0 || cfg.server.http.port > 65535) {
     errors.push(`server.http.port must be 1-65535 (got ${cfg.server.http.port})`);
+  }
+  if (
+    cfg.server.http.sessionTtlMs !== undefined &&
+    (!Number.isInteger(cfg.server.http.sessionTtlMs) || cfg.server.http.sessionTtlMs < 1_000)
+  ) {
+    errors.push('server.http.sessionTtlMs must be an integer >= 1000');
   }
   if (typeof cfg.server.dashboard.enabled !== 'boolean') {
     errors.push('server.dashboard.enabled must be a boolean');

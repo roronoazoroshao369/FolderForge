@@ -46,6 +46,20 @@ describe('toCallToolResult', () => {
     expect((out.content[0] as { text: string }).text).toBe('--- a\n+++ b');
   });
 
+  it('surfaces operation identity and execution state for mutating calls', () => {
+    const out = toCallToolResult({
+      ok: true,
+      diff: '--- a\n+++ b',
+      operationId: 'op_123',
+      execution: 'executed',
+    });
+    expect(JSON.parse((out.content[0] as { text: string }).text)).toEqual({
+      diff: '--- a\n+++ b',
+      operationId: 'op_123',
+      execution: 'executed',
+    });
+  });
+
   it('renders an error result with isError', () => {
     const out = toCallToolResult({ ok: false, error: 'boom' });
     expect(out.isError).toBe(true);

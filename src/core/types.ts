@@ -441,6 +441,8 @@ export interface ElicitResult {
 export interface ToolCallControl {
   /** Authenticated caller identity supplied by the transport/admin plane. */
   principal?: ToolPrincipal;
+  /** Stable identity for one mutating operation, used for audit and replay protection. */
+  operationId?: string;
   /** Abort signal that fires when the client cancels this tool call. */
   signal?: AbortSignal;
   /** Emit an incremental progress notification for this call. */
@@ -488,6 +490,10 @@ export type ToolContentBlock =
 
 export interface ToolResult {
   ok: boolean;
+  /** Stable identity for a mutating operation. */
+  operationId?: string;
+  /** Whether this response executed, replayed, or did not start the operation. */
+  execution?: 'executed' | 'replayed' | 'not_started' | 'outcome_uncertain';
   data?: unknown;
   error?: string;
   diff?: string;

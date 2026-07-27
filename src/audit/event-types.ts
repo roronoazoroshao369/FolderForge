@@ -1,6 +1,7 @@
 export type AuditEventType =
   | 'tool_call'
   | 'tool_result'
+  | 'tool_replay'
   | 'tool_error'
   | 'policy_deny'
   | 'policy_change'

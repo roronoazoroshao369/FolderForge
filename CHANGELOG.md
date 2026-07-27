@@ -8,6 +8,11 @@ semantic versioning.
 
 ### Added
 
+- Add durable principal-bound Streamable HTTP sessions with real idle expiry,
+  restart-identifying health evidence, and backward-compatible stateless calls.
+- Add session-scoped mutation replay protection with stable `operationId` and
+  explicit `executed`, `replayed`, `not_started`, or `outcome_uncertain` results.
+
 - Add a local Mission Control dashboard for active calls, authorized Workspace
   Capsule sessions, durable tasks, approvals, managed processes, isolations,
   Proof Pack counts, and recent governed activity.
@@ -34,6 +39,9 @@ semantic versioning.
   apply/rollback/discard.
 
 ### Changed
+
+- Keep active HTTP requests out of idle-session eviction and close every retained
+  MCP server/transport deterministically on client DELETE, TTL expiry, or shutdown.
 
 - Bind once/session approvals to client, project, session, capsule, and task in
   addition to exact canonical arguments, while retaining raw principal identity

@@ -60,6 +60,13 @@ describe('config loading + validation', () => {
     expect(() => validateConfig(cfg)).toThrow(/http.port/);
   });
 
+  it('defaults and validates the HTTP session lifetime', () => {
+    const cfg = defaultConfig(TS_FIXTURE);
+    expect(cfg.server.http.sessionTtlMs).toBe(1_800_000);
+    cfg.server.http.sessionTtlMs = 999;
+    expect(() => validateConfig(cfg)).toThrow(/sessionTtlMs/);
+  });
+
   it('rejects an invalid audit durability mode', () => {
     const cfg = loadConfig({ projectRoot: TS_FIXTURE });
     // @ts-expect-error deliberately invalid for the test
@@ -187,7 +194,6 @@ describe('config loading + validation', () => {
     };
     expect(() => validateConfig(cfg)).toThrow(/writeScope|algorithm/);
   });
-
 
   it('rejects ambiguous legacy flags, query-bearing identifiers, and malformed JWKS trust entries', () => {
     const cfg = loadConfig({ projectRoot: TS_FIXTURE });

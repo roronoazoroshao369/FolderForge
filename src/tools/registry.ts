@@ -446,18 +446,32 @@ export class ToolRegistry {
   ): Promise<ToolResult> {
     const { name, risk, mutates } = descriptor;
     const started = Date.now();
+    const principal = control?.principal ?? {
+      id: "agent:unknown",
+      role: "agent" as const,
+    };
+    const operationId = mutates
+      ? (control?.operationId ?? `op_${randomUUID().replaceAll("-", "").slice(0, 24)}`)
+      : undefined;
+    const finish = (
+      result: ToolResult,
+      execution: NonNullable<ToolResult["execution"]>,
+    ): ToolResult =>
+      mutates
+        ? { ...result, operationId: operationId!, execution }
+        : result;
+    let executionStarted = false;
 
     // P6 - cancellation: if the client already cancelled before we start (or
     // cancels during the synchronous policy/rate-limit checks below), refuse
     // early instead of doing work the caller no longer wants.
     if (control?.signal?.aborted) {
-      return { ok: false, error: "Tool call cancelled before execution." };
+      return finish(
+        { ok: false, error: "Tool call cancelled before execution." },
+        "not_started",
+      );
     }
 
-    const principal = control?.principal ?? {
-      id: "agent:unknown",
-      role: "agent" as const,
-    };
     const capsuleDecision = this.container.capsules
       ? this.container.capsules.check(
           principal,
@@ -481,9 +495,11 @@ export class ToolRegistry {
       ) ?? false;
     const identityDetail = {
       ...principalAuditDetail(approvalPrincipal),
+      ...(operationId ? { operationId } : {}),
       ...(containmentBypass ? { containmentAction: true } : {}),
     };
-    const activeCallId = `call_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+    const activeCallId =
+      operationId ?? `call_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
     this.activeCalls.set(activeCallId, {
       id: activeCallId,
       tool: name,
@@ -508,7 +524,6 @@ export class ToolRegistry {
     ): void => {
       this.container.audit.record(event, { required: auditRequired });
     };
-    let executionStarted = false;
 
     try {
       recordAudit({
@@ -529,7 +544,7 @@ export class ToolRegistry {
           summary: reason,
           detail: identityDetail,
         });
-        return { ok: false, error: `Denied: ${reason}` };
+        return finish({ ok: false, error: `Denied: ${reason}` }, "not_started");
       }
 
       const decision = this.container.policy.evaluate(
@@ -548,7 +563,10 @@ export class ToolRegistry {
           summary: decision.reason,
           detail: identityDetail,
         });
-        return { ok: false, error: `Denied: ${decision.reason}` };
+        return finish(
+          { ok: false, error: `Denied: ${decision.reason}` },
+          "not_started",
+        );
       }
       if (decision.kind === "approval") {
         recordAudit({
@@ -561,11 +579,14 @@ export class ToolRegistry {
 
         // Agent-facing protocol controls may report or render the request, but they
         // cannot resolve it. Resolution is confined to the authenticated admin plane.
-        return {
-          ok: false,
-          approvalId: decision.approvalId,
-          error: `Approval required (${risk}). Resolve in the dashboard admin plane. id=${decision.approvalId}`,
-        };
+        return finish(
+          {
+            ok: false,
+            approvalId: decision.approvalId,
+            error: `Approval required (${risk}). Resolve in the dashboard admin plane. id=${decision.approvalId}`,
+          },
+          "not_started",
+        );
       }
 
       // Rate limit / quota: applied only to calls that policy would actually
@@ -584,10 +605,13 @@ export class ToolRegistry {
             dailyCount: rl.dailyCount,
           },
         });
-        return {
-          ok: false,
-          error: `${rl.reason} Retry in ~${Math.ceil((rl.retryAfterMs ?? 0) / 1000)}s.`,
-        };
+        return finish(
+          {
+            ok: false,
+            error: `${rl.reason} Retry in ~${Math.ceil((rl.retryAfterMs ?? 0) / 1000)}s.`,
+          },
+          "not_started",
+        );
       }
 
       try {
@@ -610,7 +634,7 @@ export class ToolRegistry {
           summary: result.ok ? "ok" : (result.error ?? "error"),
           detail: identityDetail,
         });
-        return result;
+        return finish(result, "executed");
       } catch (err) {
         if (err instanceof AuditUnavailableError) throw err;
         const message =
@@ -621,7 +645,7 @@ export class ToolRegistry {
               : err instanceof Error
                 ? err.message
                 : String(err);
-        logger.error({ tool: name, err: message }, "tool error");
+        logger.error({ tool: name, err: message, operationId }, "tool error");
         recordAudit({
           type: "tool_error",
           tool: name,
@@ -631,22 +655,28 @@ export class ToolRegistry {
           summary: message,
           detail: identityDetail,
         });
-        return { ok: false, error: message };
+        return finish({ ok: false, error: message }, "executed");
       }
     } catch (err) {
       if (!(err instanceof AuditUnavailableError)) throw err;
       logger.error(
-        { tool: name, risk, executionStarted, code: err.code },
+        { tool: name, risk, executionStarted, operationId, code: err.code },
         "Required audit storage unavailable",
       );
       if (executionStarted) {
-        return {
-          ok: false,
-          error:
-            "AUDIT_OUTCOME_UNCERTAIN: Tool execution completed or may have partially completed, but terminal audit evidence could not be persisted. Do not retry automatically.",
-        };
+        return finish(
+          {
+            ok: false,
+            error:
+              "AUDIT_OUTCOME_UNCERTAIN: Tool execution completed or may have partially completed, but terminal audit evidence could not be persisted. Do not retry automatically.",
+          },
+          "outcome_uncertain",
+        );
       }
-      return { ok: false, error: `${err.code}: ${err.message}` };
+      return finish(
+        { ok: false, error: `${err.code}: ${err.message}` },
+        "not_started",
+      );
     } finally {
       this.activeCalls.delete(activeCallId);
     }

@@ -1,9 +1,40 @@
+import { createHash } from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, CancelTaskRequestSchema, GetPromptRequestSchema, GetTaskPayloadRequestSchema, GetTaskRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListTasksRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema, SubscribeRequestSchema, UnsubscribeRequestSchema, RELATED_TASK_META_KEY, } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../core/logger.js';
 import { buildBearerChallenge } from './auth/oauth.js';
 import { McpPromptCatalog } from './mcp-prompts.js';
 import { McpResourceCatalog, McpResourceSubscriptions } from './mcp-resources.js';
+const MAX_MUTATION_REPLAY_ENTRIES = 256;
+function canonicalValue(value) {
+    if (Array.isArray(value))
+        return value.map((entry) => canonicalValue(entry));
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, entry]) => [key, canonicalValue(entry)]));
+    }
+    return value === undefined ? '[undefined]' : value;
+}
+function mutationFingerprint(name, args) {
+    return createHash('sha256')
+        .update(name)
+        .update('\0')
+        .update(JSON.stringify(canonicalValue(args)))
+        .digest('hex');
+}
+function mutationOperationId(principal, requestId, fingerprint) {
+    return `op_${createHash('sha256')
+        .update(principal.id)
+        .update('\0')
+        .update(principal.sessionId ?? 'stateless')
+        .update('\0')
+        .update(requestId)
+        .update('\0')
+        .update(fingerprint)
+        .digest('hex')
+        .slice(0, 24)}`;
+}
 /**
  * Build an MCP {@link Server} backed by the FolderForge {@link ToolRegistry}.
  *
@@ -33,6 +64,15 @@ export function createMcpServer(registry, info) {
         : '';
     const principal = info.principal ?? { id: 'agent:mcp', role: 'agent' };
     const advancedProtocol = info.container !== undefined;
+    const mutationReplay = new Map();
+    const pruneMutationReplay = () => {
+        while (mutationReplay.size > MAX_MUTATION_REPLAY_ENTRIES) {
+            const settled = [...mutationReplay.entries()].find(([, entry]) => entry.settled);
+            if (!settled)
+                return;
+            mutationReplay.delete(settled[0]);
+        }
+    };
     const listChangedRegistry = registry;
     const supportsToolListChanged = typeof listChangedRegistry.onListChanged === 'function';
     const server = new Server({ name: info.name, version: info.version }, {
@@ -246,7 +286,69 @@ export function createMcpServer(registry, info) {
             });
             return { task };
         }
-        const result = await registry.callAgent(name, callArgs, control);
+        const effectiveMutates = classification?.mutates ?? tool?.mutates ?? false;
+        if (!effectiveMutates) {
+            const result = await registry.callAgent(name, callArgs, control);
+            return toCallToolResult(result, Boolean(tool?.outputSchema));
+        }
+        const requestKey = `${typeof extra.requestId}:${String(extra.requestId)}`;
+        const fingerprint = mutationFingerprint(name, callArgs);
+        const existing = mutationReplay.get(requestKey);
+        if (existing) {
+            if (existing.fingerprint !== fingerprint) {
+                return toCallToolResult({
+                    ok: false,
+                    operationId: existing.operationId,
+                    execution: 'not_started',
+                    error: 'MCP_REQUEST_ID_CONFLICT: this request id was already used for a different mutating call in the current session.',
+                }, Boolean(tool?.outputSchema));
+            }
+            const original = await existing.promise;
+            const replayOperationId = original.operationId ?? existing.operationId;
+            const replayed = {
+                ...original,
+                operationId: replayOperationId,
+                execution: original.execution === 'executed'
+                    ? 'replayed'
+                    : (original.execution ?? 'replayed'),
+            };
+            try {
+                info.container?.audit.record({
+                    type: 'tool_replay',
+                    tool: name,
+                    ok: replayed.ok,
+                    summary: 'duplicate mutating request returned from session replay ledger',
+                    detail: {
+                        operationId: replayOperationId,
+                        requestId: requestKey,
+                        requesterId: principal.id,
+                        ...(principal.sessionId ? { sessionId: principal.sessionId } : {}),
+                    },
+                }, { required: false });
+            }
+            catch (error) {
+                logger.warn({ err: error instanceof Error ? error.message : String(error) }, 'Failed to record mutation replay evidence');
+            }
+            return toCallToolResult(replayed, Boolean(tool?.outputSchema));
+        }
+        const operationId = mutationOperationId(principal, requestKey, fingerprint);
+        const executionControl = { ...control, operationId };
+        const promise = registry.callAgent(name, callArgs, executionControl);
+        const entry = {
+            fingerprint,
+            operationId,
+            promise,
+            settled: false,
+        };
+        mutationReplay.set(requestKey, entry);
+        void promise
+            .finally(() => {
+            entry.settled = true;
+            pruneMutationReplay();
+        })
+            .catch(() => undefined);
+        pruneMutationReplay();
+        const result = await promise;
         return toCallToolResult(result, Boolean(tool?.outputSchema));
     });
     server.onclose = () => {
@@ -294,12 +396,17 @@ export function toCallToolResult(result, hasOutputSchema = false) {
             : result.error ?? 'Tool call failed';
         const content = [{ type: 'text', text }];
         const displayData = withoutPromotedContent(result.data, richContent.length > 0);
-        if (displayData !== undefined || result.diff !== undefined) {
+        if (displayData !== undefined ||
+            result.diff !== undefined ||
+            result.operationId !== undefined ||
+            result.execution !== undefined) {
             content.push({
                 type: 'text',
                 text: JSON.stringify({
                     ...(displayData !== undefined ? { data: displayData } : {}),
                     ...(result.diff !== undefined ? { diff: result.diff } : {}),
+                    ...(result.operationId !== undefined ? { operationId: result.operationId } : {}),
+                    ...(result.execution !== undefined ? { execution: result.execution } : {}),
                 }, null, 2),
             });
         }
@@ -317,7 +424,14 @@ export function toCallToolResult(result, hasOutputSchema = false) {
         payload.data = displayData;
     if (result.diff !== undefined)
         payload.diff = result.diff;
-    const text = result.diff && displayData === undefined
+    if (result.operationId !== undefined)
+        payload.operationId = result.operationId;
+    if (result.execution !== undefined)
+        payload.execution = result.execution;
+    const text = result.diff &&
+        displayData === undefined &&
+        result.operationId === undefined &&
+        result.execution === undefined
         ? result.diff
         : JSON.stringify(Object.keys(payload).length ? payload : { ok: true }, null, 2);
     // The text block always leads for backwards compatibility. Rich MCP blocks

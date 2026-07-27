@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -105,6 +105,44 @@ export function resolveCorsOrigin(
   return null;
 }
 
+const DEFAULT_SESSION_TTL_MS = 30 * 60_000;
+const MAX_JSON_BODY_BYTES = 1_048_576;
+
+interface HttpMcpSession {
+  id: string;
+  principalId: string;
+  server: Server;
+  transport: StreamableHTTPServerTransport;
+  lastUsedAt: number;
+  activeRequests: number;
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > MAX_JSON_BODY_BYTES) {
+      throw new Error(`MCP request body exceeds ${MAX_JSON_BODY_BYTES} bytes`);
+    }
+    chunks.push(buffer);
+  }
+  if (total === 0) return undefined;
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+}
+
+function isInitializeRequest(body: unknown): boolean {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  return (body as { method?: unknown }).method === 'initialize';
+}
+
+function sessionHeader(req: IncomingMessage): string | undefined {
+  const raw = req.headers['mcp-session-id'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 function writeJson(
   res: ServerResponse,
   status: number,
@@ -135,7 +173,7 @@ function oauthChallenge(
   });
 }
 
-/** Bind the MCP server to a hardened stateless Streamable HTTP transport. */
+/** Bind the MCP server to a hardened Streamable HTTP transport with durable sessions. */
 export async function startHttpTransport(
   makeMcpServer: (principal: ToolPrincipal) => Server,
   opts: HttpTransportOptions
@@ -168,28 +206,144 @@ export async function startHttpTransport(
   }
 
   const oauthRuntime = authMode === 'oauth' ? await createOAuthRuntime(opts.oauth!) : undefined;
+  const instanceId = `http_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
+  const startedAt = new Date().toISOString();
+  const sessionTtlMs = opts.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+  if (!Number.isFinite(sessionTtlMs) || sessionTtlMs <= 0) {
+    throw new Error('server.http.sessionTtlMs must be a positive finite number');
+  }
+  const sessions = new Map<string, HttpMcpSession>();
+
+  const closeSession = async (id: string, reason: string): Promise<void> => {
+    const session = sessions.get(id);
+    if (!session) return;
+    sessions.delete(id);
+    await Promise.allSettled([session.transport.close(), session.server.close()]);
+    logger.info({ instanceId, sessionId: id, reason }, 'MCP HTTP session closed');
+  };
+
+  const sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const session of sessions.values()) {
+      if (session.activeRequests === 0 && now - session.lastUsedAt >= sessionTtlMs) {
+        void closeSession(session.id, 'idle_ttl');
+      }
+    }
+  }, Math.min(Math.max(Math.floor(sessionTtlMs / 4), 25), 30_000));
+  sweeper.unref();
+
+  const createStatefulSession = async (
+    principal: ToolPrincipal
+  ): Promise<HttpMcpSession> => {
+    const id = randomUUID();
+    const sessionPrincipal: ToolPrincipal = {
+      ...principal,
+      sessionId: scopedSessionId(principal.id, id),
+    };
+    const server = makeMcpServer(sessionPrincipal);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => id,
+      onsessionclosed: () => {
+        void closeSession(id, 'client_delete');
+      },
+    });
+    const session: HttpMcpSession = {
+      id,
+      principalId: principal.id,
+      server,
+      transport,
+      lastUsedAt: Date.now(),
+      activeRequests: 0,
+    };
+    sessions.set(id, session);
+    try {
+      await server.connect(transport as Transport);
+      return session;
+    } catch (error) {
+      sessions.delete(id);
+      await Promise.allSettled([transport.close(), server.close()]);
+      throw error;
+    }
+  };
+
+  const handleStateless = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    principal: ToolPrincipal,
+    parsedBody?: unknown
+  ): Promise<void> => {
+    const server = makeMcpServer(principal);
+    const transport = new StreamableHTTPServerTransport({});
+    try {
+      await server.connect(transport as Transport);
+      await transport.handleRequest(req, res, parsedBody);
+    } finally {
+      await Promise.allSettled([transport.close(), server.close()]);
+    }
+  };
 
   const handleMcp = async (
     req: IncomingMessage,
     res: ServerResponse,
     principal: ToolPrincipal
   ): Promise<void> => {
-    const rawSession = req.headers['mcp-session-id'];
-    const sessionHint = Array.isArray(rawSession) ? rawSession[0] : rawSession;
-    const sessionPrincipal: ToolPrincipal = {
-      ...principal,
-      sessionId: scopedSessionId(principal.id, sessionHint),
-    };
-    const server = makeMcpServer(sessionPrincipal);
-    const transport = new StreamableHTTPServerTransport(
-      {} as ConstructorParameters<typeof StreamableHTTPServerTransport>[0]
-    );
-    res.on('close', () => {
-      void transport.close?.();
-      void server.close?.();
-    });
-    await server.connect(transport as Transport);
-    await transport.handleRequest(req, res);
+    const requestedSessionId = sessionHeader(req);
+    if (requestedSessionId) {
+      const session = sessions.get(requestedSessionId);
+      if (!session || session.principalId !== principal.id) {
+        writeJson(res, 404, {
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32001, message: 'MCP session not found or no longer valid' },
+        });
+        return;
+      }
+      session.activeRequests += 1;
+      try {
+        await session.transport.handleRequest(req, res);
+      } finally {
+        session.activeRequests = Math.max(0, session.activeRequests - 1);
+        session.lastUsedAt = Date.now();
+      }
+      return;
+    }
+
+    if (req.method !== 'POST') {
+      await handleStateless(req, res, principal);
+      return;
+    }
+
+    let parsedBody: unknown;
+    try {
+      parsedBody = await readJsonBody(req);
+    } catch (error) {
+      writeJson(res, 400, {
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: -32700,
+          message: error instanceof SyntaxError ? 'Invalid JSON request body' : String(error),
+        },
+      });
+      return;
+    }
+
+    if (!isInitializeRequest(parsedBody)) {
+      await handleStateless(req, res, principal, parsedBody);
+      return;
+    }
+
+    const session = await createStatefulSession(principal);
+    session.activeRequests += 1;
+    try {
+      await session.transport.handleRequest(req, res, parsedBody);
+    } catch (error) {
+      await closeSession(session.id, 'initialize_failed');
+      throw error;
+    } finally {
+      session.activeRequests = Math.max(0, session.activeRequests - 1);
+      session.lastUsedAt = Date.now();
+    }
   };
 
   const applyCors = (req: IncomingMessage, res: ServerResponse): void => {
@@ -210,6 +364,8 @@ export async function startHttpTransport(
       const requestUrl = new URL(req.url ?? '/', 'http://folderforge.invalid');
       const pathname = requestUrl.pathname;
       applyCors(req, res);
+      res.setHeader('x-folderforge-instance-id', instanceId);
+      res.setHeader('x-folderforge-started-at', startedAt);
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -218,7 +374,7 @@ export async function startHttpTransport(
       }
 
       if (req.method === 'GET' && pathname === '/healthz') {
-        writeJson(res, 200, { ok: true });
+        writeJson(res, 200, { ok: true, instanceId, startedAt, activeSessions: sessions.size, sessionTtlMs });
         return;
       }
 
@@ -325,6 +481,13 @@ export async function startHttpTransport(
     });
   });
 
+  http.on('close', () => {
+    clearInterval(sweeper);
+    for (const session of [...sessions.values()]) {
+      void closeSession(session.id, 'server_shutdown');
+    }
+  });
+
   await new Promise<void>((resolveListen) => {
     http.listen(opts.port, opts.host, () => {
       logger.info(
@@ -333,6 +496,8 @@ export async function startHttpTransport(
           port: opts.port,
           path: mcpPath,
           authMode,
+          instanceId,
+          sessionTtlMs,
           ...(oauthRuntime ? { resource: oauthRuntime.config.resource, issuer: oauthRuntime.config.issuer } : {}),
         },
         'MCP HTTP transport listening'

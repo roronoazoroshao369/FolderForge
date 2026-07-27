@@ -1,6 +1,17 @@
+/**
+ * Tools that must remain visible after every routing decision so an agent can
+ * inspect health and recover the full catalog without reconnecting.
+ */
+export const ROUTING_RECOVERY_TOOLS = [
+  'workspace_route',
+  'workspace_status',
+  'workspace_health',
+  'workspace_list',
+] as const;
+
 export const TASK_PRESETS: Readonly<Record<string, readonly string[]>> = {
   explore: [
-    'workspace_status',
+    ...ROUTING_RECOVERY_TOOLS,
     'search_text',
     'search_files',
     'code_find_symbol',
@@ -8,6 +19,7 @@ export const TASK_PRESETS: Readonly<Record<string, readonly string[]>> = {
     'file_read',
   ],
   run_ui: [
+    ...ROUTING_RECOVERY_TOOLS,
     'process_start',
     'process_read',
     'process_stop',
@@ -28,6 +40,7 @@ export const TASK_PRESETS: Readonly<Record<string, readonly string[]>> = {
     'browser_close',
   ],
   implement: [
+    ...ROUTING_RECOVERY_TOOLS,
     'project_analyze',
     'code_context',
     'patch_transaction',
@@ -40,6 +53,7 @@ export const TASK_PRESETS: Readonly<Record<string, readonly string[]>> = {
     'git_diff',
   ],
   fix_tests: [
+    ...ROUTING_RECOVERY_TOOLS,
     'project_analyze',
     'code_context',
     'patch_transaction',

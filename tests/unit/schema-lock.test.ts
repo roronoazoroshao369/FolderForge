@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry, TASK_PRESETS } from '../../src/tools/index.js';
+import { ROUTING_RECOVERY_TOOLS } from '../../src/tools/task-presets.js';
 import { FROZEN_TOOLS, FROZEN_TOOL_NAMES, frozenTool } from '../../src/tools/schema-lock.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
 
@@ -75,6 +76,14 @@ describe('tool schema lock (1.0 freeze)', () => {
       for (const n of names) {
         expect(FROZEN_TOOL_NAMES.has(n), `preset "${preset}" references unknown tool ${n}`).toBe(true);
       }
+    }
+  });
+
+  it('keeps routing recovery tools visible in every task preset', () => {
+    for (const [preset, names] of Object.entries(TASK_PRESETS)) {
+      expect(names, `preset "${preset}" cannot recover its tool surface`).toEqual(
+        expect.arrayContaining([...ROUTING_RECOVERY_TOOLS])
+      );
     }
   });
 
