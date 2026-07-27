@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    maxWorkers: 2,
     setupFiles: ['./tests/setup.ts'],
     // Integration-heavy suites perform real filesystem, Git, child-process, and
     // MCP transport work. Keep a bounded cross-platform budget instead of the

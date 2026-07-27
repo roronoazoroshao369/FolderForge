@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { ProcessManager } from '../../src/managers/process-manager.js';
 import { defaultShell, quoteShellArg } from '../../src/core/shell.js';
 
-const SHELL = defaultShell();
+const SHELL = process.platform === 'win32' ? defaultShell() : '/bin/sh';
 const CWD = tmpdir();
 const nodeCommand = (source: string): string =>
   [process.execPath, '-e', source]

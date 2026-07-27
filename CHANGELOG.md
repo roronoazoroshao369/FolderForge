@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-07-27
+
 ### Added
 
 - Add durable principal-bound Streamable HTTP sessions with real idle expiry,

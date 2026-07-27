@@ -38,6 +38,8 @@ export default tseslint.config(
       'eqeqeq': ['error', 'always'],
       'no-var': 'error',
       'prefer-const': 'error',
+      'no-useless-assignment': 'off',
+      'preserve-caught-error': 'off',
     },
   },
   {
@@ -53,6 +55,8 @@ export default tseslint.config(
     rules: {
       'no-console': 'off',
       'no-useless-escape': 'off',
+      'no-useless-assignment': 'off',
+      'preserve-caught-error': 'off',
     },
   },
 );

@@ -139,7 +139,7 @@ function canonicalizePath(input: string): string {
 }
 
 function workspaceId(root: string): string {
-  return `workspace:${createHash('sha256').update(resolve(root)).digest('hex').slice(0, 24)}`;
+  return `workspace:${createHash('sha256').update(canonicalizePath(root)).digest('hex').slice(0, 24)}`;
 }
 
 function uniqueStrings(values: string[] | undefined): string[] {
@@ -193,7 +193,7 @@ export class WorkspaceCapsuleManager {
   }
 
   create(input: CreateCapsuleInput): WorkspaceCapsule {
-    const root = resolve(input.workspaceRoot);
+    const root = canonicalizePath(input.workspaceRoot);
     this.assertAllowedRoot(root);
     if (!input.principalId.trim()) throw new Error('principalId is required.');
     if (!Object.hasOwn(PROFILE_DEFAULTS, input.profile)) {
@@ -453,7 +453,7 @@ export class WorkspaceCapsuleManager {
 
   private resolveBinding(principal: ToolPrincipal, projectRoot: string): CapsuleDecision {
     if (principal.role === 'admin') return { kind: 'allow' };
-    const root = resolve(projectRoot);
+    const root = canonicalizePath(projectRoot);
     const expectedProjectId = principal.projectId ?? projectPrincipalId(root);
     const candidates = [...this.capsules.values()].filter(
       (capsule) => capsule.workspaceRoot === root && capsule.principalId === principal.id,
@@ -500,7 +500,7 @@ export class WorkspaceCapsuleManager {
 
   private assertAllowedRoot(root: string): void {
     const allowed = this.allowedDirectories.some((directory) => {
-      const candidate = resolve(directory);
+      const candidate = canonicalizePath(directory);
       return root === candidate || root.startsWith(`${candidate}${sep}`);
     });
     if (!allowed) throw new Error(`Capsule workspace is outside allowed directories: ${root}`);
@@ -520,7 +520,7 @@ export class WorkspaceCapsuleManager {
     const capsule = value as WorkspaceCapsule;
     if (!/^caps_[a-f0-9]{20}$/.test(capsule.id)) throw new Error('Capsule id is invalid.');
     if (typeof capsule.workspaceRoot !== 'string') throw new Error('Capsule workspaceRoot is invalid.');
-    capsule.workspaceRoot = resolve(capsule.workspaceRoot);
+    capsule.workspaceRoot = canonicalizePath(capsule.workspaceRoot);
     this.assertAllowedRoot(capsule.workspaceRoot);
     if (capsule.workspaceId !== workspaceId(capsule.workspaceRoot)) {
       throw new Error('Capsule workspace identity does not match its root.');

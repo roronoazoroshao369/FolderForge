@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { detectProject, type ProjectInfo } from './project-detector.js';
 import { MemoryStore } from './memory-store.js';
@@ -20,6 +20,15 @@ interface Session {
  * (`activate`, `getActive`, `requireActive`, `projectRoot`, `getMemory`) is
  * preserved and always refers to the current workspace.
  */
+function canonicalRoot(path: string): string {
+  const resolved = resolve(path);
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 export class WorkspaceManager {
   private sessions = new Map<string, Session>();
   private current: string | null = null;
@@ -28,7 +37,7 @@ export class WorkspaceManager {
 
   private assertAllowed(abs: string): void {
     const allowed = this.allowedDirectories.some((directory) => {
-      const root = resolve(directory);
+      const root = canonicalRoot(directory);
       return abs === root || abs.startsWith(`${root}${sep}`);
     });
     if (!allowed) {
@@ -41,7 +50,7 @@ export class WorkspaceManager {
    * activated, this simply re-selects it as current.
    */
   activate(path: string): ProjectInfo {
-    const abs = resolve(path);
+    const abs = canonicalRoot(path);
     if (!existsSync(abs)) {
       throw new Error(`Project path does not exist: ${abs}`);
     }
@@ -59,7 +68,7 @@ export class WorkspaceManager {
 
   /** Switch the current workspace to an already-activated project. */
   setCurrent(path: string): ProjectInfo {
-    const abs = resolve(path);
+    const abs = canonicalRoot(path);
     const session = this.sessions.get(abs);
     if (!session) {
       throw new Error(`Workspace not activated: ${abs}. Call workspace_activate first.`);
@@ -71,7 +80,7 @@ export class WorkspaceManager {
 
   /** Deactivate a workspace. If it was current, current falls back to most recent. */
   deactivate(path: string): boolean {
-    const abs = resolve(path);
+    const abs = canonicalRoot(path);
     const existed = this.sessions.delete(abs);
     if (this.current === abs) {
       const remaining = [...this.sessions.values()].sort((a, b) => b.activatedAt - a.activatedAt);

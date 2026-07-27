@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -15,7 +15,7 @@ describe('WorkspaceManager path boundaries', () => {
 
     try {
       const manager = new WorkspaceManager([allowedRoot]);
-      expect(manager.activate(child).projectRoot).toBe(child);
+      expect(manager.activate(child).projectRoot).toBe(realpathSync.native(child));
       expect(() => manager.activate(prefixSibling)).toThrow(/not within allowed directories/i);
     } finally {
       rmSync(temp, { recursive: true, force: true });

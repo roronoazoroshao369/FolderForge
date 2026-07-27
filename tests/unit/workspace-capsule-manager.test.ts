@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { WorkspaceCapsuleManager } from '../../src/capsule/workspace-capsule-manager.js';
@@ -63,7 +63,7 @@ describe('WorkspaceCapsuleManager', () => {
     const reloaded = manager(projectRoot);
     expect(reloaded.get(capsule.id)).toMatchObject({
       id: capsule.id,
-      workspaceRoot: projectRoot,
+      workspaceRoot: realpathSync.native(projectRoot),
       profile: 'develop',
       clientCompatibility: 'chatgpt',
     });

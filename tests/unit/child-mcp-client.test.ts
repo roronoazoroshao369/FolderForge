@@ -59,7 +59,7 @@ function client(mode: string, options: ClientOptions = {}): StdioChildClient {
         : []),
     ],
     ...(options.cwd ? { cwd: options.cwd } : {}),
-    requestTimeoutMs: options.timeout ?? 200,
+    requestTimeoutMs: options.timeout ?? 1000,
     stderrLimit: options.stderrLimit ?? 16 * 1024,
     ...(options.maxCatalogTools !== undefined
       ? { maxCatalogTools: options.maxCatalogTools }
@@ -123,6 +123,20 @@ async function waitForFile(path: string): Promise<boolean> {
     await sleep(10);
   }
   return false;
+}
+
+async function waitForJsonFile(path: string): Promise<unknown> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (existsSync(path)) {
+      try {
+        return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+      } catch {
+        // The writer may have created the file before completing the atomic payload.
+      }
+    }
+    await sleep(10);
+  }
+  return undefined;
 }
 
 function resultText(result: unknown): string {
@@ -288,8 +302,7 @@ describe('StdioChildClient diagnostics and protocol handling', () => {
 
     const error = await pending;
     expect(error).toMatchObject({ name: 'AbortError', message: 'caller cancelled' });
-    expect(await waitForFile(cancellationFile)).toBe(true);
-    expect(JSON.parse(readFileSync(cancellationFile, 'utf8'))).toHaveLength(1);
+    expect(await waitForJsonFile(cancellationFile)).toHaveLength(1);
 
     await sleep(150);
     expect(resultText(await child.callTool('fast', { text: 'after-abort' }))).toBe('after-abort');

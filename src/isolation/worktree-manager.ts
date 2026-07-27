@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -75,7 +76,12 @@ function git(cwd: string, args: string[], input?: string): string {
 }
 
 function canonicalRoot(path: string): string {
-  return resolve(path);
+  const resolved = resolve(path);
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 function cloneIsolation(value: WorktreeIsolation): WorktreeIsolation {
@@ -593,7 +599,7 @@ export class WorktreeManager {
   }
 
   private assertInside(path: string, root: string): void {
-    const rel = relative(canonicalRoot(root), canonicalRoot(path));
+    const rel = relative(canonicalRoot(root), resolve(path));
     if (rel.startsWith('..') || isAbsolute(rel)) {
       throw new Error(`Isolation path escapes managed root: ${path}`);
     }

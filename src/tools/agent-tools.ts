@@ -230,7 +230,7 @@ function commandUnavailable(exitCode: number | null | undefined, stderr: string)
   return (
     exitCode === 127 ||
     exitCode === 9009 ||
-    /command not found|not recognized as an internal or external command|no such file or directory/i.test(stderr)
+    /command not found|not recognized as an internal or external command/i.test(stderr)
   );
 }
 
