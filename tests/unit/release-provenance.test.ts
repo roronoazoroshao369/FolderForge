@@ -22,8 +22,14 @@ const verifyBundle = join(root, 'scripts', 'verify-release-bundle.mjs');
 const temporaryRoots: string[] = [];
 
 function run(command: string, args: string[], cwd: string) {
+  const env = { ...process.env };
+  // An outer `npm publish --dry-run` must not turn fixture `npm pack` calls
+  // into metadata-only operations that omit the tarball under test.
+  delete env.npm_config_dry_run;
+  delete env.NPM_CONFIG_DRY_RUN;
   return spawnSync(command, args, {
     cwd,
+    env,
     encoding: 'utf8',
     windowsHide: true,
   });

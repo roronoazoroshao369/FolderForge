@@ -5,7 +5,7 @@ import {
 } from '../../scripts/release-preflight-lib.mjs';
 
 function fixture({
-  version = '2.7.2',
+  version = '2.7.3',
   lockVersion = version,
   rootVersion = version,
   tarRange = '^7.5.22',
@@ -36,7 +36,7 @@ describe('release preflight metadata', () => {
   it('accepts synchronized metadata with a patched tar dependency', () => {
     const { packageJson, packageLock } = fixture();
     expect(validateReleaseMetadata(packageJson, packageLock)).toMatchObject({
-      version: '2.7.2',
+      version: '2.7.3',
       errors: [],
       safeTarVersion: '7.5.22',
     });

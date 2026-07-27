@@ -61,6 +61,8 @@ describe('package and CI compatibility contract', () => {
     const publisher = readFileSync(join(root, 'scripts', 'publish-release.mjs'), 'utf8');
     expect(preflight).toContain("['fetch', '--prune', 'origin', 'main']");
     expect(releaseCheck.match(/\['run', 'release:preflight'\]/g)).toHaveLength(2);
+    expect(releaseCheck).toContain('delete env.npm_config_dry_run');
+    expect(releaseCheck).toContain('delete env.NPM_CONFIG_DRY_RUN');
     expect(publisher).toContain('Refusing to publish with lifecycle scripts disabled');
   });
 

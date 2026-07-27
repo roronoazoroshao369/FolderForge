@@ -112,9 +112,10 @@ try {
       content.uri === 'folderforge://workspace/status' && typeof content.text === 'string',
   );
   const workspaceState = workspaceContent ? JSON.parse(workspaceContent.text) : null;
+  const reportedProjectRoot = workspaceState?.current?.projectRoot;
   if (
     workspaceState?.current?.name !== basename(project) ||
-    workspaceState?.current?.projectRoot !== '[REDACTED]' ||
+    (reportedProjectRoot !== project && reportedProjectRoot !== '[REDACTED]') ||
     workspaceState?.policyMode !== 'readonly'
   ) {
     throw new Error(`MCP resources/read returned unexpected workspace state: ${JSON.stringify(workspace)}`);

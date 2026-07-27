@@ -6,6 +6,16 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.3] - 2026-07-27
+
+### Fixed
+
+- Prevent `npm publish --dry-run` from leaking `npm_config_dry_run` into nested
+  release gates, so provenance tests and package smoke checks create their
+  disposable tarballs normally while the outer registry publish remains a dry run.
+- Make MCP protocol conformance accept either the exact disposable workspace path
+  or policy-redacted output, while rejecting any unrelated path on every platform.
+
 ## [2.7.2] - 2026-07-27
 
 ### Fixed

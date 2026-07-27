@@ -15,6 +15,11 @@ const env = {
   npm_config_cache: cache,
   NPM_CONFIG_CACHE: cache,
 };
+// `npm publish --dry-run` exports npm_config_dry_run into lifecycle scripts.
+// Release gates intentionally create disposable tarballs and fixtures, so do
+// not leak the outer publish mode into nested npm commands.
+delete env.npm_config_dry_run;
+delete env.NPM_CONFIG_DRY_RUN;
 const steps = [
   ['run', 'release:preflight'],
   ['run', 'verify'],
