@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: write
   id-token: write
   attestations: write
@@ -56,6 +57,51 @@ jobs:
 
       - name: Verify tag, package version, clean tree, and release notes
         run: node scripts/verify-release-ref.mjs --tag "${RELEASE_TAG}" --notes-file "${RUNNER_TEMP}/release-notes.md"
+
+      - name: Require exact-commit CI and production soak evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_run_id="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+            -f head_sha="${GITHUB_SHA}" \
+            -f status=success \
+            -f per_page=100 \
+            --jq '.workflow_runs[0].id // empty')"
+          test -n "${ci_run_id}" || {
+            echo "No successful ci.yml run exists for ${GITHUB_SHA}." >&2
+            exit 1
+          }
+
+          soak_run_id="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+            -f name="production-soak-${GITHUB_SHA}" \
+            -f per_page=100 \
+            --jq '.artifacts | map(select(.expired == false)) | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')"
+          test -n "${soak_run_id}" || {
+            echo "No unexpired production soak artifact exists for ${GITHUB_SHA}." >&2
+            exit 1
+          }
+          soak_status="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${soak_run_id}" \
+            --jq 'select(.conclusion == "success" and .name == "production-soak" and .path == ".github/workflows/production-soak.yml") | .conclusion')"
+          test "${soak_status}" = success || {
+            echo "The production soak artifact was not created by the successful production-soak workflow." >&2
+            exit 1
+          }
+
+          evidence_dir="${RUNNER_TEMP}/production-soak"
+          mkdir -p "${evidence_dir}"
+          gh run download "${soak_run_id}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "production-soak-${GITHUB_SHA}" \
+            --dir "${evidence_dir}"
+          node scripts/verify-production-soak.mjs \
+            --evidence-dir "${evidence_dir}" \
+            --commit "${GITHUB_SHA}" \
+            --receipt "${RUNNER_TEMP}/production-soak-verification.json"
 
       - name: Run complete release gate
         run: npm run release:check
@@ -120,13 +166,20 @@ jobs:
         with:
           subject-path: ${{ runner.temp }}/release-bundle/release-bundle.json
 
+      - name: Attest production soak verification receipt
+        uses: actions/attest@36051bcae73b7c2a8a6945a48cbf80953c6baa35 # v4
+        with:
+          subject-path: ${{ runner.temp }}/production-soak-verification.json
+
       - name: Upload review artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: npm-release-${{ inputs.tag }}
           if-no-files-found: error
           retention-days: 30
-          path: ${{ runner.temp }}/release-bundle
+          path: |
+            ${{ runner.temp }}/release-bundle
+            ${{ runner.temp }}/production-soak-verification.json
 
       - name: Publish exact attested tarball with npm OIDC
         run: npm publish "${RUNNER_TEMP}/release-bundle/${{ steps.pack.outputs.filename }}" --access public
@@ -148,4 +201,5 @@ jobs:
             "${RUNNER_TEMP}/release-bundle/npm-pack.json" \
             "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
             "${RUNNER_TEMP}/release-bundle/SHA256SUMS" \
+            "${RUNNER_TEMP}/production-soak-verification.json" \
             --repo "${GITHUB_REPOSITORY}"

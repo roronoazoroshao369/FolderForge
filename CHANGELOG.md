@@ -16,6 +16,7 @@ semantic versioning.
 - Revalidate filesystem boundaries throughout patch transaction and managed worktree apply/rollback phases, including forced operations and deterministic directory-swap fault injection.
 - Ignore symlinked project manifests and package scripts so external metadata cannot influence `project_verify` command planning.
 - Upgrade the pinned filesystem MCP profile to `2026.7.10` and exact-pin an integrity-verified `glob@13.0.6` compatibility override, removing `GHSA-mh99-v99m-4gvg` from the real third-party matrix while retaining all protocol probes.
+- Require exact-commit CI and a verified 24-hour resumable runtime-soak artifact before GitHub release creation or npm publication; the npm workflow attests and publishes the commit-bound soak receipt.
 
 ### Fixed
 

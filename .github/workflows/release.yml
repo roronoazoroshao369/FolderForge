@@ -12,6 +12,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -33,6 +34,51 @@ jobs:
 
       - name: Verify tag, clean tree, package version, changelog, and exact commit
         run: node scripts/verify-release-ref.mjs --tag "${RELEASE_TAG}" --notes-file "${RUNNER_TEMP}/release-notes.md"
+
+      - name: Require exact-commit CI and production soak evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_run_id="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
+            -f head_sha="${GITHUB_SHA}" \
+            -f status=success \
+            -f per_page=100 \
+            --jq '.workflow_runs[0].id // empty')"
+          test -n "${ci_run_id}" || {
+            echo "No successful ci.yml run exists for ${GITHUB_SHA}." >&2
+            exit 1
+          }
+
+          soak_run_id="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+            -f name="production-soak-${GITHUB_SHA}" \
+            -f per_page=100 \
+            --jq '.artifacts | map(select(.expired == false)) | sort_by(.created_at) | reverse | .[0].workflow_run.id // empty')"
+          test -n "${soak_run_id}" || {
+            echo "No unexpired production soak artifact exists for ${GITHUB_SHA}." >&2
+            exit 1
+          }
+          soak_status="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${soak_run_id}" \
+            --jq 'select(.conclusion == "success" and .name == "production-soak" and .path == ".github/workflows/production-soak.yml") | .conclusion')"
+          test "${soak_status}" = success || {
+            echo "The production soak artifact was not created by the successful production-soak workflow." >&2
+            exit 1
+          }
+
+          evidence_dir="${RUNNER_TEMP}/production-soak"
+          mkdir -p "${evidence_dir}"
+          gh run download "${soak_run_id}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name "production-soak-${GITHUB_SHA}" \
+            --dir "${evidence_dir}"
+          node scripts/verify-production-soak.mjs \
+            --evidence-dir "${evidence_dir}" \
+            --commit "${GITHUB_SHA}" \
+            --receipt "${RUNNER_TEMP}/production-soak-verification.json"
 
       - name: Create GitHub release for verified tag
         env:
