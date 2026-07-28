@@ -43,6 +43,26 @@ Your MCP client then starts FolderForge over stdio. To run the server manually:
 npx -y @musashishao/folderforge --project . --stdio
 ```
 
+### ChatGPT through OpenAI Secure MCP Tunnel
+
+For a private workstation or local project, provision an OpenAI tunnel and runtime API key once, then run:
+
+```bash
+export CONTROL_PLANE_API_KEY='sk-...'
+folderforge connect chatgpt --openai-tunnel \
+  --tunnel-id tunnel_0123456789abcdef0123456789abcdef \
+  --project /absolute/path/to/project
+```
+
+FolderForge installs and verifies the official `openai/tunnel-client`, starts a loopback-only token-authenticated MCP server, waits for both processes to become healthy, and supervises them until `Ctrl+C`. After the first successful run, the same project normally needs only:
+
+```bash
+export CONTROL_PLANE_API_KEY='sk-...'
+folderforge connect chatgpt --openai-tunnel
+```
+
+The API-key value is never persisted or placed in process argv. See [OpenAI Secure MCP Tunnel](docs/openai-secure-mcp-tunnel.md).
+
 ### Claude Desktop or a generic MCP client
 
 Replace the project path with an absolute path:

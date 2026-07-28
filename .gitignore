@@ -28,6 +28,8 @@ nohup.out
 **/.folderforge/mcp-tasks/
 **/.folderforge/worker-inputs/
 **/.folderforge/worker-identity/
+**/.folderforge/openai-tunnel.json
+**/.folderforge/openai-tunnel-health-*.url
 
 # Explicit local onboarding config created by `folderforge init`.
 .folderforge/config.yaml

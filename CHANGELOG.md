@@ -8,6 +8,10 @@ semantic versioning.
 
 ## [2.7.5] - 2026-07-28
 
+### Added
+
+- Add `folderforge connect chatgpt --openai-tunnel`, a one-command supervisor that verifies and installs OpenAI's official tunnel client, starts a loopback-only token-authenticated FolderForge server, health-checks both processes, stores only secret references, and shuts both down together.
+
 ### Security
 
 - Approval-gate every host `shell_exec` invocation outside the explicit trusted `danger` escape hatch; host shell execution is no longer represented as workspace-sandboxed or low risk.

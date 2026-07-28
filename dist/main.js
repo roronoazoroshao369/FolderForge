@@ -11,6 +11,7 @@ import { readFolderForgeVersion } from "./core/version.js";
 import { executeDoctorCli } from "./doctor/index.js";
 import { executeBrowserSetupCli } from "./setup/browser.js";
 import { executeChatGptCli } from "./chatgpt/cli.js";
+import { executeOpenAiTunnelCli } from "./chatgpt/openai-tunnel.js";
 import { STDIO_AGENT_PRINCIPAL, withExecutionContext } from "./core/principal.js";
 import { executeDistributedCli } from './distributed/cli.js';
 import { executePluginSdkCli } from './plugins/sdk-cli.js';
@@ -227,7 +228,7 @@ function printHelp() {
         "  doctor                 Run read-only installation and workspace diagnostics",
         "  setup browser          Install package-compatible Playwright Chromium (explicit opt-in)",
         "  connect <client>       Configure cursor|vscode|claude|generic stdio clients",
-        "  connect chatgpt        Configure Auth0 OAuth and connect FolderForge to ChatGPT",
+        "  connect chatgpt        Connect through OpenAI Tunnel or public OAuth",
         "  chatgpt <command>      status|doctor|repair|start|stop|disconnect",
         "  distributed serve      Start the authenticated remote-worker coordinator API",
         "  worker init|run        Create a worker identity or run an allowlisted remote worker",
@@ -301,6 +302,21 @@ async function main() {
     if (argv[0] === "connect" && argv[1] !== "chatgpt") {
         const result = executeConnectClientCli(argv.slice(1));
         process.stdout.write(result.output);
+        process.exitCode = result.exitCode;
+        return;
+    }
+    if (argv[0] === "connect" &&
+        argv[1] === "chatgpt" &&
+        argv.includes("--openai-tunnel")) {
+        let streamed = false;
+        const result = await executeOpenAiTunnelCli(["connect", ...argv.slice(2)], {
+            onLine: (line) => {
+                streamed = true;
+                process.stdout.write(`${line}\n`);
+            },
+        });
+        if (!streamed)
+            process.stdout.write(result.output);
         process.exitCode = result.exitCode;
         return;
     }

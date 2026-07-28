@@ -16,7 +16,8 @@ material and historical records.
 
 | Document | Audience | Purpose |
 | --- | --- | --- |
-| [ChatGPT connection](chatgpt-connect.md) | Operator | Guided Auth0/DCR lifecycle for ChatGPT connectors. |
+| [OpenAI Secure MCP Tunnel](openai-secure-mcp-tunnel.md) | User / Operator | One-command private ChatGPT connection with verified client installation, local auth, and supervised health. |
+| [ChatGPT connection](chatgpt-connect.md) | Operator | Guided public Auth0/DCR lifecycle for ChatGPT connectors. |
 | [Mission Control](mission-control.md) | Operator | Active calls, sessions, tasks, approvals, processes, isolation containment, and persistent write freeze. |
 | [Durable structured verification](structured-verification.md) | Agent / operator | Owner-bound passed/failed/skipped/unavailable verification evidence with restart recovery. |
 | [OAuth](oauth.md) | Operator | External authorization-server and protected-resource configuration. |

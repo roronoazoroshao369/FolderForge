@@ -41,6 +41,19 @@ describe('config loading + validation', () => {
     });
   });
 
+  it('consumes the HTTP token environment override without exposing it to child commands', () => {
+    const previous = process.env.FOLDERFORGE_HTTP_TOKEN;
+    process.env.FOLDERFORGE_HTTP_TOKEN = 'local-http-token';
+    try {
+      const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+      expect(cfg.server.http.token).toBe('local-http-token');
+      expect(process.env.FOLDERFORGE_HTTP_TOKEN).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.FOLDERFORGE_HTTP_TOKEN;
+      else process.env.FOLDERFORGE_HTTP_TOKEN = previous;
+    }
+  });
+
   it('keeps the Playwright adapter isolated but disabled by default', () => {
     const cfg = defaultConfig(TS_FIXTURE);
     expect(cfg.adapters.playwright?.enabled).toBe(false);

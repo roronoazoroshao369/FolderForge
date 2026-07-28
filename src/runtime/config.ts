@@ -67,6 +67,7 @@ function applyEnvironmentOverrides(cfg: FolderForgeConfig): void {
   }
   if (process.env.FOLDERFORGE_HTTP_TOKEN !== undefined) {
     cfg.server.http.token = process.env.FOLDERFORGE_HTTP_TOKEN;
+    delete process.env.FOLDERFORGE_HTTP_TOKEN;
   }
   const apiKeys = csv(process.env.FOLDERFORGE_HTTP_API_KEYS);
   if (apiKeys) cfg.server.http.apiKeys = apiKeys;
