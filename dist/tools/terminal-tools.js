@@ -22,6 +22,7 @@ export function terminalTools() {
             handler: async (args, ctx) => {
                 const command = String(args.command);
                 const cls = ctx.container.policy.command.classify(command);
+                const effectiveRisk = cls.risk === 'CRITICAL' ? 'CRITICAL' : 'HIGH';
                 if (cls.risk === 'CRITICAL' && ctx.container.policy.getMode() !== 'danger') {
                     return { ok: false, error: `Blocked destructive command: ${cls.blockedReason ?? command}` };
                 }
@@ -46,7 +47,7 @@ export function terminalTools() {
                         stdout: redact(sub.stdout),
                         stderr: redact(sub.stderr),
                         durationMs: Date.now() - started,
-                        risk: cls.risk,
+                        risk: effectiveRisk,
                     };
                     return sub.exitCode === 0
                         ? { ok: true, data }

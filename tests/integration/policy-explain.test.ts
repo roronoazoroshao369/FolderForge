@@ -69,7 +69,8 @@ describe('policy_explain tool', () => {
     const safe = explain(
       await registry.call('policy_explain', { tool: 'shell_exec', args: { command: 'ls -la' } })
     );
-    expect(safe.decision).toBe('allow');
+    expect(safe.risk).toBe('HIGH');
+    expect(safe.decision).toBe('approval');
   });
 
   it('does NOT create an approval request (no side effects)', async () => {

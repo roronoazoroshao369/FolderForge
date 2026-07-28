@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultConfig, loadConfig } from '../../src/runtime/config.js';
+import { defaultConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { ToolPrincipal, ToolResult } from '../../src/core/types.js';
-import { TS_FIXTURE } from './fixtures.js';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -11,9 +10,12 @@ import { tmpdir } from 'node:os';
 const AGENT: ToolPrincipal = { id: 'principal:agent-a', role: 'agent' };
 const OTHER_AGENT: ToolPrincipal = { id: 'principal:agent-b', role: 'agent' };
 const ADMIN: ToolPrincipal = { id: 'principal:admin', role: 'admin' };
+const tempRoots: string[] = [];
 
 function setup(mode: 'readonly' | 'safe' | 'dev' | 'danger') {
-  const config = loadConfig({ projectRoot: TS_FIXTURE });
+  const root = mkdtempSync(join(tmpdir(), 'folderforge-approval-ops-'));
+  tempRoots.push(root);
+  const config = defaultConfig(root);
   config.policy.defaultMode = mode;
   config.rateLimit.enabled = false;
   const container = new Container(config);
@@ -28,8 +30,6 @@ function data<T = Record<string, unknown>>(res: ToolResult): T {
 }
 
 describe('P0 authorization boundary', () => {
-  const tempRoots: string[] = [];
-
   afterEach(() => {
     for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
   });

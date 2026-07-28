@@ -35,7 +35,7 @@ describe('terminal tool diagnostics', () => {
       exitCode: 7,
       stdout: '',
       stderr: expect.stringContaining('diagnostic failure'),
-      risk: 'LOW',
+      risk: 'HIGH',
     });
   });
 });

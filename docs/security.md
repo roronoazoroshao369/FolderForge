@@ -43,8 +43,17 @@ Violations throw `PathEscapeError` and surface as a structured tool error.
   fork bombs, `docker system prune`, `kubectl delete`, `terraform apply`, ...
 - **HIGH** (approval): `git push`, `git reset`, `docker rm`, `npm publish`,
   `rm -rf ...`.
-- **MEDIUM** (allowed, audited): package installs, `docker compose up`, builds.
-- **LOW**: everything else.
+- **MEDIUM** classifier matches include package installs, `docker compose up`, and builds.
+- **LOW** classifier matches include commands with no known risky pattern.
+
+For `shell_exec`, the classifier result has a runtime floor of **HIGH**. A host
+shell is not a filesystem sandbox: an apparently benign command, script, or
+interpreter can access paths outside `workspace.allowedDirectories` using the
+FolderForge process user's OS permissions. Consequently every shell invocation
+requires approval in `safe`/`dev`; known destructive patterns remain CRITICAL.
+`danger` mode is an explicit trusted-environment bypass, not workspace isolation.
+Use native file/build/git tools where possible, or external OS/container sandboxing
+when untrusted commands must execute.
 
 Config `policy.blockedCommands` adds project-specific substring/wildcard rules
 on top of the built-in regex set.

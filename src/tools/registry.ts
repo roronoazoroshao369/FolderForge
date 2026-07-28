@@ -312,9 +312,15 @@ export class ToolRegistry {
     };
 
     if (name === "shell_exec" && typeof args.command === "string") {
-      classification.risk = this.container.policy.command.classify(
-        args.command,
-      ).risk;
+      const commandRisk = this.container.policy.command.classify(args.command).risk;
+      // A general-purpose shell inherits the host user's filesystem and process
+      // privileges. Text classification can identify known CRITICAL patterns,
+      // but it cannot prove that an otherwise benign-looking command stays
+      // inside the workspace (scripts/interpreters can access arbitrary paths).
+      // Therefore every shell invocation is at least HIGH and approval-gated
+      // outside explicit danger mode.
+      classification.risk =
+        RISK_ORDER[commandRisk] >= RISK_ORDER.HIGH ? commandRisk : "HIGH";
     } else if (name === "patch_transaction") {
       const action = String(args.action ?? "preview");
       classification =

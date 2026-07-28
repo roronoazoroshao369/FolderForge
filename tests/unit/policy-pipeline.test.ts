@@ -111,10 +111,11 @@ describe('policy pipeline: approval gating', () => {
 });
 
 describe('policy pipeline: shell_exec runtime risk classification', () => {
-  it('benign command runs in dev mode', async () => {
+  it('approval-gates even benign-looking commands because shell access is not workspace-sandboxed', async () => {
     const { registry } = setup('dev');
     const res = await registry.call('shell_exec', { command: 'echo hello' });
-    expect(res.ok).toBe(true);
+    expect(res.ok).toBe(false);
+    expect(res.approvalId).toBeDefined();
   });
 
   it('HIGH command (e.g. git push) is gated by approval', async () => {

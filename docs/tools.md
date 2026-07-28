@@ -14,7 +14,9 @@ records audit events. Each tool declares a default risk level in
 | `HIGH` | Sensitive mutation | Requires approval |
 | `CRITICAL` | Destructive | Denied unless `danger` mode + approval |
 
-`shell_exec` is re-classified per command at call time by `CommandPolicy`.
+`shell_exec` is re-classified per command at call time by `CommandPolicy`, with
+a runtime floor of `HIGH`: the host shell is not workspace-sandboxed, so even a
+benign-looking command requires approval outside explicit `danger` mode.
 
 ## Schema lock
 
