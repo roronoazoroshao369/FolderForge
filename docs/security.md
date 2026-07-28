@@ -34,6 +34,20 @@ creating an approval request (backed by `PolicyEngine.explain`).
 
 Violations throw `PathEscapeError` and surface as a structured tool error.
 
+Agent-facing recursive walkers and scanners use `lstat`, do not follow symbolic
+links, and re-apply `PathPolicy` before reading entries. This covers
+`list_directory`, source search, `code_context`, project analysis, policy-as-code
+loading, and the bundled Godot adapter. Directory copy rejects trees containing
+symlinks or special filesystem entries rather than importing an alias into the
+workspace. Patch transactions revalidate every path at preview, apply, rollback,
+and recovery; `force=true` may override a content conflict but never a boundary
+failure. Managed task worktrees likewise revalidate tracked and untracked source
+and destination paths immediately before copy, removal, and rollback recovery.
+These checks block static links and directory swaps observable between transaction
+phases. As with path-based APIs generally, eliminating the final
+kernel-level TOCTOU window against a hostile same-user process requires an
+external OS/container boundary or descriptor-relative filesystem primitives.
+
 ## Command policy
 
 `src/policy/command-policy.ts` classifies shell commands:

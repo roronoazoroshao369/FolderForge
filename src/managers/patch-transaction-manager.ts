@@ -30,6 +30,8 @@ export interface PatchTransaction {
   files: PatchFileSnapshot[];
 }
 
+export type PatchPathValidator = (path: string, projectRoot: string) => string;
+
 export interface PatchTransactionView {
   id: string;
   projectRoot: string;
@@ -58,16 +60,25 @@ const TRANSACTION_TTL_MS = 60 * 60 * 1000;
 export class PatchTransactionManager {
   private transactions = new Map<string, PatchTransaction>();
 
+  constructor(private readonly validatePath: PatchPathValidator) {}
+
   create(projectRoot: string, files: PatchFileSnapshot[]): PatchTransactionView {
     this.prune();
     const now = Date.now();
+    const validatedFiles = files.map((file) => {
+      const validated = this.validatePath(file.path, projectRoot);
+      if (validated !== file.absolutePath) {
+        throw new Error(`Patch path changed during preview: ${file.path}`);
+      }
+      return { ...file };
+    });
     const tx: PatchTransaction = {
       id: `patch_${randomUUID().slice(0, 12)}`,
       projectRoot,
       createdAt: now,
       updatedAt: now,
       state: 'previewed',
-      files: files.map((file) => ({ ...file })),
+      files: validatedFiles,
     };
     this.transactions.set(tx.id, tx);
     this.trimOldest();
@@ -88,14 +99,16 @@ export class PatchTransactionManager {
     const changed: PatchFileSnapshot[] = [];
     try {
       for (const file of tx.files) {
-        mkdirSync(dirname(file.absolutePath), { recursive: true });
-        writeFileSync(file.absolutePath, file.after, 'utf8');
+        let absolutePath = this.validatedAbsolutePath(tx, file);
+        mkdirSync(dirname(absolutePath), { recursive: true });
+        absolutePath = this.validatedAbsolutePath(tx, file);
+        writeFileSync(absolutePath, file.after, 'utf8');
         changed.push(file);
       }
     } catch (error) {
       // Best-effort atomicity: restore every file already written before
       // surfacing the original error.
-      for (const file of changed.reverse()) this.restoreBefore(file);
+      for (const file of changed.reverse()) this.restoreBefore(tx, file);
       throw new Error(`Patch transaction ${id} failed and was rolled back: ${String(error)}`);
     }
 
@@ -114,15 +127,17 @@ export class PatchTransactionManager {
     const restored: PatchFileSnapshot[] = [];
     try {
       for (const file of tx.files) {
-        this.restoreBefore(file);
+        this.restoreBefore(tx, file);
         restored.push(file);
       }
     } catch (error) {
       // If rollback itself fails, restore the applied state for files already
       // touched so the transaction does not leave a half-rolled-back workspace.
       for (const file of restored.reverse()) {
-        mkdirSync(dirname(file.absolutePath), { recursive: true });
-        writeFileSync(file.absolutePath, file.after, 'utf8');
+        let absolutePath = this.validatedAbsolutePath(tx, file);
+        mkdirSync(dirname(absolutePath), { recursive: true });
+        absolutePath = this.validatedAbsolutePath(tx, file);
+        writeFileSync(absolutePath, file.after, 'utf8');
       }
       throw new Error(`Rollback of patch transaction ${id} failed: ${String(error)}`);
     }
@@ -137,11 +152,12 @@ export class PatchTransactionManager {
     expected: 'before' | 'after',
     force: boolean
   ): void {
-    if (force) return;
     const conflicts: string[] = [];
     for (const file of tx.files) {
-      const exists = existsSync(file.absolutePath);
-      const current = exists ? readFileSync(file.absolutePath, 'utf8') : null;
+      const absolutePath = this.validatedAbsolutePath(tx, file);
+      if (force) continue;
+      const exists = existsSync(absolutePath);
+      const current = exists ? readFileSync(absolutePath, 'utf8') : null;
       const expectedExists = expected === 'before' ? file.existed : true;
       const expectedText = expected === 'before' ? file.before : file.after;
       if (exists !== expectedExists || (exists && current !== expectedText)) {
@@ -156,13 +172,23 @@ export class PatchTransactionManager {
     }
   }
 
-  private restoreBefore(file: PatchFileSnapshot): void {
+  private validatedAbsolutePath(tx: PatchTransaction, file: PatchFileSnapshot): string {
+    const validated = this.validatePath(file.path, tx.projectRoot);
+    if (validated !== file.absolutePath) {
+      throw new Error(`Patch path changed after preview: ${file.path}`);
+    }
+    return validated;
+  }
+
+  private restoreBefore(tx: PatchTransaction, file: PatchFileSnapshot): void {
+    let absolutePath = this.validatedAbsolutePath(tx, file);
     if (!file.existed) {
-      if (existsSync(file.absolutePath)) rmSync(file.absolutePath, { force: true });
+      if (existsSync(absolutePath)) rmSync(absolutePath, { force: true });
       return;
     }
-    mkdirSync(dirname(file.absolutePath), { recursive: true });
-    writeFileSync(file.absolutePath, file.before, 'utf8');
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    absolutePath = this.validatedAbsolutePath(tx, file);
+    writeFileSync(absolutePath, file.before, 'utf8');
   }
 
   private require(id: string): PatchTransaction {

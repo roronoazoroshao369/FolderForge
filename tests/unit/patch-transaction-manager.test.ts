@@ -1,8 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PatchTransactionManager } from '../../src/managers/patch-transaction-manager.js';
+import { PathPolicy } from '../../src/policy/path-policy.js';
 
 function snapshot(root: string, path: string, before: string, after: string) {
   return {
@@ -21,7 +30,10 @@ describe('PatchTransactionManager', () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'folderforge-patch-'));
-    manager = new PatchTransactionManager();
+    const pathPolicy = new PathPolicy([root], []);
+    manager = new PatchTransactionManager((path, projectRoot) =>
+      pathPolicy.resolveSafe(path, projectRoot)
+    );
   });
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -80,4 +92,27 @@ describe('PatchTransactionManager', () => {
     manager.rollback(preview.id);
     expect(() => readFileSync(path, 'utf8')).toThrow();
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'rejects a directory swapped to an outside symlink after preview, even with force',
+    () => {
+      const managed = join(root, 'managed');
+      mkdirSync(managed);
+      writeFileSync(join(managed, 'a.txt'), 'before');
+      const preview = manager.create(root, [
+        snapshot(root, 'managed/a.txt', 'before', 'after'),
+      ]);
+      const outside = mkdtempSync(join(tmpdir(), 'folderforge-patch-outside-'));
+      try {
+        writeFileSync(join(outside, 'a.txt'), 'outside');
+        renameSync(managed, join(root, 'managed-original'));
+        symlinkSync(outside, managed, 'dir');
+
+        expect(() => manager.apply(preview.id, true)).toThrow(/outside allowed directories|path changed/i);
+        expect(readFileSync(join(outside, 'a.txt'), 'utf8')).toBe('outside');
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    }
+  );
 });

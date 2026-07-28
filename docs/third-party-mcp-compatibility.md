@@ -14,7 +14,7 @@ name, minimum catalog size, and required tools.
 | Profile | Exact package | Probe |
 | --- | --- | --- |
 | MCP Everything | `@modelcontextprotocol/server-everything@2026.7.4` | `echo` |
-| MCP Filesystem | `@modelcontextprotocol/server-filesystem@2026.7.4` | `list_allowed_directories` in a temporary root |
+| MCP Filesystem | `@modelcontextprotocol/server-filesystem@2026.7.10` | `list_allowed_directories` in a temporary root |
 | MCP Memory | `@modelcontextprotocol/server-memory@2026.7.4` | `read_graph` against temporary storage |
 | MCP Sequential Thinking | `@modelcontextprotocol/server-sequential-thinking@2026.7.4` | One completed, non-persistent thought |
 | Microsoft Playwright MCP | `@playwright/mcp@0.0.78` | Initialize and catalog only; no browser action |
@@ -24,6 +24,14 @@ server repository. Playwright MCP is published by Microsoft from its independent
 repository. Product and package diversity is recorded explicitly; four profiles
 sharing one upstream repository are not represented as four independent
 implementations.
+
+The manifest may also contain exact, integrity-pinned npm overrides with a required
+reason. The current `glob@13.0.6` override replaces the vulnerable `glob@10.x`
+transitive branch pulled by the filesystem server and removes
+`GHSA-mh99-v99m-4gvg`. The runner writes overrides before installation, verifies
+their resolved package-lock version and integrity when installed, records them in
+evidence, and still requires a clean production dependency audit plus passing MCP
+probes. Floating or undocumented overrides are rejected during manifest validation.
 
 ## Execution contract
 
@@ -77,10 +85,10 @@ commit and workflow attempt recorded by those artifacts. A configured CI step is
 not itself evidence; the artifacts must exist and pass before making a
 cross-platform claim.
 
-A local Linux/Node 22 development run on July 21, 2026 passed all five profiles,
+A local Linux/Node 22 development run on July 28, 2026 passed all five profiles,
 advertised 61 tools in total, completed four reviewed probes, shut down cleanly,
-and reported zero known vulnerabilities across the temporary production dependency
-graph. Because that run occurred on a dirty development tree, the report is local
+and reported zero known vulnerabilities across 138 temporary production dependencies.
+Because that run occurred on a dirty development tree, the report is local
 implementation evidence rather than an exact-commit certification.
 
 ## Claim boundary

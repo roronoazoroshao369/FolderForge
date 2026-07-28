@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import fg from 'fast-glob';
 import { bm25Rank, tokenize } from '../adapters/child-mcp/rank.js';
@@ -27,6 +27,7 @@ interface ContextOptions {
   includeTests?: boolean;
   redact: (text: string) => string;
   isDenied: (absolutePath: string) => boolean;
+  resolveSafe: (path: string) => string;
 }
 
 interface IndexedFile {
@@ -91,6 +92,7 @@ export async function buildCodeContext(
     onlyFiles: true,
     unique: true,
     ignore: IGNORE,
+    followSymbolicLinks: false,
   });
 
   const indexed: IndexedFile[] = [];
@@ -98,13 +100,19 @@ export async function buildCodeContext(
   let skippedLarge = 0;
   let skippedDenied = 0;
   for (const path of files.slice(0, maxFiles)) {
-    const absolutePath = join(root, path);
-    if (options.isDenied(absolutePath)) {
+    const candidatePath = join(root, path);
+    if (options.isDenied(candidatePath)) {
       skippedDenied++;
       continue;
     }
     try {
-      const size = statSync(absolutePath).size;
+      const absolutePath = options.resolveSafe(path);
+      const st = lstatSync(absolutePath);
+      if (!st.isFile() || st.isSymbolicLink()) {
+        skippedDenied++;
+        continue;
+      }
+      const size = st.size;
       if (size > MAX_FILE_BYTES || indexedBytes + Math.min(size, INDEX_TEXT_BYTES) > MAX_INDEX_BYTES) {
         skippedLarge++;
         continue;
@@ -115,7 +123,8 @@ export async function buildCodeContext(
       indexed.push({ path, size, text });
       indexedBytes += Buffer.byteLength(indexedText);
     } catch {
-      // Ignore files that disappear or become unreadable during the bounded scan.
+      skippedDenied++;
+      // Ignore files that disappear, become unreadable, or cross the boundary.
     }
   }
 
@@ -124,6 +133,7 @@ export async function buildCodeContext(
     query
   ).slice(0, maxResults);
   const byPath = new Map(indexed.map((file) => [file.path, file]));
+  const indexedPaths = indexed.map((file) => file.path);
 
   const results = ranked.map(({ id, score }) => {
     const file = byPath.get(id)!;
@@ -133,7 +143,7 @@ export async function buildCodeContext(
       score: Number(score.toFixed(6)),
       size: file.size,
       snippets: snippetsFor(file.text, query, options.redact),
-      relatedTests: options.includeTests === false ? [] : relatedTests(file.path, files),
+      relatedTests: options.includeTests === false ? [] : relatedTests(file.path, indexedPaths),
     };
   });
 

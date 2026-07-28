@@ -6,6 +6,22 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.5] - 2026-07-28
+
+### Security
+
+- Approval-gate every host `shell_exec` invocation outside the explicit trusted `danger` escape hatch; host shell execution is no longer represented as workspace-sandboxed or low risk.
+- Prevent recursive file listing, source search, code context, project analysis, project command detection, policy-as-code loading, and the bundled Godot adapter from following symbolic links outside the active workspace.
+- Reject directory copies containing symbolic links or special filesystem entries instead of importing unsafe aliases into a workspace.
+- Revalidate filesystem boundaries throughout patch transaction and managed worktree apply/rollback phases, including forced operations and deterministic directory-swap fault injection.
+- Ignore symlinked project manifests and package scripts so external metadata cannot influence `project_verify` command planning.
+- Upgrade the pinned filesystem MCP profile to `2026.7.10` and exact-pin an integrity-verified `glob@13.0.6` compatibility override, removing `GHSA-mh99-v99m-4gvg` from the real third-party matrix while retaining all protocol probes.
+
+### Fixed
+
+- Isolate approval-operation test fixtures to eliminate cross-suite state contamination under parallel execution.
+- Report skipped unsafe entries from recursive directory listings for operator diagnostics.
+
 ## [2.7.4] - 2026-07-28
 
 ### Changed

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
@@ -193,8 +193,21 @@ function withinProject(projectRoot: string, candidate: string): boolean {
 }
 
 function collectFiles(projectRoot: string, configured: string[]): string[] {
-  const candidates = [resolve(projectRoot, '.folderforge', 'policies'), ...configured.map((item) => resolve(projectRoot, item))];
+  const canonicalRoot = realpathSync(projectRoot);
+  const candidates = [
+    resolve(projectRoot, '.folderforge', 'policies'),
+    ...configured.map((item) => resolve(projectRoot, item)),
+  ];
   const files = new Set<string>();
+
+  const assertCanonicalBoundary = (path: string): string => {
+    const canonical = realpathSync(path);
+    if (!withinProject(canonicalRoot, canonical)) {
+      throw new Error(`Policy path resolves outside the project root: ${path}`);
+    }
+    return canonical;
+  };
+
   for (const candidate of candidates) {
     if (!withinProject(projectRoot, candidate)) {
       throw new Error(`Policy path must stay inside the project root: ${candidate}`);
@@ -205,7 +218,11 @@ function collectFiles(projectRoot: string, configured: string[]): string[] {
       }
       continue;
     }
-    const stat = statSync(candidate);
+    const stat = lstatSync(candidate);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Policy path must not be a symbolic link: ${candidate}`);
+    }
+    assertCanonicalBoundary(candidate);
     if (stat.isFile()) {
       if (!/\.ya?ml$/i.test(candidate)) throw new Error(`Policy file must use .yaml or .yml: ${candidate}`);
       files.add(candidate);
@@ -214,7 +231,13 @@ function collectFiles(projectRoot: string, configured: string[]): string[] {
     if (!stat.isDirectory()) throw new Error(`Policy path must be a file or directory: ${candidate}`);
     for (const name of readdirSync(candidate).sort()) {
       const path = resolve(candidate, name);
-      if (/\.ya?ml$/i.test(name) && statSync(path).isFile()) files.add(path);
+      if (!/\.ya?ml$/i.test(name)) continue;
+      const childStat = lstatSync(path);
+      if (childStat.isSymbolicLink()) {
+        throw new Error(`Policy file must not be a symbolic link: ${path}`);
+      }
+      assertCanonicalBoundary(path);
+      if (childStat.isFile()) files.add(path);
     }
   }
   return [...files].sort();

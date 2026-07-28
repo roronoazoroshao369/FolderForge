@@ -124,7 +124,9 @@ export class Container {
     this.browserEmulation = new BrowserEmulationManager(this.adapters);
     this.db = new DbManager();
     this.lsp = new LspManager(config.lsp);
-    this.patchTransactions = new PatchTransactionManager();
+    this.patchTransactions = new PatchTransactionManager((path, projectRoot) =>
+      this.policy.path.resolveSafe(path, projectRoot)
+    );
 
     // Auto-activate default project if it exists.
     if (config.workspace.defaultProject) {

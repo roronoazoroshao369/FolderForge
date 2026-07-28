@@ -570,7 +570,13 @@ export function agentTools(): ToolDefinition[] {
       mutates: false,
       inputSchema: { type: 'object', properties: {} },
       outputSchema: PROJECT_ANALYZE_OUTPUT_SCHEMA,
-      handler: async (_args, ctx) => ({ ok: true, data: await analyzeProject(ctx.projectRoot) }),
+      handler: async (_args, ctx) => ({
+        ok: true,
+        data: await analyzeProject(ctx.projectRoot, {
+          resolveSafe: (path) => ctx.container.policy.path.resolveSafe(path, ctx.projectRoot),
+          isDenied: (path) => ctx.container.policy.path.isDenied(path, ctx.projectRoot),
+        }),
+      }),
     }),
     defineTool({
       name: 'code_context',
@@ -602,6 +608,7 @@ export function agentTools(): ToolDefinition[] {
               ...(args.includeTests !== undefined ? { includeTests: args.includeTests === true } : {}),
               redact: (text) => ctx.container.policy.secret.redact(text),
               isDenied: (path) => ctx.container.policy.path.isDenied(path, ctx.projectRoot),
+              resolveSafe: (path) => ctx.container.policy.path.resolveSafe(path, ctx.projectRoot),
             }),
           };
         } catch (error) {

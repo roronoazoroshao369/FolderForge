@@ -120,6 +120,7 @@ function validateManifest(raw) {
   }
   const ids = new Set();
   const packageVersions = new Set();
+  const directPackages = new Set();
   for (const [index, profile] of raw.profiles.entries()) {
     const label = `profiles[${index}]`;
     if (!isPlainObject(profile)) throw new Error(`${label} must be an object.`);
@@ -139,6 +140,7 @@ function validateManifest(raw) {
       throw new Error(`Duplicate package/version profile: ${packageVersion}`);
     }
     packageVersions.add(packageVersion);
+    directPackages.add(profile.package);
     assertString(profile.integrity, `${label}.integrity`);
     if (!profile.integrity.startsWith('sha512-')) {
       throw new Error(`${label}.integrity must be an npm sha512 integrity value.`);
@@ -180,6 +182,36 @@ function validateManifest(raw) {
         throw new Error(`${label}.safeCall.expectTextIncludes must be a string.`);
       }
     }
+  }
+
+  const overrides = raw.npmOverrides ?? [];
+  if (!Array.isArray(overrides)) {
+    throw new Error('Compatibility manifest npmOverrides must be an array.');
+  }
+  const overridePackages = new Set();
+  for (const [index, override] of overrides.entries()) {
+    const label = `npmOverrides[${index}]`;
+    if (!isPlainObject(override)) throw new Error(`${label} must be an object.`);
+    assertString(override.package, `${label}.package`);
+    if (!PACKAGE_RE.test(override.package)) {
+      throw new Error(`${label}.package is not a valid npm package name.`);
+    }
+    if (directPackages.has(override.package)) {
+      throw new Error(`${label}.package must not override a directly pinned profile package.`);
+    }
+    if (overridePackages.has(override.package)) {
+      throw new Error(`Duplicate npm override package: ${override.package}`);
+    }
+    overridePackages.add(override.package);
+    assertString(override.version, `${label}.version`);
+    if (!EXACT_VERSION_RE.test(override.version)) {
+      throw new Error(`${label}.version must be an exact pinned version, not a tag or range.`);
+    }
+    assertString(override.integrity, `${label}.integrity`);
+    if (!override.integrity.startsWith('sha512-')) {
+      throw new Error(`${label}.integrity must be an npm sha512 integrity value.`);
+    }
+    assertString(override.reason, `${label}.reason`);
   }
   return raw;
 }
@@ -300,6 +332,12 @@ function packageRoot(installRoot, packageName) {
   return join(installRoot, 'node_modules', ...packageName.split('/'));
 }
 
+function npmOverrideMap(manifest) {
+  return Object.fromEntries(
+    (manifest.npmOverrides ?? []).map((override) => [override.package, override.version]),
+  );
+}
+
 function assertInside(parent, child, label) {
   const parentReal = realpathSync(parent);
   const childReal = realpathSync(child);
@@ -314,6 +352,14 @@ function inspectInstalledPackages(manifest, installRoot) {
   const lockPath = join(installRoot, 'package-lock.json');
   if (!existsSync(lockPath)) throw new Error(`Missing package lock at ${lockPath}`);
   const lock = readJson(lockPath);
+  const rootPackagePath = join(installRoot, 'package.json');
+  if (!existsSync(rootPackagePath)) throw new Error(`Missing package manifest at ${rootPackagePath}`);
+  const rootPackage = readJson(rootPackagePath);
+  const expectedOverrideMap = npmOverrideMap(manifest);
+  if (sha256Json(rootPackage.overrides ?? {}) !== sha256Json(expectedOverrideMap)) {
+    throw new Error('Installed npm overrides do not match the pinned compatibility manifest.');
+  }
+
   const packages = new Map();
   for (const profile of manifest.profiles) {
     const root = packageRoot(installRoot, profile.package);
@@ -353,14 +399,40 @@ function inspectInstalledPackages(manifest, installRoot) {
       bin: profile.bin,
     });
   }
+
+  const overrides = [];
+  for (const override of manifest.npmOverrides ?? []) {
+    const root = packageRoot(installRoot, override.package);
+    const packageJsonPath = join(root, 'package.json');
+    const lockEntry = lock.packages?.[`node_modules/${override.package}`];
+    if (!existsSync(packageJsonPath) && !lockEntry) {
+      overrides.push({ ...override, installed: false });
+      continue;
+    }
+    if (!existsSync(packageJsonPath) || !lockEntry) {
+      throw new Error(`Override installation is incomplete for ${override.package}.`);
+    }
+    const packageJson = readJson(packageJsonPath);
+    if (packageJson.version !== override.version || lockEntry.version !== override.version) {
+      throw new Error(`${override.package} override did not resolve to ${override.version}.`);
+    }
+    if (lockEntry.integrity !== override.integrity) {
+      throw new Error(`${override.package} override integrity does not match the pinned manifest value.`);
+    }
+    overrides.push({ ...override, installed: true });
+  }
+
   return {
     packages,
+    overrides,
     lockSha256: sha256(readFileSync(lockPath)),
   };
 }
 
 function installPackages(manifest, installRoot, skipInstall) {
   mkdirSync(installRoot, { recursive: true });
+  const rootPackagePath = join(installRoot, 'package.json');
+  const overrideMap = npmOverrideMap(manifest);
   let installEvidence;
   if (skipInstall) {
     installEvidence = {
@@ -370,6 +442,20 @@ function installPackages(manifest, installRoot, skipInstall) {
       warnings: [],
     };
   } else {
+    writeFileSync(
+      rootPackagePath,
+      `${JSON.stringify(
+        {
+          name: 'folderforge-third-party-compatibility',
+          version: '0.0.0',
+          private: true,
+          overrides: overrideMap,
+        },
+        null,
+        2,
+      )}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    );
     const specs = manifest.profiles.map((profile) => `${profile.package}@${profile.version}`);
     const startedAt = performance.now();
     const installed = runCommand(
@@ -611,6 +697,7 @@ async function main() {
         mode: 'validate-only',
         manifest: relative(process.cwd(), options.manifest).split(sep).join('/'),
         manifestSha256,
+        npmOverrides: manifest.npmOverrides ?? [],
         profiles: selected.map((profile) => ({
           id: profile.id,
           package: profile.package,
@@ -673,6 +760,7 @@ async function main() {
           lifecycleScripts: install.lifecycleScripts,
           elapsedMs: install.elapsedMs,
           packageLockSha256: install.lockSha256,
+          overrides: install.overrides,
           warnings: install.warnings,
         }
       : null,

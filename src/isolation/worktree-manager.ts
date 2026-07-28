@@ -50,6 +50,11 @@ export interface WorktreeStatus {
   conflicts: string[];
 }
 
+export interface WorktreeManagerHooks {
+  /** Test/fault-injection hook invoked immediately before an untracked copy. */
+  beforeUntrackedCopy?: (entry: { source: string; target: string }) => void;
+}
+
 interface PersistedState {
   version: 1;
   isolations: WorktreeIsolation[];
@@ -163,7 +168,11 @@ export class WorktreeManager {
   readonly available: boolean;
   readonly unavailableReason?: string;
 
-  constructor(private readonly allowedDirectories: string[], projectRoot: string) {
+  constructor(
+    private readonly allowedDirectories: string[],
+    projectRoot: string,
+    private readonly hooks: WorktreeManagerHooks = {},
+  ) {
     this.projectRoot = canonicalRoot(projectRoot);
     this.assertAllowed(this.projectRoot);
     let topLevel: string;
@@ -351,9 +360,13 @@ export class WorktreeManager {
         patchApplied = true;
       }
       for (const entry of untracked) {
-        mkdirSync(dirname(entry.target), { recursive: true });
-        copyFileSync(entry.source, entry.target);
-        copied.push(entry.target);
+        this.hooks.beforeUntrackedCopy?.(entry);
+        const source = this.validatedInside(entry.source, isolation.worktreeRoot);
+        let target = this.validatedInside(entry.target, isolation.sourceRoot);
+        mkdirSync(dirname(target), { recursive: true });
+        target = this.validatedInside(entry.target, isolation.sourceRoot);
+        copyFileSync(source, target);
+        copied.push(target);
       }
       isolation.state = 'applied';
       isolation.appliedAt = new Date().toISOString();
@@ -363,7 +376,9 @@ export class WorktreeManager {
     } catch (error) {
       let rollbackError: unknown;
       try {
-        for (const target of copied.reverse()) rmSync(target, { force: true });
+        for (const target of copied.reverse()) {
+          rmSync(this.validatedInside(target, isolation.sourceRoot), { force: true });
+        }
         if (patchApplied) git(isolation.sourceRoot, ['apply', '--reverse', '--binary', '-'], patch);
         isolation.state = 'active';
         delete isolation.appliedTracked;
@@ -432,17 +447,27 @@ export class WorktreeManager {
     const removed: AppliedUntrackedFile[] = [];
     try {
       for (const entry of expectedUntracked) {
-        const target = resolve(isolation.sourceRoot, assertRelativePath(entry.path));
+        const target = this.validatedInside(
+          resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
+          isolation.sourceRoot,
+        );
         rmSync(target);
         removed.push(entry);
       }
       if (patch) git(isolation.sourceRoot, ['apply', '--reverse', '--binary', '-'], patch);
     } catch (error) {
       for (const entry of removed) {
-        const source = resolve(isolation.worktreeRoot, assertRelativePath(entry.path));
-        const target = resolve(isolation.sourceRoot, assertRelativePath(entry.path));
+        const source = this.validatedInside(
+          resolve(isolation.worktreeRoot, assertRelativePath(entry.path)),
+          isolation.worktreeRoot,
+        );
+        let target = this.validatedInside(
+          resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
+          isolation.sourceRoot,
+        );
         if (existsSync(source) && sha256(readFileSync(source)) === entry.sha256) {
           mkdirSync(dirname(target), { recursive: true });
+          target = this.validatedInside(target, isolation.sourceRoot);
           copyFileSync(source, target);
         }
       }
@@ -599,10 +624,29 @@ export class WorktreeManager {
   }
 
   private assertInside(path: string, root: string): void {
-    const rel = relative(canonicalRoot(root), resolve(path));
-    if (rel.startsWith('..') || isAbsolute(rel)) {
+    this.validatedInside(path, root);
+  }
+
+  private validatedInside(path: string, root: string): string {
+    const canonical = canonicalRoot(root);
+    const resolved = resolve(path);
+    const lexical = relative(canonical, resolved);
+    if (lexical.startsWith('..') || isAbsolute(lexical)) {
       throw new Error(`Isolation path escapes managed root: ${path}`);
     }
+
+    let existing = resolved;
+    while (!existsSync(existing)) {
+      const parent = dirname(existing);
+      if (parent === existing) break;
+      existing = parent;
+    }
+    const canonicalExisting = realpathSync.native(existing);
+    const canonicalRelative = relative(canonical, canonicalExisting);
+    if (canonicalRelative.startsWith('..') || isAbsolute(canonicalRelative)) {
+      throw new Error(`Isolation path resolves outside managed root: ${path}`);
+    }
+    return resolved;
   }
 
   private validatePersistedIsolation(value: unknown): WorktreeIsolation {

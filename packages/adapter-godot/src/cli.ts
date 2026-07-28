@@ -4,6 +4,8 @@ import {
   readFileSync,
   readdirSync,
   statSync,
+  lstatSync,
+  realpathSync,
   writeFileSync,
   mkdirSync,
   rmSync,
@@ -139,7 +141,9 @@ export class GodotCli {
    */
   readProjectInfo(projectRoot: string): GodotCliResult<GodotProjectInfo> {
     const root = resolve(projectRoot);
-    const projectFile = join(root, 'project.godot');
+    const projectFileResult = this.safeResolve(projectRoot, 'project.godot');
+    if (!projectFileResult.ok) return { ok: false, error: projectFileResult.error };
+    const projectFile = projectFileResult.path;
     if (!existsSync(projectFile)) {
       return {
         ok: true,
@@ -222,8 +226,9 @@ export class GodotCli {
    * the engine.
    */
   readProjectSettings(projectRoot: string): GodotCliResult<{ raw: string; sections: string[] }> {
-    const root = resolve(projectRoot);
-    const projectFile = join(root, 'project.godot');
+    const projectFileResult = this.safeResolve(projectRoot, 'project.godot');
+    if (!projectFileResult.ok) return { ok: false, error: projectFileResult.error };
+    const projectFile = projectFileResult.path;
     if (!existsSync(projectFile)) {
       return { ok: false, error: 'No project.godot found in the project root.' };
     }
@@ -258,10 +263,11 @@ export class GodotCli {
         const full = join(dir, entry);
         let st;
         try {
-          st = statSync(full);
+          st = lstatSync(full);
         } catch {
           continue;
         }
+        if (st.isSymbolicLink()) continue;
         if (st.isDirectory()) {
           walk(full);
         } else if (st.isFile()) {
@@ -539,8 +545,9 @@ export class GodotCli {
     key: string,
     value: string
   ): GodotCliResult<{ section: string; key: string }> {
-    const root = resolve(projectRoot);
-    const projectFile = join(root, 'project.godot');
+    const projectFileResult = this.safeResolve(projectRoot, 'project.godot');
+    if (!projectFileResult.ok) return { ok: false, error: projectFileResult.error };
+    const projectFile = projectFileResult.path;
     if (!existsSync(projectFile)) return { ok: false, error: 'No project.godot found in the project root.' };
     const literal = looksLikeLiteral(value) ? value : `"${value}"`;
     const updated = upsertIniKey(readFileSync(projectFile, 'utf8'), section, key, literal);
@@ -732,8 +739,9 @@ export class GodotCli {
     op: 'enable' | 'disable',
     pluginPath: string
   ): GodotCliResult<{ plugin: string; op: string }> {
-    const root = resolve(projectRoot);
-    const projectFile = join(root, 'project.godot');
+    const projectFileResult = this.safeResolve(projectRoot, 'project.godot');
+    if (!projectFileResult.ok) return { ok: false, error: projectFileResult.error };
+    const projectFile = projectFileResult.path;
     if (!existsSync(projectFile)) return { ok: false, error: 'No project.godot found in the project root.' };
     const res = pluginPath.startsWith('res://') ? pluginPath : `res://addons/${pluginPath}/plugin.cfg`;
     const text = readFileSync(projectFile, 'utf8');
@@ -760,8 +768,9 @@ export class GodotCli {
     key: string,
     value: string
   ): GodotCliResult<{ section: string; key: string }> {
-    const root = resolve(projectRoot);
-    const file = join(root, 'export_presets.cfg');
+    const fileResult = this.safeResolve(projectRoot, 'export_presets.cfg');
+    if (!fileResult.ok) return { ok: false, error: fileResult.error };
+    const file = fileResult.path;
     const literal = looksLikeLiteral(value) ? value : `"${value}"`;
     const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
     writeFileSync(file, upsertIniKey(text, section, key, literal), 'utf8');
@@ -774,8 +783,9 @@ export class GodotCli {
     section: string,
     key: string
   ): GodotCliResult<{ removed: boolean }> {
-    const root = resolve(projectRoot);
-    const projectFile = join(root, 'project.godot');
+    const projectFileResult = this.safeResolve(projectRoot, 'project.godot');
+    if (!projectFileResult.ok) return { ok: false, error: projectFileResult.error };
+    const projectFile = projectFileResult.path;
     if (!existsSync(projectFile)) return { ok: false, error: 'No project.godot found in the project root.' };
     const text = readFileSync(projectFile, 'utf8');
     const lineRe = new RegExp(`^${escapeRe(key)}\\s*=.*$\\n?`, 'm');
@@ -994,10 +1004,33 @@ export class GodotCli {
     const stripped = p.startsWith('res://') ? p.slice('res://'.length) : p;
     const abs = resolve(root, stripped);
     const rel = relative(root, abs);
-    if (rel === '') return { ok: true, path: abs };
     if (rel === '..' || rel.startsWith(`..${sep}`)) {
       return { ok: false, error: `Path escapes the project root: ${p}` };
     }
+
+    try {
+      const canonicalRoot = realpathSync(root);
+      let existing = abs;
+      while (!existsSync(existing)) {
+        const parent = dirname(existing);
+        if (parent === existing) break;
+        existing = parent;
+      }
+      const canonicalExisting = realpathSync(existing);
+      const canonicalRel = relative(canonicalRoot, canonicalExisting);
+      if (canonicalRel === '..' || canonicalRel.startsWith(`..${sep}`)) {
+        return { ok: false, error: `Path resolves outside the project root: ${p}` };
+      }
+      if (existsSync(abs)) {
+        const stat = lstatSync(abs);
+        if (stat.isSymbolicLink()) {
+          return { ok: false, error: `Symbolic links are not allowed for Godot project paths: ${p}` };
+        }
+      }
+    } catch (error) {
+      return { ok: false, error: `Unable to validate project path ${p}: ${error instanceof Error ? error.message : String(error)}` };
+    }
+
     return { ok: true, path: abs };
   }
 }

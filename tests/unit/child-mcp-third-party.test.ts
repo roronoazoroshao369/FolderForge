@@ -6,6 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 interface ValidationReport {
   mode: string;
+  npmOverrides: Array<{
+    package: string;
+    version: string;
+    integrity: string;
+    reason: string;
+  }>;
   profiles: Array<{ id: string; package: string; version: string; integrity: string }>;
   summary: { total: number; valid: number; invalid: number };
 }
@@ -46,6 +52,14 @@ describe('third-party child MCP compatibility manifest', () => {
       expect(profile.integrity).toMatch(/^sha512-/);
       expect(profile.package).not.toContain('@latest');
     }
+    expect(report.npmOverrides).toEqual([
+      expect.objectContaining({
+        package: 'glob',
+        version: '13.0.6',
+        integrity: expect.stringMatching(/^sha512-/),
+        reason: expect.stringMatching(/GHSA-mh99-v99m-4gvg/),
+      }),
+    ]);
   });
 
   it('supports selecting one profile and writing machine-readable evidence', () => {
@@ -83,5 +97,25 @@ describe('third-party child MCP compatibility manifest', () => {
 
     expect(executed.status).not.toBe(0);
     expect(executed.stderr).toMatch(/exact pinned version/i);
+  });
+
+  it('rejects floating or unverified npm overrides', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as {
+      npmOverrides: Array<Record<string, unknown>>;
+      profiles: Array<Record<string, unknown>>;
+    };
+    manifest.npmOverrides[0]!.version = '^13.0.0';
+    manifest.npmOverrides[0]!.integrity = '';
+    const invalid = join(root, 'invalid-override.json');
+    writeFileSync(invalid, JSON.stringify(manifest));
+
+    const executed = spawnSync(
+      process.execPath,
+      [SCRIPT, '--validate-only', '--manifest', invalid],
+      { cwd: process.cwd(), encoding: 'utf8' },
+    );
+
+    expect(executed.status).not.toBe(0);
+    expect(executed.stderr).toMatch(/npmOverrides\[0\]\.version.*exact pinned version/i);
   });
 });

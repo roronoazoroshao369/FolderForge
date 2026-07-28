@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig } from '../../src/runtime/config.js';
@@ -187,6 +195,26 @@ describe('file tools integration (Q8)', () => {
     expect(res.entries.find((e) => e.path === 'src/nested')?.type).toBe('dir');
   });
 
+  it('does not follow nested symlinks while listing recursively', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'ff-file-outside-'));
+    try {
+      writeFileSync(join(outside, 'OUTSIDE_MARKER.txt'), 'outside\n');
+      symlinkSync(outside, join(ws, 'src', 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+      const { registry } = setup(ws);
+      await registry.call('workspace_activate', { path: ws });
+
+      const res = data<{
+        entries: Array<{ path: string; type: string }>;
+        skippedUnsafe: Array<{ path: string; reason: string }>;
+      }>(await registry.call('list_directory', { path: 'src', recursive: true }));
+
+      expect(res.entries.map((entry) => entry.path)).not.toContain('src/escape/OUTSIDE_MARKER.txt');
+      expect(res.skippedUnsafe).toContainEqual({ path: 'src/escape', reason: 'symlink' });
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it('moves a file and refuses to overwrite without the flag', async () => {
     const { registry } = setup(ws);
     await registry.call('workspace_activate', { path: ws });
@@ -212,6 +240,23 @@ describe('file tools integration (Q8)', () => {
     );
     expect(dirRes.directory).toBe(true);
     expect(existsSync(join(ws, 'src-copy', 'hello.txt'))).toBe(true);
+  });
+
+  it('refuses to copy a directory that contains a symlink', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'ff-copy-outside-'));
+    try {
+      writeFileSync(join(outside, 'outside.txt'), 'outside\n');
+      symlinkSync(outside, join(ws, 'src', 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+      const { registry } = setup(ws);
+      await registry.call('workspace_activate', { path: ws });
+
+      const result = await registry.call('file_copy', { from: 'src', to: 'src-copy' });
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/symbolic link/i);
+      expect(existsSync(join(ws, 'src-copy'))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('refuses to move outside the workspace root', async () => {

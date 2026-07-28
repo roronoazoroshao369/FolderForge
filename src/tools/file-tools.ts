@@ -9,6 +9,7 @@ import {
   copyFileSync,
   cpSync,
   readdirSync,
+  lstatSync,
 } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { defineTool } from './registry.js';
@@ -97,6 +98,36 @@ function contextFailure(label: string, before: string, requested: string) {
     error: `${label} ${hints.length ? hints.join('; ') + '.' : ''}`.trim(),
     data: { reason: 'context_not_found', diagnostic },
   };
+}
+
+/**
+ * Directory copies must never import symlinks or special filesystem entries.
+ * A copied symlink can re-introduce an out-of-workspace alias even when the
+ * source directory itself passed PathPolicy.resolveSafe().
+ */
+function assertCopyTreeSafe(sourceAbs: string, validatePath: (path: string) => void): void {
+  const st = lstatSync(sourceAbs);
+  if (st.isSymbolicLink()) {
+    throw new Error(`Refusing to copy a symbolic link: ${sourceAbs}`);
+  }
+  if (st.isFile()) return;
+  if (!st.isDirectory()) {
+    throw new Error(`Refusing to copy a non-regular filesystem entry: ${sourceAbs}`);
+  }
+
+  validatePath(sourceAbs);
+  for (const name of readdirSync(sourceAbs)) {
+    const child = join(sourceAbs, name);
+    const childStat = lstatSync(child);
+    if (childStat.isSymbolicLink()) {
+      throw new Error(`Refusing to copy a directory containing a symbolic link: ${child}`);
+    }
+    validatePath(child);
+    if (childStat.isDirectory()) assertCopyTreeSafe(child, validatePath);
+    else if (!childStat.isFile()) {
+      throw new Error(`Refusing to copy a non-regular filesystem entry: ${child}`);
+    }
+  }
 }
 
 export function fileTools(): ToolDefinition[] {
@@ -310,10 +341,20 @@ export function fileTools(): ToolDefinition[] {
           return { ok: false, error: `Destination exists: ${args.to}. Pass overwrite=true to replace.` };
         }
         mkdirSync(dirname(toAbs), { recursive: true });
-        const isDir = statSync(fromAbs).isDirectory();
+        const sourceStat = lstatSync(fromAbs);
+        if (sourceStat.isSymbolicLink()) {
+          return { ok: false, error: `Refusing to copy a symbolic link: ${args.from}` };
+        }
+        const isDir = sourceStat.isDirectory();
         if (isDir) {
+          assertCopyTreeSafe(fromAbs, (path) => {
+            ctx.container.policy.path.resolveSafe(path, ctx.projectRoot);
+          });
           cpSync(fromAbs, toAbs, { recursive: true, force: args.overwrite === true });
         } else {
+          if (!sourceStat.isFile()) {
+            return { ok: false, error: `Refusing to copy a non-regular filesystem entry: ${args.from}` };
+          }
           copyFileSync(fromAbs, toAbs);
         }
         return { ok: true, data: { copied: true, directory: isDir, from: String(args.from), to: String(args.to) } };
@@ -343,12 +384,20 @@ export function fileTools(): ToolDefinition[] {
         const max = Number(args.maxEntries ?? 1000);
         const recursive = args.recursive === true;
         const entries: Array<{ path: string; type: 'file' | 'dir'; size: number }> = [];
+        const skippedUnsafe: Array<{ path: string; reason: 'symlink' | 'special' | 'path_escape' }> = [];
         let truncated = false;
+
+        const normalizedRelative = (abs: string): string =>
+          relative(ctx.projectRoot, abs).split(sep).join('/');
 
         const walk = (dir: string): void => {
           if (truncated) return;
           let names: string[];
           try {
+            // Re-validate immediately before every directory traversal. This
+            // prevents ordinary nested symlink escapes; lstat below ensures we
+            // never intentionally follow a symlink entry.
+            ctx.container.policy.path.resolveSafe(dir, ctx.projectRoot);
             names = readdirSync(dir).sort();
           } catch {
             return;
@@ -359,17 +408,32 @@ export function fileTools(): ToolDefinition[] {
               return;
             }
             const abs = join(dir, name);
+            const rel = normalizedRelative(abs);
             // Skip anything the path policy denies (secrets, node_modules, .git internals).
             if (ctx.container.policy.path.isDenied(abs, ctx.projectRoot)) continue;
             let st;
             try {
-              st = statSync(abs);
+              st = lstatSync(abs);
             } catch {
+              continue;
+            }
+            if (st.isSymbolicLink()) {
+              skippedUnsafe.push({ path: rel, reason: 'symlink' });
+              continue;
+            }
+            if (!st.isDirectory() && !st.isFile()) {
+              skippedUnsafe.push({ path: rel, reason: 'special' });
+              continue;
+            }
+            try {
+              ctx.container.policy.path.resolveSafe(abs, ctx.projectRoot);
+            } catch {
+              skippedUnsafe.push({ path: rel, reason: 'path_escape' });
               continue;
             }
             const isDir = st.isDirectory();
             entries.push({
-              path: relative(ctx.projectRoot, abs).split(sep).join('/'),
+              path: rel,
               type: isDir ? 'dir' : 'file',
               size: isDir ? 0 : st.size,
             });
@@ -385,6 +449,7 @@ export function fileTools(): ToolDefinition[] {
             recursive,
             count: entries.length,
             truncated,
+            skippedUnsafe,
             entries,
           },
         };

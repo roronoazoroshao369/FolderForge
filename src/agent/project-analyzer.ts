@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import fg from 'fast-glob';
 import { simpleGit } from 'simple-git';
@@ -12,6 +12,11 @@ interface PackageJson {
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
+}
+
+interface AnalyzeOptions {
+  resolveSafe?: (path: string) => string;
+  isDenied?: (absolutePath: string) => boolean;
 }
 
 const FRAMEWORK_PACKAGES: Array<[string, string]> = [
@@ -58,19 +63,49 @@ const ENTRYPOINT_GLOBS = [
   'cmd/**/main.go',
 ];
 
-function readPackage(root: string): PackageJson | null {
+function safeFile(root: string, path: string, options: AnalyzeOptions): string | null {
+  const candidate = join(root, path);
+  if (options.isDenied?.(candidate)) return null;
   try {
-    return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as PackageJson;
+    const resolved = options.resolveSafe?.(path) ?? candidate;
+    const stat = lstatSync(resolved);
+    return stat.isFile() && !stat.isSymbolicLink() ? resolved : null;
   } catch {
     return null;
   }
 }
 
-function readPythonFrameworks(root: string): string[] {
-  const paths = ['pyproject.toml', 'requirements.txt'];
-  const text = paths
-    .filter((file) => existsSync(join(root, file)))
-    .map((file) => readFileSync(join(root, file), 'utf8').toLowerCase())
+function safeDirectory(root: string, path: string, options: AnalyzeOptions): string | null {
+  const candidate = join(root, path);
+  if (options.isDenied?.(candidate)) return null;
+  try {
+    const resolved = options.resolveSafe?.(path) ?? candidate;
+    const stat = lstatSync(resolved);
+    return stat.isDirectory() && !stat.isSymbolicLink() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeFiles(root: string, paths: string[], options: AnalyzeOptions): string[] {
+  return paths.filter((path) => safeFile(root, path, options) !== null);
+}
+
+function readPackage(root: string, options: AnalyzeOptions): PackageJson | null {
+  try {
+    const path = safeFile(root, 'package.json', options);
+    if (!path) return null;
+    return JSON.parse(readFileSync(path, 'utf8')) as PackageJson;
+  } catch {
+    return null;
+  }
+}
+
+function readPythonFrameworks(root: string, options: AnalyzeOptions): string[] {
+  const text = ['pyproject.toml', 'requirements.txt']
+    .map((file) => safeFile(root, file, options))
+    .filter((path): path is string => Boolean(path))
+    .map((path) => readFileSync(path, 'utf8').toLowerCase())
     .join('\n');
   const found: string[] = [];
   if (/\bdjango\b/.test(text)) found.push('Django');
@@ -80,20 +115,17 @@ function readPythonFrameworks(root: string): string[] {
   return found;
 }
 
-function existingDirectories(root: string, candidates: string[]): string[] {
-  return candidates.filter((dir) => {
-    try {
-      return statSync(join(root, dir)).isDirectory();
-    } catch {
-      return false;
-    }
-  });
+function existingDirectories(root: string, candidates: string[], options: AnalyzeOptions): string[] {
+  return candidates.filter((dir) => safeDirectory(root, dir, options) !== null);
 }
 
-export async function analyzeProject(root: string): Promise<Record<string, unknown>> {
+export async function analyzeProject(
+  root: string,
+  options: AnalyzeOptions = {}
+): Promise<Record<string, unknown>> {
   const info = detectProject(root);
   const commands = detectCommands(root);
-  const pkg = readPackage(root);
+  const pkg = readPackage(root, options);
   const dependencies = {
     ...(pkg?.dependencies ?? {}),
     ...(pkg?.devDependencies ?? {}),
@@ -101,10 +133,10 @@ export async function analyzeProject(root: string): Promise<Record<string, unkno
   const frameworks = FRAMEWORK_PACKAGES.filter(([name]) => dependencies[name] !== undefined).map(
     ([, label]) => label
   );
-  frameworks.push(...readPythonFrameworks(root));
+  frameworks.push(...readPythonFrameworks(root, options));
 
-  const manifests = MANIFESTS.filter((file) => existsSync(join(root, file)));
-  const configFiles = await fg(
+  const manifests = MANIFESTS.filter((file) => safeFile(root, file, options) !== null);
+  const rawConfigFiles = await fg(
     [
       '*.{config,conf}.{js,cjs,mjs,ts,json,yaml,yml}',
       '.*rc',
@@ -115,22 +147,31 @@ export async function analyzeProject(root: string): Promise<Record<string, unkno
       cwd: root,
       onlyFiles: true,
       dot: true,
+      followSymbolicLinks: false,
       ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
     }
   );
-  const entrypoints = await fg(ENTRYPOINT_GLOBS, {
+  const configFiles = safeFiles(root, rawConfigFiles, options);
+  const rawEntrypoints = await fg(ENTRYPOINT_GLOBS, {
     cwd: root,
     onlyFiles: true,
     unique: true,
+    followSymbolicLinks: false,
     ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
   });
-  const sourceRoots = existingDirectories(root, ['src', 'app', 'pages', 'lib', 'packages', 'apps', 'cmd']);
-  const testRoots = existingDirectories(root, ['test', 'tests', '__tests__', 'spec', 'e2e']);
-  const sourceFiles = await fg(
+  const entrypoints = safeFiles(root, rawEntrypoints, options);
+  const sourceRoots = existingDirectories(
+    root,
+    ['src', 'app', 'pages', 'lib', 'packages', 'apps', 'cmd'],
+    options
+  );
+  const testRoots = existingDirectories(root, ['test', 'tests', '__tests__', 'spec', 'e2e'], options);
+  const rawSourceFiles = await fg(
     ['**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,rb,php,cs,c,cpp,h,hpp}'],
     {
       cwd: root,
       onlyFiles: true,
+      followSymbolicLinks: false,
       ignore: [
         '**/node_modules/**',
         '**/.git/**',
@@ -142,6 +183,7 @@ export async function analyzeProject(root: string): Promise<Record<string, unkno
       ],
     }
   );
+  const sourceFiles = safeFiles(root, rawSourceFiles, options);
 
   let git: Record<string, unknown> = { repository: info.git };
   if (info.git) {
@@ -170,9 +212,9 @@ export async function analyzeProject(root: string): Promise<Record<string, unkno
 
   const monorepoSignals = [
     pkg?.workspaces ? 'package.json#workspaces' : null,
-    existsSync(join(root, 'pnpm-workspace.yaml')) ? 'pnpm-workspace.yaml' : null,
-    existsSync(join(root, 'turbo.json')) ? 'turbo.json' : null,
-    existsSync(join(root, 'nx.json')) ? 'nx.json' : null,
+    safeFile(root, 'pnpm-workspace.yaml', options) ? 'pnpm-workspace.yaml' : null,
+    safeFile(root, 'turbo.json', options) ? 'turbo.json' : null,
+    safeFile(root, 'nx.json', options) ? 'nx.json' : null,
   ].filter((value): value is string => Boolean(value));
 
   return {

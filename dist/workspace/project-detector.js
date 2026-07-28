@@ -1,7 +1,30 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
+function isRegularFile(path) {
+    try {
+        const stat = lstatSync(path);
+        return stat.isFile() && !stat.isSymbolicLink();
+    }
+    catch {
+        return false;
+    }
+}
+function isDirectory(path) {
+    try {
+        const stat = lstatSync(path);
+        return stat.isDirectory() && !stat.isSymbolicLink();
+    }
+    catch {
+        return false;
+    }
+}
+function isGitMarker(path) {
+    return isRegularFile(path) || isDirectory(path);
+}
 function readJson(path) {
     try {
+        if (!isRegularFile(path))
+            return null;
         return JSON.parse(readFileSync(path, 'utf8'));
     }
     catch {
@@ -23,29 +46,29 @@ export function detectProject(root) {
         ['build.gradle', () => languageHints.add('java')],
     ];
     for (const [file, fn] of checks) {
-        if (existsSync(join(root, file)))
+        if (isRegularFile(join(root, file)))
             fn();
     }
-    if (existsSync(join(root, 'pnpm-lock.yaml')))
+    if (isRegularFile(join(root, 'pnpm-lock.yaml')))
         packageManagers.add('pnpm');
-    else if (existsSync(join(root, 'yarn.lock')))
+    else if (isRegularFile(join(root, 'yarn.lock')))
         packageManagers.add('yarn');
-    else if (existsSync(join(root, 'package-lock.json')))
+    else if (isRegularFile(join(root, 'package-lock.json')))
         packageManagers.add('npm');
-    else if (existsSync(join(root, 'package.json')))
+    else if (isRegularFile(join(root, 'package.json')))
         packageManagers.add('npm');
-    if (existsSync(join(root, 'pyproject.toml')))
+    if (isRegularFile(join(root, 'pyproject.toml')))
         packageManagers.add('pip');
-    if (existsSync(join(root, 'go.mod')))
+    if (isRegularFile(join(root, 'go.mod')))
         packageManagers.add('go');
-    if (existsSync(join(root, 'Cargo.toml')))
+    if (isRegularFile(join(root, 'Cargo.toml')))
         packageManagers.add('cargo');
     return {
         projectRoot: root,
         name: basename(root),
         languageHints: [...languageHints],
         packageManagers: [...packageManagers],
-        git: existsSync(join(root, '.git')),
+        git: isGitMarker(join(root, '.git')),
     };
 }
 export function detectCommands(root) {
@@ -53,9 +76,9 @@ export function detectCommands(root) {
     if (pkg && typeof pkg.scripts === 'object' && pkg.scripts) {
         const scripts = pkg.scripts;
         let pm = 'npm';
-        if (existsSync(join(root, 'pnpm-lock.yaml')))
+        if (isRegularFile(join(root, 'pnpm-lock.yaml')))
             pm = 'pnpm';
-        else if (existsSync(join(root, 'yarn.lock')))
+        else if (isRegularFile(join(root, 'yarn.lock')))
             pm = 'yarn';
         const norm = {};
         for (const key of ['dev', 'start', 'test', 'build', 'lint', 'typecheck']) {
@@ -75,20 +98,20 @@ export function detectCommands(root) {
             testFramework = 'mocha';
         return { packageManager: pm, scripts: norm, ...(testFramework ? { testFramework } : {}) };
     }
-    if (existsSync(join(root, 'pyproject.toml')) || existsSync(join(root, 'requirements.txt'))) {
+    if (isRegularFile(join(root, 'pyproject.toml')) || isRegularFile(join(root, 'requirements.txt'))) {
         return {
             packageManager: 'pip',
             scripts: { test: 'pytest', lint: 'ruff check .', typecheck: 'mypy .' },
             testFramework: 'pytest',
         };
     }
-    if (existsSync(join(root, 'go.mod'))) {
+    if (isRegularFile(join(root, 'go.mod'))) {
         return { packageManager: 'go', scripts: { test: 'go test ./...', build: 'go build ./...' }, testFramework: 'go test' };
     }
-    if (existsSync(join(root, 'Cargo.toml'))) {
+    if (isRegularFile(join(root, 'Cargo.toml'))) {
         return { packageManager: 'cargo', scripts: { test: 'cargo test', build: 'cargo build' }, testFramework: 'cargo test' };
     }
-    if (existsSync(join(root, 'Makefile'))) {
+    if (isRegularFile(join(root, 'Makefile'))) {
         return { packageManager: 'make', scripts: { test: 'make test', build: 'make build' } };
     }
     return { packageManager: null, scripts: {} };

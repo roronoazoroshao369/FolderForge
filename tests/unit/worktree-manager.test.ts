@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -94,12 +95,14 @@ describe('WorktreeManager', () => {
     expect(clean).toBe(true);
     const symlink = manager.create('task-symlink');
     symlinkSync('/etc/passwd', join(symlink.worktreeRoot, 'escape-link'));
-    expect(() => manager.apply(symlink.id)).toThrow(/regular file/);
+    expect(() => manager.apply(symlink.id)).toThrow(/regular file|outside managed root/);
 
     const trackedSymlink = manager.create('task-tracked-symlink');
     symlinkSync('/etc/passwd', join(trackedSymlink.worktreeRoot, 'tracked-link'));
     git(trackedSymlink.worktreeRoot, 'add', 'tracked-link');
-    expect(() => manager.apply(trackedSymlink.id)).toThrow(/regular file or deletion/);
+    expect(() => manager.apply(trackedSymlink.id)).toThrow(
+      /regular file or deletion|outside managed root/
+    );
   });
 
   it('persists managed identity and rejects traversal-like task identifiers', () => {
@@ -188,6 +191,32 @@ describe('WorktreeManager', () => {
     expect(readFileSync(join(root, 'tracked.txt'), 'utf8')).toBe('applied change\n');
     expect(manager.get(isolation.id)).toMatchObject({ state: 'applied' });
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'revalidates an untracked target after preflight and blocks a symlink swap',
+    () => {
+      const root = repository();
+      const outside = mkdtempSync(join(tmpdir(), 'folderforge-worktree-outside-'));
+      roots.push(outside);
+      let swapped = false;
+      const manager = new WorktreeManager([root], root, {
+        beforeUntrackedCopy: ({ target }) => {
+          if (swapped) return;
+          swapped = true;
+          const parent = join(root, 'nested');
+          expect(target).toBe(join(parent, 'new.txt'));
+          symlinkSync(outside, parent, 'dir');
+        },
+      });
+      const isolation = manager.create('task-target-swap');
+      mkdirSync(join(isolation.worktreeRoot, 'nested'));
+      writeFileSync(join(isolation.worktreeRoot, 'nested', 'new.txt'), 'must stay inside\n');
+
+      expect(() => manager.apply(isolation.id)).toThrow(/resolves outside managed root/);
+      expect(existsSync(join(outside, 'new.txt'))).toBe(false);
+      expect(manager.get(isolation.id)).toMatchObject({ state: 'active' });
+    }
+  );
 
 });
 

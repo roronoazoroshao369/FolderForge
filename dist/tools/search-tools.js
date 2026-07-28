@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
 import { relative } from 'node:path';
 import fg from 'fast-glob';
 import { defineTool } from './registry.js';
@@ -24,9 +24,20 @@ export function searchTools() {
                     dot: false,
                     ignore: ['**/node_modules/**', '**/.git/**'],
                     onlyFiles: true,
+                    followSymbolicLinks: false,
+                });
+                const safeMatches = matches.filter((match) => {
+                    try {
+                        const abs = ctx.container.policy.path.resolveSafe(match, ctx.projectRoot);
+                        const st = lstatSync(abs);
+                        return st.isFile() && !st.isSymbolicLink();
+                    }
+                    catch {
+                        return false;
+                    }
                 });
                 const limit = Number(args.limit ?? 200);
-                return { ok: true, data: { matches: matches.slice(0, limit), total: matches.length } };
+                return { ok: true, data: { matches: safeMatches.slice(0, limit), total: safeMatches.length } };
             },
         }),
         defineTool({
@@ -61,15 +72,18 @@ export function searchTools() {
                     ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**'],
                     onlyFiles: true,
                     absolute: true,
+                    followSymbolicLinks: false,
                 });
                 const results = [];
                 for (const file of files) {
                     if (results.length >= limit)
                         break;
                     try {
-                        if (statSync(file).size > 2_000_000)
+                        const safeFile = ctx.container.policy.path.resolveSafe(file, ctx.projectRoot);
+                        const st = lstatSync(safeFile);
+                        if (!st.isFile() || st.isSymbolicLink() || st.size > 2_000_000)
                             continue;
-                        const content = readFileSync(file, 'utf8');
+                        const content = readFileSync(safeFile, 'utf8');
                         const lines = content.split('\n');
                         for (let i = 0; i < lines.length; i++) {
                             re.lastIndex = 0;
@@ -136,15 +150,18 @@ export function searchTools() {
                     ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
                     onlyFiles: true,
                     absolute: true,
+                    followSymbolicLinks: false,
                 });
                 const results = [];
                 for (const file of files) {
                     if (results.length >= limit)
                         break;
                     try {
-                        if (statSync(file).size > 2_000_000)
+                        const safeFile = ctx.container.policy.path.resolveSafe(file, ctx.projectRoot);
+                        const st = lstatSync(safeFile);
+                        if (!st.isFile() || st.isSymbolicLink() || st.size > 2_000_000)
                             continue;
-                        const lines = readFileSync(file, 'utf8').split('\n');
+                        const lines = readFileSync(safeFile, 'utf8').split('\n');
                         for (let i = 0; i < lines.length; i++) {
                             const line = lines[i];
                             for (const { kind, re } of patterns) {

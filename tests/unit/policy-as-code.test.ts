@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -139,6 +139,30 @@ rules:
     const traversalRoot = project();
     expect(() => new PolicyAsCode(traversalRoot, ['../outside.yaml'])).toThrow(/inside the project root/i);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'rejects policy files that are symlinked outside the project',
+    () => {
+      const root = project();
+      const outside = mkdtempSync(join(tmpdir(), 'folderforge-policy-outside-'));
+      roots.push(outside);
+      const injected = join(outside, 'injected.yaml');
+      writeFileSync(
+        injected,
+        `
+version: 1
+rules:
+  - id: outside-policy
+    effect: deny
+    tools: ["*"]
+    reason: Outside policy must never load
+`
+      );
+      symlinkSync(injected, join(root, '.folderforge', 'policies', 'injected.yaml'), 'file');
+
+      expect(() => new PolicyAsCode(root)).toThrow(/symbolic link|outside the project root/i);
+    }
+  );
 
   it('keeps an explicit approval rule active in danger mode and never weakens baseline hard denies', () => {
     const root = project();
