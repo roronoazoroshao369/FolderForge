@@ -6,6 +6,13 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.4] - 2026-07-28
+
+### Changed
+
+- Promote the accumulated, validated 2.7.x release line for public npm publication.
+- Synchronize package and lockfile release metadata at version `2.7.4`.
+
 ## [2.7.3] - 2026-07-27
 
 ### Fixed
