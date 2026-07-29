@@ -58,9 +58,10 @@ function applyEnvironmentOverrides(cfg: FolderForgeConfig): void {
 
   const mode = process.env.FOLDERFORGE_HTTP_AUTH;
   const resource = process.env.FOLDERFORGE_OAUTH_RESOURCE;
+  const metadataUrl = process.env.FOLDERFORGE_OAUTH_METADATA_URL;
   const issuer = process.env.FOLDERFORGE_OAUTH_ISSUER;
   const scopes = csv(process.env.FOLDERFORGE_OAUTH_SCOPES);
-  const oauthRequested = Boolean(resource || issuer || scopes || mode === 'oauth');
+  const oauthRequested = Boolean(resource || metadataUrl || issuer || scopes || mode === 'oauth');
 
   if (mode) {
     cfg.server.http.auth = { mode: mode as 'none' | 'token' | 'oauth' };
@@ -79,6 +80,7 @@ function applyEnvironmentOverrides(cfg: FolderForgeConfig): void {
       oauth: {
         ...(existing ?? {}),
         ...(resource !== undefined ? { resource } : {}),
+        ...(metadataUrl !== undefined ? { metadataUrl } : {}),
         ...(issuer !== undefined ? { issuer } : {}),
         ...(scopes !== undefined ? { scopes } : {}),
         ...(process.env.FOLDERFORGE_OAUTH_READ_SCOPE !== undefined
@@ -115,6 +117,7 @@ export function applyHttpAuthDefaults(cfg: FolderForgeConfig): void {
   const writeScope = oauth.writeScope || DEFAULT_OAUTH_WRITE_SCOPE;
   auth.oauth = {
     resource: oauth.resource ?? '',
+    ...(oauth.metadataUrl ? { metadataUrl: oauth.metadataUrl } : {}),
     issuer: oauth.issuer ?? '',
     scopes: oauth.scopes?.length ? [...oauth.scopes] : [readScope, writeScope],
     readScope,
@@ -427,6 +430,25 @@ export function validateConfig(cfg: FolderForgeConfig): void {
           errors,
           { disallowQuery: true }
         );
+        if (oauth.metadataUrl) {
+          const metadataUrl = validateOAuthUrl(
+            'server.http.auth.oauth.metadataUrl',
+            oauth.metadataUrl,
+            true,
+            errors,
+            { disallowQuery: true }
+          );
+          const metadataPrefix = '/.well-known/oauth-protected-resource';
+          if (
+            metadataUrl &&
+            metadataUrl.pathname !== metadataPrefix &&
+            !metadataUrl.pathname.startsWith(`${metadataPrefix}/`)
+          ) {
+            errors.push(
+              'server.http.auth.oauth.metadataUrl must use the /.well-known/oauth-protected-resource path'
+            );
+          }
+        }
         if (allowInsecure && resource && issuer && (!isLoopbackUrl(resource) || !isLoopbackUrl(issuer))) {
           errors.push('allowInsecureHttpForDevelopment only permits loopback issuer and resource URLs');
         }

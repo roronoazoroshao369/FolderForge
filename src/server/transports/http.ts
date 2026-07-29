@@ -12,6 +12,13 @@ import {
   type OAuthRuntime,
 } from '../auth/oauth.js';
 
+export interface HttpGatewayGuard {
+  /** Static header injected only by a trusted local gateway/tunnel process. */
+  header: string;
+  /** Per-run secret value. Never log or persist this value. */
+  token: string;
+}
+
 export interface HttpTransportOptions {
   host: string;
   port: number;
@@ -34,6 +41,8 @@ export interface HttpTransportOptions {
   apiKeys?: string[];
   /** Force static-token auth in legacy mode, including on loopback. */
   requireAuth?: boolean;
+  /** Optional transport-level guard enforced before token/OAuth authentication. */
+  gatewayGuard?: HttpGatewayGuard;
   /** Allowed CORS origins. ['*'] allows any; empty/undefined disables CORS. */
   corsOrigins?: string[];
   /** Idle session lifetime in ms before the transport session is expired. */
@@ -75,6 +84,18 @@ export function extractApiKey(req: Pick<IncomingMessage, 'headers'>): string | u
     if (trimmed.length > 0) return trimmed;
   }
   return undefined;
+}
+
+/** Extract a single non-empty header value by normalized field name. */
+export function extractHeaderValue(
+  req: Pick<IncomingMessage, 'headers'>,
+  name: string
+): string | undefined {
+  const header = req.headers[name.toLowerCase()];
+  const raw = Array.isArray(header) ? header[0] : header;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**
@@ -203,6 +224,26 @@ export async function startHttpTransport(
   }
   if (authMode === 'oauth' && !opts.oauth) {
     throw new Error('OAuth mode requires OAuth resource-server configuration');
+  }
+
+  const gatewayGuard = opts.gatewayGuard
+    ? {
+        header: opts.gatewayGuard.header.trim().toLowerCase(),
+        token: opts.gatewayGuard.token,
+      }
+    : undefined;
+  if (gatewayGuard) {
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(gatewayGuard.header)) {
+      throw new Error('HTTP gateway guard header is invalid');
+    }
+    if (
+      ['authorization', 'cookie', 'host', 'content-length', 'proxy-authorization'].includes(
+        gatewayGuard.header
+      )
+    ) {
+      throw new Error(`HTTP gateway guard header is reserved: ${gatewayGuard.header}`);
+    }
+    if (!gatewayGuard.token) throw new Error('HTTP gateway guard token must not be empty');
   }
 
   const oauthRuntime = authMode === 'oauth' ? await createOAuthRuntime(opts.oauth!) : undefined;
@@ -354,7 +395,13 @@ export async function startHttpTransport(
       res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
       res.setHeader(
         'access-control-allow-headers',
-        'authorization, content-type, mcp-session-id, x-api-key'
+        [
+          'authorization',
+          'content-type',
+          'mcp-session-id',
+          'x-api-key',
+          ...(gatewayGuard ? [gatewayGuard.header] : []),
+        ].join(', ')
       );
     }
   };
@@ -375,6 +422,23 @@ export async function startHttpTransport(
 
       if (req.method === 'GET' && pathname === '/healthz') {
         writeJson(res, 200, { ok: true, instanceId, startedAt, activeSessions: sessions.size, sessionTtlMs });
+        return;
+      }
+
+      const gatewayProtected =
+        pathname === mcpPath ||
+        Boolean(oauthRuntime?.protectedResourceMetadataPaths.includes(pathname));
+      if (
+        gatewayProtected &&
+        gatewayGuard &&
+        !matchesAnyCredential(extractHeaderValue(req, gatewayGuard.header), [gatewayGuard.token])
+      ) {
+        writeJson(
+          res,
+          401,
+          { error: 'gateway_unauthorized', message: 'Trusted gateway credential required' },
+          { 'www-authenticate': 'FolderForge-Gateway realm="folderforge-mcp"' }
+        );
         return;
       }
 
@@ -498,6 +562,7 @@ export async function startHttpTransport(
           authMode,
           instanceId,
           sessionTtlMs,
+          ...(gatewayGuard ? { gatewayGuardHeader: gatewayGuard.header } : {}),
           ...(oauthRuntime ? { resource: oauthRuntime.config.resource, issuer: oauthRuntime.config.issuer } : {}),
         },
         'MCP HTTP transport listening'

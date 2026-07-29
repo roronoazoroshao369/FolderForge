@@ -129,6 +129,12 @@ function parseArgs(argv) {
                     args.oauthResource = v;
                 break;
             }
+            case "--oauth-metadata-url": {
+                const v = next();
+                if (v !== undefined)
+                    args.oauthMetadataUrl = v;
+                break;
+            }
             case "--oauth-issuer": {
                 const v = next();
                 if (v !== undefined)
@@ -248,6 +254,7 @@ function printHelp() {
         "      --require-auth       Enforce auth even on a loopback (localhost) bind",
         "      --auth <mode>        HTTP auth mode (none|token|oauth)",
         "      --oauth-resource <url> Canonical public MCP resource URL",
+        "      --oauth-metadata-url <url> Local RFC 9728 metadata URL override for trusted gateways",
         "      --oauth-issuer <url> External authorization-server issuer",
         "      --oauth-scopes <csv> OAuth scopes advertised by FolderForge",
         "      --oauth-read-scope <s> Scope required for read-only MCP access",
@@ -363,6 +370,10 @@ async function main() {
         ...(args.config !== undefined ? { configPath: args.config } : {}),
         ...(args.project !== undefined ? { projectRoot: args.project } : {}),
     });
+    const httpGatewayToken = process.env.FOLDERFORGE_HTTP_GATEWAY_TOKEN?.trim();
+    const httpGatewayHeader = (process.env.FOLDERFORGE_HTTP_GATEWAY_HEADER ?? 'X-FolderForge-Tunnel-Guard').trim();
+    delete process.env.FOLDERFORGE_HTTP_GATEWAY_TOKEN;
+    delete process.env.FOLDERFORGE_HTTP_GATEWAY_HEADER;
     // CLI overrides for transport/ports.
     if (args.http)
         config.server.transport = "http";
@@ -413,6 +424,7 @@ async function main() {
         };
     }
     const hasOauthCli = Boolean(args.oauthResource ||
+        args.oauthMetadataUrl ||
         args.oauthIssuer ||
         args.oauthScopes ||
         args.oauthReadScope ||
@@ -431,6 +443,9 @@ async function main() {
                 ...(existing ?? {}),
                 ...(args.oauthResource !== undefined
                     ? { resource: args.oauthResource }
+                    : {}),
+                ...(args.oauthMetadataUrl !== undefined
+                    ? { metadataUrl: args.oauthMetadataUrl }
                     : {}),
                 ...(args.oauthIssuer !== undefined ? { issuer: args.oauthIssuer } : {}),
                 ...(args.oauthScopes !== undefined ? { scopes: args.oauthScopes } : {}),
@@ -548,6 +563,14 @@ async function main() {
                 ? { apiKeys: config.server.http.apiKeys }
                 : {}),
             ...(forceAuth ? { requireAuth: true } : {}),
+            ...(httpGatewayToken
+                ? {
+                    gatewayGuard: {
+                        header: httpGatewayHeader,
+                        token: httpGatewayToken,
+                    },
+                }
+                : {}),
             ...(config.server.http.corsOrigins
                 ? { corsOrigins: config.server.http.corsOrigins }
                 : {}),

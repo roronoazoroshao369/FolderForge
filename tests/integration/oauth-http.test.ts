@@ -161,7 +161,8 @@ async function rpc(
   token: string,
   method: string,
   params: Record<string, unknown> | undefined,
-  id: number
+  id: number,
+  extraHeaders: Record<string, string> = {}
 ): Promise<{ response: Response; message: Record<string, unknown> }> {
   const response = await fetch(url, {
     method: 'POST',
@@ -169,6 +170,7 @@ async function rpc(
       accept: 'application/json, text/event-stream',
       'content-type': 'application/json',
       authorization: `Bearer ${token}`,
+      ...extraHeaders,
     },
     body: JSON.stringify({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) }),
   });
@@ -542,6 +544,122 @@ describe('OAuth HTTP MCP protocol', () => {
     auth.setCimdSupported(true);
     auth.setJwksUri('http://127.0.0.1:1/jwks');
     await expect(createOAuthRuntime(baseConfig)).rejects.toThrow(/not trusted/);
+  });
+
+  it('enforces a tunnel gateway guard before OAuth while preserving public audience and user identity', async () => {
+    const key = await createKey('tunnel-key');
+    const auth = await startAuthorizationFixture(key);
+    const port = await freePort();
+    const base = `http://127.0.0.1:${port}`;
+    const tunnelId = `tunnel_${'a'.repeat(32)}`;
+    const publicResource = `https://api.openai.com/v1/mcp/${tunnelId}`;
+    const metadataUrl = `${base}/.well-known/oauth-protected-resource/mcp`;
+    const gatewayHeader = 'X-FolderForge-Tunnel-Guard';
+    const gatewayToken = 'per-run-gateway-secret';
+    const { registry, calls } = createRegistryFixture();
+    const server = await startHttpTransport(
+      (principal) =>
+        createMcpServer(registry, {
+          name: 'folderforge-tunnel-oauth-test',
+          version: '0.0.0',
+          principal,
+        }),
+      {
+        host: '127.0.0.1',
+        port,
+        authMode: 'oauth',
+        gatewayGuard: { header: gatewayHeader, token: gatewayToken },
+        oauth: {
+          resource: publicResource,
+          metadataUrl,
+          issuer: auth.issuer,
+          scopes: ['folderforge:read', 'folderforge:write'],
+          readScope: 'folderforge:read',
+          writeScope: 'folderforge:write',
+          clientRegistration: 'cimd',
+          algorithms: ['RS256'],
+          clockToleranceSeconds: 0,
+          requestTimeoutMs: 2_000,
+          jwksCacheTtlMs: 60_000,
+          jwksCooldownMs: 0,
+          allowInsecureHttpForDevelopment: true,
+        },
+      }
+    );
+    servers.push(server);
+
+    const unguardedMetadata = await fetch(metadataUrl);
+    expect(unguardedMetadata.status).toBe(401);
+    expect(await unguardedMetadata.json()).toMatchObject({ error: 'gateway_unauthorized' });
+
+    const metadata = await fetch(metadataUrl, {
+      headers: { [gatewayHeader]: gatewayToken },
+    });
+    expect(metadata.status).toBe(200);
+    expect(await metadata.json()).toMatchObject({
+      resource: publicResource,
+      authorization_servers: [auth.issuer],
+    });
+
+    const oauthChallenge = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        [gatewayHeader]: gatewayToken,
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    });
+    expect(oauthChallenge.status).toBe(401);
+    expect(oauthChallenge.headers.get('www-authenticate')).toContain(
+      `resource_metadata="${metadataUrl}"`
+    );
+
+    const token = await signToken({
+      key,
+      issuer: auth.issuer,
+      audience: publicResource,
+      scopes: ['folderforge:read'],
+      subject: 'tunnel-user',
+      clientId: 'chatgpt-tunnel-client',
+    });
+
+    const missingGuard = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+    });
+    expect(missingGuard.status).toBe(401);
+    expect(await missingGuard.json()).toMatchObject({ error: 'gateway_unauthorized' });
+
+    const listed = await rpc(
+      `${base}/mcp`,
+      token,
+      'tools/list',
+      undefined,
+      3,
+      { [gatewayHeader]: gatewayToken }
+    );
+    expect(listed.response.status).toBe(200);
+
+    const called = await rpc(
+      `${base}/mcp`,
+      token,
+      'tools/call',
+      { name: 'read_test', arguments: {} },
+      4,
+      { [gatewayHeader]: gatewayToken }
+    );
+    expect((called.message.result as { isError?: boolean }).isError).not.toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.principal).toMatchObject({
+      authMode: 'oauth',
+      oauthClientId: 'chatgpt-tunnel-client',
+      scopes: ['folderforge:read'],
+    });
   });
 
 });

@@ -38,6 +38,15 @@ export function extractApiKey(req) {
     }
     return undefined;
 }
+/** Extract a single non-empty header value by normalized field name. */
+export function extractHeaderValue(req, name) {
+    const header = req.headers[name.toLowerCase()];
+    const raw = Array.isArray(header) ? header[0] : header;
+    if (typeof raw !== 'string')
+        return undefined;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
 /**
  * True when `provided` matches any accepted credential, compared in constant
  * time. Always walks the whole list so timing does not leak which credential
@@ -126,6 +135,22 @@ export async function startHttpTransport(makeMcpServer, opts) {
     }
     if (authMode === 'oauth' && !opts.oauth) {
         throw new Error('OAuth mode requires OAuth resource-server configuration');
+    }
+    const gatewayGuard = opts.gatewayGuard
+        ? {
+            header: opts.gatewayGuard.header.trim().toLowerCase(),
+            token: opts.gatewayGuard.token,
+        }
+        : undefined;
+    if (gatewayGuard) {
+        if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(gatewayGuard.header)) {
+            throw new Error('HTTP gateway guard header is invalid');
+        }
+        if (['authorization', 'cookie', 'host', 'content-length', 'proxy-authorization'].includes(gatewayGuard.header)) {
+            throw new Error(`HTTP gateway guard header is reserved: ${gatewayGuard.header}`);
+        }
+        if (!gatewayGuard.token)
+            throw new Error('HTTP gateway guard token must not be empty');
     }
     const oauthRuntime = authMode === 'oauth' ? await createOAuthRuntime(opts.oauth) : undefined;
     const instanceId = `http_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
@@ -260,7 +285,13 @@ export async function startHttpTransport(makeMcpServer, opts) {
             res.setHeader('access-control-allow-origin', origin);
             res.setHeader('vary', 'Origin');
             res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
-            res.setHeader('access-control-allow-headers', 'authorization, content-type, mcp-session-id, x-api-key');
+            res.setHeader('access-control-allow-headers', [
+                'authorization',
+                'content-type',
+                'mcp-session-id',
+                'x-api-key',
+                ...(gatewayGuard ? [gatewayGuard.header] : []),
+            ].join(', '));
         }
     };
     const http = createServer((req, res) => {
@@ -277,6 +308,14 @@ export async function startHttpTransport(makeMcpServer, opts) {
             }
             if (req.method === 'GET' && pathname === '/healthz') {
                 writeJson(res, 200, { ok: true, instanceId, startedAt, activeSessions: sessions.size, sessionTtlMs });
+                return;
+            }
+            const gatewayProtected = pathname === mcpPath ||
+                Boolean(oauthRuntime?.protectedResourceMetadataPaths.includes(pathname));
+            if (gatewayProtected &&
+                gatewayGuard &&
+                !matchesAnyCredential(extractHeaderValue(req, gatewayGuard.header), [gatewayGuard.token])) {
+                writeJson(res, 401, { error: 'gateway_unauthorized', message: 'Trusted gateway credential required' }, { 'www-authenticate': 'FolderForge-Gateway realm="folderforge-mcp"' });
                 return;
             }
             if (oauthRuntime?.protectedResourceMetadataPaths.includes(pathname)) {
@@ -369,6 +408,7 @@ export async function startHttpTransport(makeMcpServer, opts) {
                 authMode,
                 instanceId,
                 sessionTtlMs,
+                ...(gatewayGuard ? { gatewayGuardHeader: gatewayGuard.header } : {}),
                 ...(oauthRuntime ? { resource: oauthRuntime.config.resource, issuer: oauthRuntime.config.issuer } : {}),
             }, 'MCP HTTP transport listening');
             resolveListen();

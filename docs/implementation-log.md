@@ -761,3 +761,8 @@ be created.
   `tools/list`, one read-only call, and one write-scope call remain unobserved
   because they require the operator's ChatGPT UI and user-owned login session.
   The running quick endpoint is temporary and must not be treated as production.
+## 2026-07-29 - OpenAI tunnel OAuth composition
+
+- Added an OAuth-enabled Secure MCP Tunnel launcher that composes the existing Auth0/DCR lifecycle with the official `openai/tunnel-client`.
+- Added a per-run gateway guard independent from OAuth bearer identity, public-audience/local-metadata separation, local discovery/challenge verification, DCR wait/repair, and secret-free version 2 tunnel receipts.
+- Added unit, configuration, and integration coverage for public tunnel audiences, guarded discovery, missing-guard denial, JWT audience/scopes, and preserved OAuth client identity.

@@ -50,11 +50,12 @@ For a private workstation or local project, provision an OpenAI tunnel and runti
 ```bash
 export CONTROL_PLANE_API_KEY='sk-...'
 folderforge connect chatgpt --openai-tunnel \
+  --oauth \
   --tunnel-id tunnel_0123456789abcdef0123456789abcdef \
   --project /absolute/path/to/project
 ```
 
-FolderForge installs and verifies the official `openai/tunnel-client`, starts a loopback-only token-authenticated MCP server, waits for both processes to become healthy, and supervises them until `Ctrl+C`. After the first successful run, the same project normally needs only:
+With `--oauth`, FolderForge reuses its Auth0/DCR lifecycle, starts a loopback-only OAuth resource server behind a separate per-run tunnel guard, verifies local discovery and the OAuth challenge, and supervises both processes until `Ctrl+C`. Omit `--oauth` to retain legacy static-token mode. After the first successful OAuth run, the same project normally needs only:
 
 ```bash
 export CONTROL_PLANE_API_KEY='sk-...'

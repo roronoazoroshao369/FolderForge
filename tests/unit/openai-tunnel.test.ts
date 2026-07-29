@@ -15,14 +15,20 @@ import {
   buildFolderForgeServerArgs,
   buildOpenAiTunnelChildEnvironments,
   buildTunnelClientArgs,
+  deriveOpenAiTunnelResource,
   executeOpenAiTunnelCli,
   parseOpenAiTunnelArgs,
   readOpenAiTunnelReceipt,
   selectTunnelClientReleaseAsset,
   validateTunnelId,
   writeOpenAiTunnelReceipt,
+  type OpenAiTunnelAuthReceipt,
   type OpenAiTunnelReceipt,
 } from "../../src/chatgpt/openai-tunnel.js";
+import type {
+  ChatGptCliResult,
+  ChatGptConnectionReceipt,
+} from "../../src/chatgpt/cli.js";
 
 const TUNNEL_ID = `tunnel_${"a".repeat(32)}`;
 
@@ -30,11 +36,34 @@ function fakeTunnelClient(root: string): string {
   const bin = join(root, "tunnel-client");
   writeFileSync(
     bin,
-    "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'tunnel-client v0.0.10'; exit 0; fi\nif [ \"$1\" = \"run\" ] && [ \"$2\" = \"--help\" ]; then echo '--control-plane.tunnel-id --control-plane.api-key --mcp.server-url --mcp.extra-headers --mcp.discovery-extra-headers --health.listen-addr --health.url-file --log.level --log.format'; exit 0; fi\nexit 0\n",
+    '#!/bin/sh\nif [ "$1" = "--version" ]; then echo \'tunnel-client v0.0.10\'; exit 0; fi\nif [ "$1" = "run" ] && [ "$2" = "--help" ]; then echo \'--control-plane.tunnel-id --control-plane.api-key --mcp.server-url --mcp.extra-headers --mcp.discovery-extra-headers --health.listen-addr --health.url-file --log.level --log.format\'; exit 0; fi\nexit 0\n',
     { mode: 0o755 },
   );
   chmodSync(bin, 0o755);
   return bin;
+}
+
+function oauthAuth(root: string): OpenAiTunnelAuthReceipt {
+  return {
+    mode: "oauth",
+    gatewayHeader: "X-FolderForge-Tunnel-Guard",
+    oauth: {
+      provider: "auth0",
+      tenant: "example.auth0.com",
+      issuer: "https://example.auth0.com",
+      resource: deriveOpenAiTunnelResource(TUNNEL_ID),
+      scopes: ["folderforge:read", "folderforge:write"],
+      readScope: "folderforge:read",
+      writeScope: "folderforge:write",
+      registration: "dcr",
+      configPath: join(root, ".folderforge", "chatgpt-config.yaml"),
+      connectionReceiptPath: join(
+        root,
+        ".folderforge",
+        "chatgpt-connection.json",
+      ),
+    },
+  };
 }
 
 function receipt(root: string): OpenAiTunnelReceipt {
@@ -92,6 +121,84 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     ).toThrow(/only one/);
   });
 
+  it("parses OAuth tunnel controls and derives the public tunnel audience", () => {
+    const parsed = parseOpenAiTunnelArgs([
+      "connect",
+      "--openai-tunnel",
+      "--oauth",
+      "--oauth-tenant",
+      "example.auth0.com",
+      "--oauth-login-connection",
+      "Username-Password-Authentication,google-oauth2",
+      "--tunnel-base-url",
+      "https://gateway.example/workspace/dev",
+    ]);
+
+    expect(parsed.oauth).toBe(true);
+    expect(parsed.oauthWait).toBe(true);
+    expect(parsed.oauthTenant).toBe("example.auth0.com");
+    expect(parsed.oauthLoginConnections).toEqual([
+      "Username-Password-Authentication",
+      "google-oauth2",
+    ]);
+    expect(
+      parseOpenAiTunnelArgs(["connect", "--openai-tunnel", "--oauth-no-wait"])
+        .oauth,
+    ).toBe(true);
+    expect(() =>
+      parseOpenAiTunnelArgs([
+        "connect",
+        "--openai-tunnel",
+        "--no-oauth",
+        "--oauth-tenant",
+        "example.auth0.com",
+      ]),
+    ).toThrow(/conflicts/);
+    expect(deriveOpenAiTunnelResource(TUNNEL_ID)).toBe(
+      `https://api.openai.com/v1/mcp/${TUNNEL_ID}`,
+    );
+    expect(
+      deriveOpenAiTunnelResource(
+        TUNNEL_ID,
+        "https://gateway.example/workspace/dev",
+      ),
+    ).toBe(`https://gateway.example/workspace/dev/v1/mcp/${TUNNEL_ID}`);
+  });
+
+  it("rejects an OAuth audience that does not belong to the selected tunnel", async () => {
+    const root = mkdtempSync(join(tmpdir(), "folderforge-openai-audience-"));
+    const project = join(root, "project");
+    mkdirSync(project);
+    const client = fakeTunnelClient(root);
+    const result = await executeOpenAiTunnelCli(
+      [
+        "connect",
+        "--openai-tunnel",
+        "--oauth-resource",
+        `https://api.openai.com/v1/mcp/tunnel_${"b".repeat(32)}`,
+        "--project",
+        project,
+        "--tunnel-id",
+        TUNNEL_ID,
+        "--tunnel-client",
+        client,
+        "--dry-run",
+        "--no-open",
+      ],
+      {
+        env: {
+          PATH: "",
+          CONTROL_PLANE_API_KEY: "sk-runtime-secret-that-must-not-leak",
+        },
+        homeDir: root,
+        stdoutIsTty: false,
+      },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain(`must end with /v1/mcp/${TUNNEL_ID}`);
+    expect(result.output).not.toContain("sk-runtime-secret-that-must-not-leak");
+  });
+
   it("accepts only the official digested GitHub release asset", () => {
     const selected = selectTunnelClientReleaseAsset({
       tag_name: "v0.0.10",
@@ -143,6 +250,72 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     expect(args).toContain("danger");
     expect(args).toContain("full");
     expect(args).not.toContain("--dangerously-allow-critical");
+  });
+
+  it("builds an OAuth server with a separate local metadata route and gateway header", () => {
+    const auth = oauthAuth("/workspace/project");
+    const args = buildFolderForgeServerArgs("/pkg/dist/main.js", {
+      projectRoot: "/workspace/project",
+      dashboard: false,
+      mcpPort: 7005,
+      policyMode: "danger",
+      toolsPreset: "full",
+      auth,
+    });
+
+    expect(args).toContain("oauth");
+    expect(args).toContain("--oauth-resource");
+    expect(args).toContain(auth.oauth?.resource);
+    expect(args).toContain("--oauth-metadata-url");
+    expect(args).toContain(
+      "http://127.0.0.1:7005/.well-known/oauth-protected-resource/mcp",
+    );
+    expect(args).toContain("https://example.auth0.com");
+    expect(args).not.toContain("--require-auth");
+    expect(args).not.toContain("token");
+  });
+
+  it("uses the same per-run gateway secret for OAuth runtime and discovery without replacing bearer identity", () => {
+    const auth = oauthAuth("/workspace/project");
+    const args = buildTunnelClientArgs({
+      tunnelId: TUNNEL_ID,
+      apiKeyRef: "env:CONTROL_PLANE_API_KEY",
+      policyMode: "dev",
+      toolsPreset: "full",
+      tunnelClientPath: "/bin/tunnel-client",
+      tunnelClientVersion: "0.0.10",
+      mcpPort: 7005,
+      localMcpUrl: "http://127.0.0.1:7005/mcp",
+      healthUrlFile: "/tmp/health.url",
+      serverLog: "/tmp/server.log",
+      auth,
+    });
+    expect(args).toContain(
+      "X-FolderForge-Tunnel-Guard: env:FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN",
+    );
+
+    const { serverEnv, tunnelEnv } = buildOpenAiTunnelChildEnvironments(
+      {
+        CONTROL_PLANE_API_KEY: "sk-control-plane-secret",
+        FOLDERFORGE_HTTP_TOKEN: "stale-token",
+      },
+      "env:CONTROL_PLANE_API_KEY",
+      "per-run-gateway-secret",
+      auth,
+    );
+    expect(serverEnv.CONTROL_PLANE_API_KEY).toBeUndefined();
+    expect(serverEnv.FOLDERFORGE_HTTP_TOKEN).toBeUndefined();
+    expect(serverEnv.FOLDERFORGE_HTTP_GATEWAY_TOKEN).toBe(
+      "per-run-gateway-secret",
+    );
+    expect(serverEnv.FOLDERFORGE_HTTP_GATEWAY_HEADER).toBe(
+      "X-FolderForge-Tunnel-Guard",
+    );
+    expect(tunnelEnv.CONTROL_PLANE_API_KEY).toBe("sk-control-plane-secret");
+    expect(tunnelEnv.FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN).toBe(
+      "per-run-gateway-secret",
+    );
+    expect(tunnelEnv.FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN).toBeUndefined();
   });
 
   it("passes only secret references and a protected local MCP header", () => {
@@ -216,6 +389,81 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     ).toThrow(/API key value/);
   });
 
+  it("stores version 2 OAuth state without persisting either runtime secret", () => {
+    const root = mkdtempSync(
+      join(tmpdir(), "folderforge-openai-oauth-receipt-"),
+    );
+    const path = join(root, "state", "openai-tunnel.json");
+    const value: OpenAiTunnelReceipt = {
+      ...receipt(root),
+      version: 2,
+      auth: oauthAuth(root),
+    };
+
+    writeOpenAiTunnelReceipt(path, value);
+    expect(readOpenAiTunnelReceipt(path)).toEqual(value);
+    const stored = readFileSync(path, "utf8");
+    expect(stored).toContain('"mode": "oauth"');
+    expect(stored).not.toContain("per-run-gateway-secret");
+    expect(stored).not.toMatch(/\bsk-/);
+
+    expect(() =>
+      writeOpenAiTunnelReceipt(path, {
+        ...value,
+        auth: {
+          ...value.auth!,
+          oauth: {
+            ...value.auth!.oauth!,
+            connectionReceiptPath: join(root, "outside.json"),
+          },
+        },
+      }),
+    ).toThrow(/invalid OAuth state/);
+  });
+
+  it("rejects an OAuth receipt copied from a different project", async () => {
+    const root = mkdtempSync(
+      join(tmpdir(), "folderforge-openai-project-boundary-"),
+    );
+    const project = join(root, "project");
+    const otherProject = join(root, "other-project");
+    mkdirSync(project);
+    mkdirSync(otherProject);
+    const state = join(project, ".folderforge");
+    mkdirSync(state);
+    const client = fakeTunnelClient(root);
+    const copied: OpenAiTunnelReceipt = {
+      ...receipt(otherProject),
+      tunnelClient: { path: client, version: "0.0.10" },
+    };
+    writeFileSync(
+      join(state, "openai-tunnel.json"),
+      `${JSON.stringify(copied, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+
+    const result = await executeOpenAiTunnelCli(
+      [
+        "connect",
+        "--openai-tunnel",
+        "--project",
+        project,
+        "--tunnel-client",
+        client,
+        "--dry-run",
+        "--no-open",
+      ],
+      {
+        env: { PATH: "", CONTROL_PLANE_API_KEY: "sk-runtime-secret" },
+        homeDir: root,
+        stdoutIsTty: false,
+      },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("belongs to a different project");
+    expect(result.output).not.toContain("sk-runtime-secret");
+  });
+
   it("rejects a symlinked local state directory", () => {
     if (process.platform === "win32") return;
 
@@ -227,14 +475,16 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     symlinkSync(outside, join(project, ".folderforge"));
 
     const receiptPath = join(project, ".folderforge", "openai-tunnel.json");
-    expect(() => writeOpenAiTunnelReceipt(receiptPath, receipt(project))).toThrow(
-      /unsafe local state directory/,
-    );
+    expect(() =>
+      writeOpenAiTunnelReceipt(receiptPath, receipt(project)),
+    ).toThrow(/unsafe local state directory/);
     expect(existsSync(join(outside, "openai-tunnel.json"))).toBe(false);
   });
 
   it("installs or verifies the client without requiring a tunnel ID or API key", async () => {
-    const root = mkdtempSync(join(tmpdir(), "folderforge-openai-install-only-"));
+    const root = mkdtempSync(
+      join(tmpdir(), "folderforge-openai-install-only-"),
+    );
     mkdirSync(join(root, "project"));
     const client = fakeTunnelClient(root);
 
@@ -260,13 +510,15 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
   });
 
   it("rejects an incompatible tunnel-client before launch", async () => {
-    const root = mkdtempSync(join(tmpdir(), "folderforge-openai-incompatible-"));
+    const root = mkdtempSync(
+      join(tmpdir(), "folderforge-openai-incompatible-"),
+    );
     const project = join(root, "project");
     mkdirSync(project);
     const client = join(root, "tunnel-client");
     writeFileSync(
       client,
-      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'tunnel-client v0.0.1'; exit 0; fi\nif [ \"$1\" = \"run\" ] && [ \"$2\" = \"--help\" ]; then echo '--mcp.server-url'; exit 0; fi\nexit 0\n",
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then echo \'tunnel-client v0.0.1\'; exit 0; fi\nif [ "$1" = "run" ] && [ "$2" = "--help" ]; then echo \'--mcp.server-url\'; exit 0; fi\nexit 0\n',
       { mode: 0o755 },
     );
     chmodSync(client, 0o755);
@@ -287,6 +539,67 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("Incompatible tunnel-client");
     expect(result.output).toContain("--control-plane.tunnel-id");
+  });
+
+  it("provisions the existing Auth0 lifecycle and prints a complete OAuth tunnel dry-run", async () => {
+    const root = mkdtempSync(
+      join(tmpdir(), "folderforge-openai-oauth-dry-run-"),
+    );
+    const project = join(root, "project");
+    mkdirSync(project);
+    const client = fakeTunnelClient(root);
+    const executeChatGptCliImpl = async (
+      argv: string[],
+    ): Promise<ChatGptCliResult> => {
+      const resource = argv[argv.indexOf("--public-url") + 1]!;
+      const fakeReceipt = {
+        provider: "auth0",
+        tenant: "example.auth0.com",
+        issuer: "https://example.auth0.com",
+        resource,
+        scopes: ["folderforge:read", "folderforge:write"],
+        registration: "dcr",
+        configPath: join(project, ".folderforge", "chatgpt.yaml"),
+        projectRoot: project,
+      } as ChatGptConnectionReceipt;
+      return { exitCode: 0, output: "", receipt: fakeReceipt };
+    };
+
+    const result = await executeOpenAiTunnelCli(
+      [
+        "connect",
+        "--openai-tunnel",
+        "--oauth",
+        "--project",
+        project,
+        "--tunnel-id",
+        TUNNEL_ID,
+        "--tunnel-client",
+        client,
+        "--dry-run",
+        "--no-open",
+      ],
+      {
+        env: {
+          PATH: "",
+          CONTROL_PLANE_API_KEY: "sk-runtime-secret-that-must-not-leak",
+        },
+        homeDir: root,
+        stdoutIsTty: false,
+        executeChatGptCliImpl,
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("OAuth + gateway guard");
+    expect(result.output).toContain(
+      `https://api.openai.com/v1/mcp/${TUNNEL_ID}`,
+    );
+    expect(result.output).toContain("--oauth-metadata-url");
+    expect(result.output).toContain(
+      "X-FolderForge-Tunnel-Guard: env:FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN",
+    );
+    expect(result.output).not.toContain("sk-runtime-secret-that-must-not-leak");
   });
 
   it("prints a dry-run plan without leaking the runtime API key", async () => {

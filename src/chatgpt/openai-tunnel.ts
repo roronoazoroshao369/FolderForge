@@ -33,6 +33,11 @@ import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import * as tar from "tar";
 import { redactSensitiveText } from "./lifecycle.js";
+import {
+  executeChatGptCli,
+  type ChatGptCliResult,
+  type ChatGptConnectionReceipt,
+} from "./cli.js";
 
 const RELEASE_API =
   "https://api.github.com/repos/openai/tunnel-client/releases/latest";
@@ -42,6 +47,8 @@ const RUNTIME_KEYS_URL =
 const CHATGPT_CONNECTORS_URL = "https://chatgpt.com/#settings/Connectors";
 const DEFAULT_MCP_PORT = 7331;
 const DEFAULT_DASHBOARD_PORT = 7332;
+const DEFAULT_TUNNEL_BASE_URL = "https://api.openai.com";
+const DEFAULT_GATEWAY_HEADER = "X-FolderForge-Tunnel-Guard";
 const MAX_RELEASE_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const TUNNEL_ID_PATTERN = /^tunnel_[0-9a-f]{32}$/;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -60,12 +67,28 @@ const CLI_ENTRY = fileURLToPath(new URL("../main.js", import.meta.url));
 
 export type OpenAiTunnelPolicyMode = "readonly" | "safe" | "dev" | "danger";
 export type OpenAiTunnelToolsPreset =
-  | "vibe"
-  | "vibe-lite"
-  | "readonly"
-  | "full"
-  | "godot";
+  "vibe" | "vibe-lite" | "readonly" | "full" | "godot";
 export type OpenAiTunnelProfile = "safe" | "developer" | "full";
+export type OpenAiTunnelAuthMode = "token" | "oauth";
+
+export interface OpenAiTunnelOAuthReceipt {
+  provider: "auth0";
+  tenant: string;
+  issuer: string;
+  resource: string;
+  scopes: string[];
+  readScope: string;
+  writeScope: string;
+  registration: "dcr" | "predefined";
+  configPath: string;
+  connectionReceiptPath: string;
+}
+
+export interface OpenAiTunnelAuthReceipt {
+  mode: OpenAiTunnelAuthMode;
+  gatewayHeader?: string;
+  oauth?: OpenAiTunnelOAuthReceipt;
+}
 
 export interface OpenAiTunnelOptions {
   projectRoot: string;
@@ -83,10 +106,17 @@ export interface OpenAiTunnelOptions {
   installOnly: boolean;
   openBrowser?: boolean;
   dryRun: boolean;
+  oauth?: boolean;
+  oauthRepair: boolean;
+  oauthWait: boolean;
+  oauthTenant?: string;
+  oauthResource?: string;
+  tunnelBaseUrl?: string;
+  oauthLoginConnections: string[];
 }
 
 export interface OpenAiTunnelReceipt {
-  version: 1;
+  version: 1 | 2;
   provider: "openai-secure-mcp-tunnel";
   projectRoot: string;
   tunnelId: string;
@@ -95,6 +125,7 @@ export interface OpenAiTunnelReceipt {
   policyMode: OpenAiTunnelPolicyMode;
   toolsPreset: OpenAiTunnelToolsPreset;
   dashboard: boolean;
+  auth?: OpenAiTunnelAuthReceipt;
   tunnelClient: {
     path: string;
     version: string;
@@ -153,6 +184,7 @@ interface ResolvedRuntime {
   localMcpUrl: string;
   healthUrlFile: string;
   serverLog: string;
+  auth: OpenAiTunnelAuthReceipt;
 }
 
 export interface OpenAiTunnelCliHooks {
@@ -164,6 +196,7 @@ export interface OpenAiTunnelCliHooks {
   arch?: string;
   env?: NodeJS.ProcessEnv;
   stdoutIsTty?: boolean;
+  executeChatGptCliImpl?: typeof executeChatGptCli;
 }
 
 function progressSink(onLine?: (line: string) => void): ProgressSink {
@@ -218,7 +251,13 @@ export function parseOpenAiTunnelArgs(
     autoInstall: true,
     installOnly: false,
     dryRun: false,
+    oauthRepair: false,
+    oauthWait: true,
+    oauthLoginConnections: [],
   };
+  let oauthExplicitlyEnabled = false;
+  let oauthExplicitlyDisabled = false;
+  let oauthSpecificOptionSeen = false;
 
   const startIndex = argv[0] === "connect" ? 1 : 0;
   for (let index = startIndex; index < argv.length; index += 1) {
@@ -304,6 +343,58 @@ export function parseOpenAiTunnelArgs(
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--oauth":
+        oauthExplicitlyEnabled = true;
+        options.oauth = true;
+        break;
+      case "--no-oauth":
+        oauthExplicitlyDisabled = true;
+        options.oauth = false;
+        break;
+      case "--oauth-repair":
+        oauthSpecificOptionSeen = true;
+        options.oauth = true;
+        options.oauthRepair = true;
+        break;
+      case "--oauth-wait":
+        oauthSpecificOptionSeen = true;
+        options.oauth = true;
+        options.oauthWait = true;
+        break;
+      case "--oauth-no-wait":
+        oauthSpecificOptionSeen = true;
+        options.oauth = true;
+        options.oauthWait = false;
+        break;
+      case "--oauth-tenant":
+        oauthSpecificOptionSeen = true;
+        options.oauth = true;
+        options.oauthTenant = valueAfter(argv, index, arg);
+        index += 1;
+        break;
+      case "--oauth-resource":
+        oauthSpecificOptionSeen = true;
+        options.oauth = true;
+        options.oauthResource = valueAfter(argv, index, arg);
+        index += 1;
+        break;
+      case "--tunnel-base-url":
+        oauthSpecificOptionSeen = true;
+        options.oauth = true;
+        options.tunnelBaseUrl = valueAfter(argv, index, arg);
+        index += 1;
+        break;
+      case "--oauth-login-connection":
+        oauthSpecificOptionSeen = true;
+        options.oauth = true;
+        options.oauthLoginConnections.push(
+          ...valueAfter(argv, index, arg)
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        );
+        index += 1;
+        break;
       case "--help":
       case "-h":
         throw new Error("HELP");
@@ -314,6 +405,12 @@ export function parseOpenAiTunnelArgs(
 
   if (options.apiKeyEnv && options.apiKeyFile) {
     throw new Error("Choose only one of --api-key-env or --api-key-file");
+  }
+  if (
+    oauthExplicitlyDisabled &&
+    (oauthExplicitlyEnabled || oauthSpecificOptionSeen)
+  ) {
+    throw new Error("--no-oauth conflicts with OAuth-specific options");
   }
   return options;
 }
@@ -353,6 +450,14 @@ export function openAiTunnelHelp(): string {
     "      --dashboard/--no-dashboard  Local approval dashboard (default enabled)",
     "      --dashboard-port <n>  Preferred dashboard port (default 7332 or free port)",
     "      --open/--no-open      Open tunnel UI and ChatGPT settings (default on TTY)",
+    "      --oauth               Provision/reuse Auth0 OAuth in front of the private MCP",
+    "      --no-oauth            Force legacy per-run static-token mode",
+    "      --oauth-repair        Re-provision Auth0/DCR even when a saved OAuth receipt exists",
+    "      --oauth-wait/--oauth-no-wait  Wait for and repair ChatGPT DCR after startup (default wait)",
+    "      --oauth-tenant <host> Auth0 tenant override; otherwise active Auth0 CLI tenant",
+    "      --oauth-resource <url> Exact public tunnel MCP resource/audience override",
+    "      --tunnel-base-url <url> Base used to derive /v1/mcp/<tunnel-id> (default api.openai.com)",
+    "      --oauth-login-connection <name> Auth0 login connection; repeat or comma-separate",
     "      --dry-run             Validate and print the launch plan without starting",
     "",
     `Create or inspect a tunnel: ${TUNNELS_URL}`,
@@ -413,7 +518,7 @@ export function readOpenAiTunnelReceipt(
   ensureSafeRegularFile(path);
   const parsed = JSON.parse(readFileSync(path, "utf8")) as OpenAiTunnelReceipt;
   if (
-    parsed.version !== 1 ||
+    (parsed.version !== 1 && parsed.version !== 2) ||
     parsed.provider !== "openai-secure-mcp-tunnel" ||
     !TUNNEL_ID_PATTERN.test(parsed.tunnelId) ||
     typeof parsed.apiKeyRef !== "string"
@@ -435,13 +540,73 @@ function assertSecretSafeReceipt(receipt: OpenAiTunnelReceipt): void {
   const fileRef = receipt.apiKeyRef.startsWith("file:")
     ? receipt.apiKeyRef.slice(5)
     : undefined;
-  if (
-    !(
-      (envRef !== undefined && ENV_NAME_PATTERN.test(envRef)) ||
-      (fileRef !== undefined && isAbsolute(fileRef))
-    )
-  ) {
-    throw new Error("OpenAI tunnel receipt contains an unsafe API key reference");
+  if (!(
+    (envRef !== undefined && ENV_NAME_PATTERN.test(envRef)) ||
+    (fileRef !== undefined && isAbsolute(fileRef))
+  )) {
+    throw new Error(
+      "OpenAI tunnel receipt contains an unsafe API key reference",
+    );
+  }
+  if (receipt.auth) {
+    if (receipt.auth.mode !== "token" && receipt.auth.mode !== "oauth") {
+      throw new Error(
+        "OpenAI tunnel receipt contains an unsupported auth mode",
+      );
+    }
+    if (receipt.auth.gatewayHeader) {
+      const header = receipt.auth.gatewayHeader.trim();
+      if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(header)) {
+        throw new Error(
+          "OpenAI tunnel receipt contains an invalid gateway header",
+        );
+      }
+    }
+    if (receipt.auth.mode === "oauth") {
+      const oauth = receipt.auth.oauth;
+      const expectedConfigPath = join(
+        receipt.projectRoot,
+        ".folderforge",
+        "chatgpt-config.yaml",
+      );
+      const expectedConnectionReceiptPath = chatGptConnectionReceiptPath(
+        receipt.projectRoot,
+      );
+      if (
+        !oauth ||
+        oauth.provider !== "auth0" ||
+        !isAbsolute(receipt.projectRoot) ||
+        oauth.scopes.length === 0 ||
+        !oauth.scopes.includes(oauth.readScope) ||
+        !oauth.scopes.includes(oauth.writeScope) ||
+        resolve(oauth.configPath) !== resolve(expectedConfigPath) ||
+        resolve(oauth.connectionReceiptPath) !==
+          resolve(expectedConnectionReceiptPath)
+      ) {
+        throw new Error("OpenAI tunnel receipt contains invalid OAuth state");
+      }
+      for (const [label, raw] of [
+        ["OAuth resource", oauth.resource],
+        ["OAuth issuer", oauth.issuer],
+      ] as const) {
+        const url = new URL(raw);
+        const wrongTunnelResource =
+          label === "OAuth resource" &&
+          !url.pathname
+            .replace(/\/$/, "")
+            .endsWith(`/v1/mcp/${receipt.tunnelId}`);
+        if (
+          url.protocol !== "https:" ||
+          url.username ||
+          url.password ||
+          url.search ||
+          url.hash ||
+          wrongTunnelResource
+        ) {
+          throw new Error(`OpenAI tunnel receipt contains an unsafe ${label}`);
+        }
+      }
+    }
   }
 }
 
@@ -470,6 +635,176 @@ function profileDefaults(profile: OpenAiTunnelProfile): {
   }
 }
 
+function normalizeHttpsBaseUrl(raw: string, label: string): string {
+  const url = new URL(raw);
+  if (url.protocol !== "https:") throw new Error(`${label} must use HTTPS`);
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(`${label} must not contain userinfo, query, or fragment`);
+  }
+  url.pathname = url.pathname.replace(/\/$/, "");
+  return url.href.replace(/\/$/, "");
+}
+
+function normalizeOAuthResource(raw: string, tunnelId: string): string {
+  const url = new URL(raw);
+  if (url.protocol !== "https:")
+    throw new Error("--oauth-resource must use HTTPS");
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(
+      "--oauth-resource must not contain userinfo, query, or fragment",
+    );
+  }
+  url.pathname = url.pathname.replace(/\/$/, "");
+  const expectedSuffix = `/v1/mcp/${validateTunnelId(tunnelId)}`;
+  if (!url.pathname.endsWith(expectedSuffix)) {
+    throw new Error(
+      `--oauth-resource must end with ${expectedSuffix} for the selected tunnel`,
+    );
+  }
+  return url.href.replace(/\/$/, "");
+}
+
+export function deriveOpenAiTunnelResource(
+  tunnelId: string,
+  baseUrl = DEFAULT_TUNNEL_BASE_URL,
+): string {
+  const base = new URL(normalizeHttpsBaseUrl(baseUrl, "--tunnel-base-url"));
+  const prefix = base.pathname === "/" ? "" : base.pathname.replace(/\/$/, "");
+  base.pathname = `${prefix}/v1/mcp/${validateTunnelId(tunnelId)}`;
+  return base.href;
+}
+
+function chatGptConnectionReceiptPath(projectRoot: string): string {
+  return join(projectRoot, ".folderforge", "chatgpt-connection.json");
+}
+
+function oauthReceiptFromChatGpt(
+  receipt: ChatGptConnectionReceipt,
+): OpenAiTunnelOAuthReceipt {
+  return {
+    provider: "auth0",
+    tenant: receipt.tenant,
+    issuer: receipt.issuer,
+    resource: receipt.resource,
+    scopes: [...receipt.scopes],
+    readScope: receipt.scopes.includes("folderforge:read")
+      ? "folderforge:read"
+      : (receipt.scopes[0] ?? "folderforge:read"),
+    writeScope: receipt.scopes.includes("folderforge:write")
+      ? "folderforge:write"
+      : (receipt.scopes[1] ?? "folderforge:write"),
+    registration: receipt.registration,
+    configPath: receipt.configPath,
+    connectionReceiptPath: chatGptConnectionReceiptPath(receipt.projectRoot),
+  };
+}
+
+async function provisionTunnelOAuth(
+  options: OpenAiTunnelOptions,
+  runtime: ResolvedRuntime,
+  resource: string,
+  executeImpl: typeof executeChatGptCli,
+  sink: ProgressSink,
+): Promise<OpenAiTunnelOAuthReceipt> {
+  const argv = [
+    "connect",
+    "--quick",
+    "--public-url",
+    resource,
+    "--tunnel",
+    "none",
+    "--project",
+    options.projectRoot,
+    "--host",
+    "127.0.0.1",
+    "--port",
+    String(runtime.mcpPort),
+    "--profile",
+    options.profile,
+    "--policy",
+    runtime.policyMode,
+    "--tools-preset",
+    runtime.toolsPreset,
+    options.dashboard ? "--dashboard" : "--no-dashboard",
+    "--dashboard-port",
+    String(runtime.dashboardPort ?? DEFAULT_DASHBOARD_PORT),
+    "--no-start",
+    "--no-wait",
+    ...(options.oauthTenant ? ["--tenant", options.oauthTenant] : []),
+    ...options.oauthLoginConnections.flatMap((connection) => [
+      "--login-connection",
+      connection,
+    ]),
+    ...(options.oauthRepair ? ["--force-config"] : []),
+    ...(options.dryRun ? ["--dry-run"] : []),
+  ];
+  sink.line("• Provisioning Auth0 OAuth for the OpenAI tunnel resource...");
+  const result: ChatGptCliResult = await executeImpl(argv, {
+    cwd: options.projectRoot,
+    onLine: (line) => sink.line(line),
+  });
+  if (result.exitCode !== 0 || !result.receipt) {
+    throw new Error(
+      `Auth0 OAuth provisioning failed. ${result.output.trim()}`.trim(),
+    );
+  }
+  if (result.receipt.resource !== resource) {
+    throw new Error(
+      "Auth0 OAuth provisioning returned a different resource audience",
+    );
+  }
+  sink.line("✓ Auth0 OAuth resource server and DCR policy are ready");
+  return oauthReceiptFromChatGpt(result.receipt);
+}
+
+async function resolveTunnelAuth(
+  options: OpenAiTunnelOptions,
+  runtime: ResolvedRuntime,
+  previous: OpenAiTunnelReceipt | undefined,
+  env: NodeJS.ProcessEnv,
+  executeImpl: typeof executeChatGptCli,
+  sink: ProgressSink,
+): Promise<OpenAiTunnelAuthReceipt> {
+  const oauthEnabled = options.oauth ?? previous?.auth?.mode === "oauth";
+  if (!oauthEnabled) return { mode: "token" };
+
+  const derivedBase =
+    options.tunnelBaseUrl ??
+    env.OPENAI_MCP_TUNNEL_BASE_URL ??
+    env.CONTROL_PLANE_BASE_URL ??
+    DEFAULT_TUNNEL_BASE_URL;
+  const resource = options.oauthResource
+    ? normalizeOAuthResource(options.oauthResource, runtime.tunnelId)
+    : previous?.auth?.mode === "oauth" &&
+        previous.tunnelId === runtime.tunnelId &&
+        !options.tunnelBaseUrl
+      ? (previous.auth.oauth?.resource ??
+        deriveOpenAiTunnelResource(runtime.tunnelId, derivedBase))
+      : deriveOpenAiTunnelResource(runtime.tunnelId, derivedBase);
+
+  const previousOauth = previous?.auth?.oauth;
+  const canReuse =
+    !options.oauthRepair &&
+    !options.oauthTenant &&
+    options.oauthLoginConnections.length === 0 &&
+    previous?.auth?.mode === "oauth" &&
+    previousOauth?.resource === resource &&
+    previous.tunnelId === runtime.tunnelId &&
+    existsSync(previousOauth.configPath) &&
+    existsSync(previousOauth.connectionReceiptPath);
+  const oauth = canReuse
+    ? previousOauth
+    : await provisionTunnelOAuth(options, runtime, resource, executeImpl, sink);
+  if (canReuse)
+    sink.line(`✓ Reusing Auth0 OAuth configuration for ${resource}`);
+
+  return {
+    mode: "oauth",
+    gatewayHeader: DEFAULT_GATEWAY_HEADER,
+    oauth,
+  };
+}
+
 function resolveApiKeyRef(
   options: OpenAiTunnelOptions,
   previous: OpenAiTunnelReceipt | undefined,
@@ -478,10 +813,14 @@ function resolveApiKeyRef(
 ): string {
   if (options.apiKeyEnv) {
     if (!ENV_NAME_PATTERN.test(options.apiKeyEnv)) {
-      throw new Error("--api-key-env must be a valid environment variable name");
+      throw new Error(
+        "--api-key-env must be a valid environment variable name",
+      );
     }
     if (!env[options.apiKeyEnv]?.trim()) {
-      throw new Error(`Environment variable ${options.apiKeyEnv} is empty or unset`);
+      throw new Error(
+        `Environment variable ${options.apiKeyEnv} is empty or unset`,
+      );
     }
     return `env:${options.apiKeyEnv}`;
   }
@@ -502,12 +841,17 @@ function resolveApiKeyRef(
   if (previous?.apiKeyRef) {
     if (previous.apiKeyRef.startsWith("env:")) {
       const name = previous.apiKeyRef.slice(4);
-      if (ENV_NAME_PATTERN.test(name) && env[name]?.trim()) return previous.apiKeyRef;
+      if (ENV_NAME_PATTERN.test(name) && env[name]?.trim())
+        return previous.apiKeyRef;
     } else if (previous.apiKeyRef.startsWith("file:")) {
       const path = previous.apiKeyRef.slice(5);
       if (existsSync(path)) {
         const stat = lstatSync(path);
-        if (stat.isFile() && stat.size > 0 && (platform === "win32" || (stat.mode & 0o077) === 0)) {
+        if (
+          stat.isFile() &&
+          stat.size > 0 &&
+          (platform === "win32" || (stat.mode & 0o077) === 0)
+        ) {
           return previous.apiKeyRef;
         }
       }
@@ -527,8 +871,15 @@ function executableName(platform: NodeJS.Platform): string {
 
 function platformTarget(platform: NodeJS.Platform, arch: string): string {
   const platformName =
-    platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : platform === "win32" ? "windows" : undefined;
-  const archName = arch === "x64" ? "amd64" : arch === "arm64" ? "arm64" : undefined;
+    platform === "darwin"
+      ? "darwin"
+      : platform === "linux"
+        ? "linux"
+        : platform === "win32"
+          ? "windows"
+          : undefined;
+  const archName =
+    arch === "x64" ? "amd64" : arch === "arm64" ? "arm64" : undefined;
   if (!platformName || !archName) {
     throw new Error(`Unsupported tunnel-client platform: ${platform}/${arch}`);
   }
@@ -574,7 +925,10 @@ function managedBinaryPath(home: string, platform: NodeJS.Platform): string {
 export function selectTunnelClientReleaseAsset(
   release: GithubRelease,
 ): SelectedReleaseAsset {
-  if (typeof release.tag_name !== "string" || !/^v\d+\.\d+\.\d+$/.test(release.tag_name)) {
+  if (
+    typeof release.tag_name !== "string" ||
+    !/^v\d+\.\d+\.\d+$/.test(release.tag_name)
+  ) {
     throw new Error("GitHub returned an invalid tunnel-client release tag");
   }
   if (!Array.isArray(release.assets)) {
@@ -584,7 +938,8 @@ export function selectTunnelClientReleaseAsset(
   const asset = (release.assets as GithubReleaseAsset[]).find(
     (candidate) => candidate.name === expectedName,
   );
-  if (!asset) throw new Error(`Official release asset ${expectedName} was not found`);
+  if (!asset)
+    throw new Error(`Official release asset ${expectedName} was not found`);
   if (
     typeof asset.size !== "number" ||
     asset.size <= 0 ||
@@ -599,12 +954,19 @@ export function selectTunnelClientReleaseAsset(
   if (
     url.protocol !== "https:" ||
     url.hostname !== "github.com" ||
-    !url.pathname.startsWith(`/openai/tunnel-client/releases/download/${release.tag_name}/`)
+    !url.pathname.startsWith(
+      `/openai/tunnel-client/releases/download/${release.tag_name}/`,
+    )
   ) {
     throw new Error("Refusing a non-official tunnel-client release URL");
   }
-  if (typeof asset.digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(asset.digest)) {
-    throw new Error("Official tunnel-client archive is missing a SHA-256 digest");
+  if (
+    typeof asset.digest !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(asset.digest)
+  ) {
+    throw new Error(
+      "Official tunnel-client archive is missing a SHA-256 digest",
+    );
   }
   return {
     tag: release.tag_name,
@@ -656,7 +1018,9 @@ async function installOfficialTunnelClient(
     signal: AbortSignal.timeout(20_000),
   });
   if (!releaseResponse.ok) {
-    throw new Error(`GitHub release lookup returned HTTP ${releaseResponse.status}`);
+    throw new Error(
+      `GitHub release lookup returned HTTP ${releaseResponse.status}`,
+    );
   }
   const asset = selectTunnelClientReleaseAsset(
     (await releaseResponse.json()) as GithubRelease,
@@ -678,9 +1042,13 @@ async function installOfficialTunnelClient(
       signal: AbortSignal.timeout(120_000),
     });
     if (!archiveResponse.ok) {
-      throw new Error(`Tunnel-client download returned HTTP ${archiveResponse.status}`);
+      throw new Error(
+        `Tunnel-client download returned HTTP ${archiveResponse.status}`,
+      );
     }
-    const contentLength = Number(archiveResponse.headers.get("content-length") ?? "0");
+    const contentLength = Number(
+      archiveResponse.headers.get("content-length") ?? "0",
+    );
     if (contentLength > MAX_RELEASE_ARCHIVE_BYTES) {
       throw new Error("Tunnel-client archive exceeds the maximum allowed size");
     }
@@ -703,11 +1071,16 @@ async function installOfficialTunnelClient(
     });
     const extracted = findExtractedBinary(staging, target, binaryName);
     if (!extracted) {
-      throw new Error(`Release archive does not contain ${target}/${binaryName}`);
+      throw new Error(
+        `Release archive does not contain ${target}/${binaryName}`,
+      );
     }
     const extractedReal = realpathSync(extracted);
     const stagingReal = `${realpathSync(staging)}${sep}`;
-    if (!extractedReal.startsWith(stagingReal) || !lstatSync(extractedReal).isFile()) {
+    if (
+      !extractedReal.startsWith(stagingReal) ||
+      !lstatSync(extractedReal).isFile()
+    ) {
       throw new Error("Refusing an unsafe tunnel-client archive entry");
     }
 
@@ -739,7 +1112,8 @@ function inspectTunnelClient(path: string): { path: string; version: string } {
       `Unable to execute tunnel-client at ${real}: ${versionResult.error?.message ?? versionResult.stderr?.trim() ?? `exit ${versionResult.status}`}`,
     );
   }
-  const output = `${versionResult.stdout ?? ""}\n${versionResult.stderr ?? ""}`.trim();
+  const output =
+    `${versionResult.stdout ?? ""}\n${versionResult.stderr ?? ""}`.trim();
   const match = output.match(/v?(\d+\.\d+\.\d+)/);
 
   const helpResult = spawnSync(real, ["run", "--help"], {
@@ -771,7 +1145,12 @@ function inspectTunnelClient(path: string): { path: string; version: string } {
 
 async function resolveTunnelClient(
   options: OpenAiTunnelOptions,
-  hooks: Required<Pick<OpenAiTunnelCliHooks, "fetchImpl" | "homeDir" | "platform" | "arch" | "env">>,
+  hooks: Required<
+    Pick<
+      OpenAiTunnelCliHooks,
+      "fetchImpl" | "homeDir" | "platform" | "arch" | "env"
+    >
+  >,
   previous: OpenAiTunnelReceipt | undefined,
   sink: ProgressSink,
 ): Promise<{ path: string; version: string }> {
@@ -779,7 +1158,8 @@ async function resolveTunnelClient(
     options.tunnelClientPath ??
     hooks.env.FOLDERFORGE_TUNNEL_CLIENT ??
     findOnPath("tunnel-client", hooks.env, hooks.platform) ??
-    (previous?.tunnelClient.path && isExecutable(previous.tunnelClient.path, hooks.platform)
+    (previous?.tunnelClient.path &&
+    isExecutable(previous.tunnelClient.path, hooks.platform)
       ? previous.tunnelClient.path
       : undefined);
   if (requested) {
@@ -823,7 +1203,10 @@ async function canBind(port: number): Promise<boolean> {
   });
 }
 
-async function findFreePort(preferred: number, explicit: boolean): Promise<number> {
+async function findFreePort(
+  preferred: number,
+  explicit: boolean,
+): Promise<number> {
   if (await canBind(preferred)) return preferred;
   if (explicit) throw new Error(`Port ${preferred} is already in use`);
   return await new Promise<number>((resolveResult, reject) => {
@@ -843,13 +1226,50 @@ async function findFreePort(preferred: number, explicit: boolean): Promise<numbe
   });
 }
 
+function localOAuthMetadataUrl(port: number): string {
+  return `http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`;
+}
+
 export function buildFolderForgeServerArgs(
   cliEntry: string,
   options: Pick<
     ResolvedRuntime,
     "mcpPort" | "dashboardPort" | "policyMode" | "toolsPreset"
-  > & { projectRoot: string; dashboard: boolean },
+  > & {
+    projectRoot: string;
+    dashboard: boolean;
+    auth?: OpenAiTunnelAuthReceipt;
+  },
 ): string[] {
+  const auth = options.auth ?? { mode: "token" };
+  const authArgs =
+    auth.mode === "oauth"
+      ? (() => {
+          const oauth = auth.oauth;
+          if (!oauth)
+            throw new Error("OAuth tunnel mode requires OAuth runtime state");
+          return [
+            "--auth",
+            "oauth",
+            "--oauth-resource",
+            oauth.resource,
+            "--oauth-metadata-url",
+            localOAuthMetadataUrl(options.mcpPort),
+            "--oauth-issuer",
+            oauth.issuer,
+            "--oauth-scopes",
+            oauth.scopes.join(","),
+            "--oauth-read-scope",
+            oauth.readScope,
+            "--oauth-write-scope",
+            oauth.writeScope,
+            "--oauth-client-registration",
+            oauth.registration,
+            "--oauth-algorithms",
+            "RS256",
+          ];
+        })()
+      : ["--auth", "token", "--require-auth"];
   return [
     cliEntry,
     "--project",
@@ -859,9 +1279,7 @@ export function buildFolderForgeServerArgs(
     "127.0.0.1",
     "--port",
     String(options.mcpPort),
-    "--auth",
-    "token",
-    "--require-auth",
+    ...authArgs,
     "--policy",
     options.policyMode,
     "--tools-preset",
@@ -872,7 +1290,14 @@ export function buildFolderForgeServerArgs(
   ];
 }
 
-export function buildTunnelClientArgs(runtime: ResolvedRuntime): string[] {
+export function buildTunnelClientArgs(
+  runtime: Omit<ResolvedRuntime, "auth"> & { auth?: OpenAiTunnelAuthReceipt },
+): string[] {
+  const auth = runtime.auth ?? { mode: "token" };
+  const header =
+    auth.mode === "oauth"
+      ? `${auth.gatewayHeader ?? DEFAULT_GATEWAY_HEADER}: env:FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN`
+      : "X-API-Key: env:FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN";
   return [
     "run",
     "--control-plane.tunnel-id",
@@ -882,9 +1307,9 @@ export function buildTunnelClientArgs(runtime: ResolvedRuntime): string[] {
     "--mcp.server-url",
     runtime.localMcpUrl,
     "--mcp.extra-headers",
-    "X-API-Key: env:FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN",
+    header,
     "--mcp.discovery-extra-headers",
-    "X-API-Key: env:FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN",
+    header,
     "--health.listen-addr",
     "127.0.0.1:0",
     "--health.url-file",
@@ -900,15 +1325,19 @@ export function buildOpenAiTunnelChildEnvironments(
   baseEnv: NodeJS.ProcessEnv,
   apiKeyRef: string,
   localToken: string,
+  auth: OpenAiTunnelAuthReceipt = { mode: "token" },
 ): { serverEnv: NodeJS.ProcessEnv; tunnelEnv: NodeJS.ProcessEnv } {
-  const serverEnv: NodeJS.ProcessEnv = {
-    ...baseEnv,
-    FOLDERFORGE_HTTP_TOKEN: localToken,
-  };
-  const tunnelEnv: NodeJS.ProcessEnv = {
-    ...baseEnv,
-    FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN: localToken,
-  };
+  const serverEnv: NodeJS.ProcessEnv = { ...baseEnv };
+  const tunnelEnv: NodeJS.ProcessEnv = { ...baseEnv };
+  if (auth.mode === "oauth") {
+    serverEnv.FOLDERFORGE_HTTP_GATEWAY_TOKEN = localToken;
+    serverEnv.FOLDERFORGE_HTTP_GATEWAY_HEADER =
+      auth.gatewayHeader ?? DEFAULT_GATEWAY_HEADER;
+    tunnelEnv.FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN = localToken;
+  } else {
+    serverEnv.FOLDERFORGE_HTTP_TOKEN = localToken;
+    tunnelEnv.FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN = localToken;
+  }
 
   // The workspace-facing FolderForge child must never inherit the control-plane
   // credential selected for tunnel-client. This prevents governed shell commands
@@ -922,8 +1351,47 @@ export function buildOpenAiTunnelChildEnvironments(
   for (const name of ["CONTROL_PLANE_API_KEY", "OPENAI_API_KEY"]) {
     if (name !== selectedApiKeyEnv) delete tunnelEnv[name];
   }
-  delete serverEnv.FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN;
-  delete tunnelEnv.FOLDERFORGE_HTTP_TOKEN;
+
+  for (const name of [
+    "FOLDERFORGE_HTTP_TOKEN",
+    "FOLDERFORGE_HTTP_GATEWAY_TOKEN",
+    "FOLDERFORGE_HTTP_GATEWAY_HEADER",
+    "FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN",
+    "FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN",
+  ]) {
+    if (
+      auth.mode === "oauth" &&
+      [
+        "FOLDERFORGE_HTTP_GATEWAY_TOKEN",
+        "FOLDERFORGE_HTTP_GATEWAY_HEADER",
+      ].includes(name)
+    ) {
+      continue;
+    }
+    if (auth.mode === "token" && name === "FOLDERFORGE_HTTP_TOKEN") continue;
+    delete serverEnv[name];
+  }
+  for (const name of [
+    "FOLDERFORGE_HTTP_TOKEN",
+    "FOLDERFORGE_HTTP_GATEWAY_TOKEN",
+    "FOLDERFORGE_HTTP_GATEWAY_HEADER",
+    "FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN",
+    "FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN",
+  ]) {
+    if (
+      auth.mode === "oauth" &&
+      name === "FOLDERFORGE_OPENAI_TUNNEL_GATEWAY_TOKEN"
+    ) {
+      continue;
+    }
+    if (
+      auth.mode === "token" &&
+      name === "FOLDERFORGE_OPENAI_TUNNEL_LOCAL_TOKEN"
+    ) {
+      continue;
+    }
+    delete tunnelEnv[name];
+  }
 
   return { serverEnv, tunnelEnv };
 }
@@ -966,6 +1434,63 @@ async function waitForFolderForge(
   );
 }
 
+async function verifyLocalTunnelOAuth(
+  runtime: ResolvedRuntime,
+  gatewayToken: string,
+): Promise<void> {
+  if (runtime.auth.mode !== "oauth" || !runtime.auth.oauth) return;
+  const header = runtime.auth.gatewayHeader ?? DEFAULT_GATEWAY_HEADER;
+  const metadataUrl = localOAuthMetadataUrl(runtime.mcpPort);
+  const metadataResponse = await fetch(metadataUrl, {
+    method: "GET",
+    headers: { [header]: gatewayToken, accept: "application/json" },
+    redirect: "error",
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!metadataResponse.ok) {
+    throw new Error(
+      `Local OAuth protected-resource metadata returned HTTP ${metadataResponse.status}`,
+    );
+  }
+  const metadata = (await metadataResponse.json()) as {
+    resource?: unknown;
+    authorization_servers?: unknown;
+  };
+  if (
+    metadata.resource !== runtime.auth.oauth.resource ||
+    !Array.isArray(metadata.authorization_servers) ||
+    !metadata.authorization_servers.includes(
+      runtime.auth.oauth.issuer.replace(/\/$/, ""),
+    )
+  ) {
+    throw new Error(
+      "Local OAuth protected-resource metadata does not match tunnel OAuth state",
+    );
+  }
+
+  const challengeResponse = await fetch(runtime.localMcpUrl, {
+    method: "POST",
+    headers: {
+      [header]: gatewayToken,
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    redirect: "error",
+    signal: AbortSignal.timeout(5_000),
+  });
+  const challenge = challengeResponse.headers.get("www-authenticate") ?? "";
+  if (
+    challengeResponse.status !== 401 ||
+    !challenge.includes(`resource_metadata="${metadataUrl}"`) ||
+    !challenge.includes(runtime.auth.oauth.readScope)
+  ) {
+    throw new Error(
+      "Local OAuth challenge is missing the expected metadata URL or read scope",
+    );
+  }
+}
+
 function normalizeLocalHealthBase(raw: string): string {
   const url = new URL(raw.trim());
   if (
@@ -990,7 +1515,9 @@ async function waitForTunnelReady(
   let lastError = "";
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      throw new Error(`tunnel-client exited before readiness (exit ${child.exitCode})`);
+      throw new Error(
+        `tunnel-client exited before readiness (exit ${child.exitCode})`,
+      );
     }
     if (!baseUrl && existsSync(healthUrlFile)) {
       const value = readFileSync(healthUrlFile, "utf8").trim();
@@ -1010,7 +1537,9 @@ async function waitForTunnelReady(
     }
     await new Promise((resolveSleep) => setTimeout(resolveSleep, 300));
   }
-  throw new Error(`Secure MCP Tunnel readiness timed out${lastError ? `: ${lastError}` : ""}`);
+  throw new Error(
+    `Secure MCP Tunnel readiness timed out${lastError ? `: ${lastError}` : ""}`,
+  );
 }
 
 function startLoggedProcess(
@@ -1046,18 +1575,90 @@ async function terminateChild(child: ChildProcess | undefined): Promise<void> {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
-function waitForExit(child: ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+function waitForExit(
+  child: ChildProcess,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
   return new Promise((resolveExit, reject) => {
     child.once("error", reject);
     child.once("exit", (code, signal) => resolveExit({ code, signal }));
   });
 }
 
+function bindChatGptOAuthRuntime(
+  auth: OpenAiTunnelAuthReceipt,
+  serverPid: number | undefined,
+): void {
+  if (auth.mode !== "oauth" || !auth.oauth || !serverPid) return;
+  const path = auth.oauth.connectionReceiptPath;
+  ensureSafeDirectory(dirname(path));
+  ensureSafeRegularFile(path);
+  const receipt = JSON.parse(
+    readFileSync(path, "utf8"),
+  ) as ChatGptConnectionReceipt;
+  if (
+    receipt.provider !== "auth0" ||
+    receipt.resource !== auth.oauth.resource ||
+    receipt.issuer.replace(/\/$/, "") !== auth.oauth.issuer.replace(/\/$/, "")
+  ) {
+    throw new Error("Refusing to bind a mismatched ChatGPT OAuth receipt");
+  }
+  receipt.processes.serverPid = serverPid;
+  receipt.checks.localServer = "pass";
+  receipt.updatedAt = new Date().toISOString();
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  chmodSync(temporary, 0o600);
+  renameSync(temporary, path);
+}
+
+async function waitForTunnelOAuthClient(
+  options: OpenAiTunnelOptions,
+  auth: OpenAiTunnelAuthReceipt,
+  executeImpl: typeof executeChatGptCli,
+  sink: ProgressSink,
+): Promise<void> {
+  if (auth.mode !== "oauth" || !auth.oauth || !options.oauthWait) return;
+  sink.line(
+    "• Waiting for ChatGPT OAuth registration and repairing the DCR client...",
+  );
+  const result = await executeImpl(
+    [
+      "repair",
+      "--project",
+      options.projectRoot,
+      "--no-start",
+      "--wait",
+      ...(options.oauthTenant ? ["--tenant", options.oauthTenant] : []),
+      ...options.oauthLoginConnections.flatMap((connection) => [
+        "--login-connection",
+        connection,
+      ]),
+    ],
+    {
+      cwd: options.projectRoot,
+      onLine: (line) => sink.line(line),
+    },
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `ChatGPT OAuth lifecycle repair failed. ${result.output.trim()}`.trim(),
+    );
+  }
+  if (result.receipt?.checks.chatgptClient === "pass") {
+    sink.line("✓ ChatGPT OAuth client detected and repaired");
+  } else {
+    sink.line(
+      "⚠ ChatGPT OAuth client was not detected before the wait timeout; the tunnel remains running",
+    );
+  }
+}
+
 function openUrl(url: string, platform: NodeJS.Platform): void {
   const command =
     platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args =
-    platform === "win32" ? ["/c", "start", "", url] : [url];
+  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
   const child = spawn(command, args, {
     detached: true,
     shell: false,
@@ -1083,11 +1684,27 @@ async function resolveRuntime(
 ): Promise<ResolvedRuntime> {
   const defaults = profileDefaults(options.profile);
   const tunnelId = validateTunnelId(
-    options.tunnelId ?? hooks.env.CONTROL_PLANE_TUNNEL_ID ?? previous?.tunnelId ?? "",
+    options.tunnelId ??
+      hooks.env.CONTROL_PLANE_TUNNEL_ID ??
+      previous?.tunnelId ??
+      "",
   );
-  const apiKeyRef = resolveApiKeyRef(options, previous, hooks.env, hooks.platform);
-  const tunnelClient = await resolveTunnelClient(options, hooks, previous, sink);
-  const mcpPort = await findFreePort(options.port ?? DEFAULT_MCP_PORT, options.port !== undefined);
+  const apiKeyRef = resolveApiKeyRef(
+    options,
+    previous,
+    hooks.env,
+    hooks.platform,
+  );
+  const tunnelClient = await resolveTunnelClient(
+    options,
+    hooks,
+    previous,
+    sink,
+  );
+  const mcpPort = await findFreePort(
+    options.port ?? DEFAULT_MCP_PORT,
+    options.port !== undefined,
+  );
   const dashboardPort = options.dashboard
     ? await findFreePort(
         options.dashboardPort ?? DEFAULT_DASHBOARD_PORT,
@@ -1107,6 +1724,7 @@ async function resolveRuntime(
     localMcpUrl: `http://127.0.0.1:${mcpPort}/mcp`,
     healthUrlFile: paths.healthUrl,
     serverLog: paths.serverLog,
+    auth: { mode: "token" },
   };
 }
 
@@ -1136,6 +1754,7 @@ export async function executeOpenAiTunnelCli(
     arch: hooks.arch ?? process.arch,
     env: hooks.env ?? process.env,
     stdoutIsTty: hooks.stdoutIsTty ?? Boolean(process.stdout.isTTY),
+    executeChatGptCliImpl: hooks.executeChatGptCliImpl ?? executeChatGptCli,
   };
 
   let server: ChildProcess | undefined;
@@ -1145,13 +1764,19 @@ export async function executeOpenAiTunnelCli(
   let paths = statePaths(options.projectRoot);
   try {
     const projectStat = statSync(options.projectRoot);
-    if (!projectStat.isDirectory()) throw new Error("--project must be a directory");
+    if (!projectStat.isDirectory())
+      throw new Error("--project must be a directory");
     options.projectRoot = realpathSync(options.projectRoot);
     paths = statePaths(options.projectRoot);
     ensureSafeDirectory(paths.stateDir);
     ensureSafeRegularFile(paths.healthUrl);
     ensureSafeRegularFile(paths.serverLog);
     const previous = readOpenAiTunnelReceipt(paths.receipt);
+    if (previous && resolve(previous.projectRoot) !== options.projectRoot) {
+      throw new Error(
+        `OpenAI tunnel receipt belongs to a different project: ${previous.projectRoot}`,
+      );
+    }
 
     if (options.installOnly) {
       const tunnelClient = await resolveTunnelClient(
@@ -1166,7 +1791,20 @@ export async function executeOpenAiTunnelCli(
       return { exitCode: 0, output: sink.output() };
     }
 
-    const runtime = await resolveRuntime(options, resolvedHooks, previous, sink);
+    const runtime = await resolveRuntime(
+      options,
+      resolvedHooks,
+      previous,
+      sink,
+    );
+    runtime.auth = await resolveTunnelAuth(
+      options,
+      runtime,
+      previous,
+      resolvedHooks.env,
+      resolvedHooks.executeChatGptCliImpl,
+      sink,
+    );
 
     const serverArgs = buildFolderForgeServerArgs(resolvedHooks.cliEntry, {
       projectRoot: options.projectRoot,
@@ -1177,6 +1815,7 @@ export async function executeOpenAiTunnelCli(
         : {}),
       policyMode: runtime.policyMode,
       toolsPreset: runtime.toolsPreset,
+      auth: runtime.auth,
     });
     const tunnelArgs = buildTunnelClientArgs(runtime);
     if (options.dryRun) {
@@ -1184,11 +1823,26 @@ export async function executeOpenAiTunnelCli(
       sink.line(`  project: ${options.projectRoot}`);
       sink.line(`  tunnel: ${runtime.tunnelId}`);
       sink.line(`  API key: ${runtime.apiKeyRef}`);
-      sink.line(`  local MCP: ${runtime.localMcpUrl} (token-authenticated)`);
+      sink.line(
+        `  local MCP: ${runtime.localMcpUrl} (${runtime.auth.mode === "oauth" ? "OAuth + gateway guard" : "token-authenticated"})`,
+      );
+      if (runtime.auth.mode === "oauth" && runtime.auth.oauth) {
+        sink.line(`  OAuth resource: ${runtime.auth.oauth.resource}`);
+        sink.line(`  OAuth issuer: ${runtime.auth.oauth.issuer}`);
+        sink.line(
+          `  local metadata: ${localOAuthMetadataUrl(runtime.mcpPort)}`,
+        );
+      }
       sink.line(`  policy/tools: ${runtime.policyMode}/${runtime.toolsPreset}`);
-      sink.line(`  tunnel-client: ${runtime.tunnelClientPath} (${runtime.tunnelClientVersion})`);
-      sink.line(`  FolderForge argv: ${process.execPath} ${serverArgs.join(" ")}`);
-      sink.line(`  tunnel-client argv: ${runtime.tunnelClientPath} ${tunnelArgs.join(" ")}`);
+      sink.line(
+        `  tunnel-client: ${runtime.tunnelClientPath} (${runtime.tunnelClientVersion})`,
+      );
+      sink.line(
+        `  FolderForge argv: ${process.execPath} ${serverArgs.join(" ")}`,
+      );
+      sink.line(
+        `  tunnel-client argv: ${runtime.tunnelClientPath} ${tunnelArgs.join(" ")}`,
+      );
       return { exitCode: 0, output: sink.output() };
     }
 
@@ -1208,6 +1862,7 @@ export async function executeOpenAiTunnelCli(
       resolvedHooks.env,
       runtime.apiKeyRef,
       localToken,
+      runtime.auth,
     );
 
     sink.line(`• Starting FolderForge for ${options.projectRoot}...`);
@@ -1223,9 +1878,20 @@ export async function executeOpenAiTunnelCli(
       server,
       runtime.serverLog,
     );
-    sink.line(`✓ Local authenticated MCP ready at ${runtime.localMcpUrl}`);
+    if (runtime.auth.mode === "oauth") {
+      await verifyLocalTunnelOAuth(runtime, localToken);
+      sink.line(
+        `✓ Local OAuth + gateway-protected MCP ready at ${runtime.localMcpUrl}`,
+      );
+    } else {
+      sink.line(
+        `✓ Local token-authenticated MCP ready at ${runtime.localMcpUrl}`,
+      );
+    }
     if (options.dashboard && runtime.dashboardPort) {
-      sink.line(`✓ Approval dashboard: http://127.0.0.1:${runtime.dashboardPort}`);
+      sink.line(
+        `✓ Approval dashboard: http://127.0.0.1:${runtime.dashboardPort}`,
+      );
     }
 
     sink.line(`• Connecting OpenAI Secure MCP Tunnel ${runtime.tunnelId}...`);
@@ -1247,9 +1913,10 @@ export async function executeOpenAiTunnelCli(
     process.once("SIGTERM", signalHandler);
 
     const healthBase = await waitForTunnelReady(runtime.healthUrlFile, tunnel);
+    bindChatGptOAuthRuntime(runtime.auth, server.pid);
     const now = new Date().toISOString();
     const receipt: OpenAiTunnelReceipt = {
-      version: 1,
+      version: 2,
       provider: "openai-secure-mcp-tunnel",
       projectRoot: options.projectRoot,
       tunnelId: runtime.tunnelId,
@@ -1258,6 +1925,7 @@ export async function executeOpenAiTunnelCli(
       policyMode: runtime.policyMode,
       toolsPreset: runtime.toolsPreset,
       dashboard: options.dashboard,
+      auth: runtime.auth,
       tunnelClient: {
         path: runtime.tunnelClientPath,
         version: runtime.tunnelClientVersion,
@@ -1287,12 +1955,21 @@ export async function executeOpenAiTunnelCli(
       openUrl(CHATGPT_CONNECTORS_URL, resolvedHooks.platform);
     }
 
+    await waitForTunnelOAuthClient(
+      options,
+      runtime.auth,
+      resolvedHooks.executeChatGptCliImpl,
+      sink,
+    );
+
     const exit = await waitForExit(tunnel);
     if (stopping || exit.signal === "SIGINT" || exit.signal === "SIGTERM") {
       return { exitCode: 0, output: sink.output(), receipt };
     }
     if (exit.code !== 0) {
-      throw new Error(`tunnel-client exited unexpectedly with code ${exit.code}`);
+      throw new Error(
+        `tunnel-client exited unexpectedly with code ${exit.code}`,
+      );
     }
     return { exitCode: 0, output: sink.output(), receipt };
   } catch (error) {

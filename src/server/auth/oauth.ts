@@ -302,7 +302,16 @@ function oauthPrincipalId(
   return `oauth:${digest}`;
 }
 
-export function protectedResourceMetadataPaths(resourceRaw: string): string[] {
+export function protectedResourceMetadataPaths(
+  resourceRaw: string,
+  metadataUrlRaw?: string,
+): string[] {
+  if (metadataUrlRaw) {
+    const metadataUrl = new URL(metadataUrlRaw);
+    return metadataUrl.pathname === "/.well-known/oauth-protected-resource"
+      ? [metadataUrl.pathname]
+      : [metadataUrl.pathname, "/.well-known/oauth-protected-resource"];
+  }
   const resource = new URL(resourceRaw);
   const resourcePath =
     resource.pathname === "/" ? "" : resource.pathname.replace(/\/$/, "");
@@ -312,7 +321,11 @@ export function protectedResourceMetadataPaths(resourceRaw: string): string[] {
     : [pathSpecific, "/.well-known/oauth-protected-resource"];
 }
 
-export function resourceMetadataUrl(resourceRaw: string): string {
+export function resourceMetadataUrl(
+  resourceRaw: string,
+  metadataUrlRaw?: string,
+): string {
+  if (metadataUrlRaw) return new URL(metadataUrlRaw).href;
   const resource = new URL(resourceRaw);
   const [path] = protectedResourceMetadataPaths(resourceRaw);
   return new URL(path!, resource.origin).href;
@@ -362,7 +375,7 @@ export async function createOAuthRuntime(
   });
   const issuer = normalizeIssuer(config.issuer);
   const algorithms = config.algorithms ?? ["RS256", "PS256", "ES256", "EdDSA"];
-  const metadataUrl = resourceMetadataUrl(config.resource);
+  const metadataUrl = resourceMetadataUrl(config.resource, config.metadataUrl);
 
   return {
     config,
@@ -370,6 +383,7 @@ export async function createOAuthRuntime(
     protectedResourceMetadata: buildProtectedResourceMetadata(config),
     protectedResourceMetadataPaths: protectedResourceMetadataPaths(
       config.resource,
+      config.metadataUrl,
     ),
     resourceMetadataUrl: metadataUrl,
     async verifyAccessToken(token: string): Promise<VerifiedOAuthToken> {

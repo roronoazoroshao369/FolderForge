@@ -22,20 +22,25 @@ First run:
 ```bash
 export CONTROL_PLANE_API_KEY='sk-...'
 folderforge connect chatgpt --openai-tunnel \
+  --oauth \
   --tunnel-id tunnel_0123456789abcdef0123456789abcdef \
   --project /absolute/path/to/project
 ```
+
+`--oauth` requires an active Auth0 CLI login (`auth0 login`). Omit it only when a single static-token principal is sufficient.
 
 FolderForge then:
 
 1. detects or installs the official `openai/tunnel-client`;
 2. verifies the downloaded GitHub release archive against its published SHA-256 digest;
-3. starts FolderForge on a free loopback port;
-4. requires a random per-run local API token between `tunnel-client` and FolderForge;
-5. starts `tunnel-client` with the selected tunnel ID and API-key reference;
-6. waits for both `/healthz` and `/readyz` to pass;
-7. stores a secret-free local receipt; and
-8. opens the local tunnel UI and ChatGPT connector settings when running interactively.
+3. derives the public OAuth resource as `https://api.openai.com/v1/mcp/<tunnel_id>`;
+4. provisions or reuses the Auth0 API, scopes, DCR policy, and login connections;
+5. starts FolderForge on loopback with OAuth JWT validation plus a separate random per-run gateway guard;
+6. configures `tunnel-client` to inject that guard for both discovery and runtime requests while preserving the user's `Authorization` bearer token;
+7. verifies local RFC 9728 metadata and the unauthenticated OAuth challenge;
+8. waits for tunnel `/healthz` and `/readyz`, opens ChatGPT, and watches for the DCR client;
+9. repairs the detected ChatGPT client and grant through the existing Auth0 lifecycle; and
+10. stores secret-free local receipts.
 
 Keep the process running. Press `Ctrl+C` to stop both FolderForge and the tunnel.
 
@@ -60,6 +65,39 @@ Open ChatGPT connector settings, create or edit the MCP connector, choose the tu
 <https://chatgpt.com/#settings/Connectors>
 
 Do not enter `localhost`, a Cloudflare Quick Tunnel URL, or the local FolderForge port in ChatGPT. ChatGPT connects to the OpenAI tunnel; `tunnel-client` performs the private hop to FolderForge.
+
+## OAuth through the private tunnel
+
+The OAuth mode uses two independent checks:
+
+1. a random `X-FolderForge-Tunnel-Guard` value proves that the local request came through the supervised `tunnel-client`; and
+2. the OAuth bearer JWT identifies the ChatGPT user/client and carries `folderforge:read` / `folderforge:write` scopes.
+
+The guard value exists only in child-process environments for the current run. It is never stored in `.folderforge/openai-tunnel.json`. The OpenAI runtime API key is also isolated from the FolderForge child so governed tools cannot read it.
+
+The default public audience is derived automatically. For an enterprise control-plane gateway, override the base path:
+
+```bash
+folderforge connect chatgpt --openai-tunnel --oauth \
+  --tunnel-base-url https://gateway.example/workspace/dev
+```
+
+Or provide the exact resource explicitly:
+
+```bash
+folderforge connect chatgpt --openai-tunnel --oauth \
+  --oauth-resource https://api.openai.com/v1/mcp/tunnel_0123456789abcdef0123456789abcdef
+```
+
+Useful lifecycle options:
+
+```text
+--oauth-repair                 Re-provision Auth0/DCR instead of reusing saved state
+--oauth-no-wait                Start without waiting for a new ChatGPT DCR client
+--oauth-tenant <tenant>        Select a specific Auth0 tenant
+--oauth-login-connection <id>  Repeat or comma-separate Auth0 connections
+--no-oauth                     Force legacy static-token tunnel mode
+```
 
 ## Profiles
 
@@ -150,7 +188,7 @@ Per-project state is written under `.folderforge/` and ignored by Git:
 .folderforge/openai-tunnel-health-<pid>.url
 ```
 
-The receipt contains the tunnel ID and an API-key **reference** such as `env:CONTROL_PLANE_API_KEY`; it must never contain the API-key value. The health URL file is removed when the supervisor exits.
+The tunnel receipt contains the tunnel ID, authentication mode, public OAuth resource, Auth0 issuer/scopes, and an API-key **reference** such as `env:CONTROL_PLANE_API_KEY`. It never contains the control-plane API key, OAuth tokens, or per-run gateway guard. The health URL file is removed when the supervisor exits.
 
 ## Troubleshooting
 
@@ -169,6 +207,14 @@ tunnel_0123456789abcdef0123456789abcdef
 ### Permission or control-plane errors
 
 Verify that the API-key principal has tunnel read/use permission and that the tunnel is linked to the same ChatGPT workspace. FolderForge cannot repair organization RBAC.
+
+### OAuth discovery still shows 404
+
+Run with `--oauth`. Legacy static-token mode intentionally does not advertise RFC 9728 metadata. In OAuth mode, both `/.well-known/oauth-protected-resource/mcp` and the root fallback are served locally behind the tunnel guard.
+
+### Auth0 login or DCR repair fails
+
+Run `auth0 login`, confirm the selected tenant, then retry with `--oauth-repair`. The authorization server must remain publicly reachable for the ChatGPT login flow; only the MCP resource is private behind Secure MCP Tunnel.
 
 ### Local port already in use
 

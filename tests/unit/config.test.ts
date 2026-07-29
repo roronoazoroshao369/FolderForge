@@ -147,6 +147,34 @@ describe('config loading + validation', () => {
     expect(() => validateConfig(cfg)).not.toThrow();
   });
 
+  it('accepts a public OAuth audience with a separate loopback metadata route', () => {
+    const cfg = loadConfig({ projectRoot: TS_FIXTURE });
+    cfg.server.transport = 'http';
+    cfg.server.http.auth = {
+      mode: 'oauth',
+      oauth: {
+        resource: `https://api.openai.com/v1/mcp/tunnel_${'a'.repeat(32)}`,
+        metadataUrl: 'http://127.0.0.1:7005/.well-known/oauth-protected-resource/mcp',
+        issuer: 'https://tenant.example.auth0.com',
+        scopes: ['folderforge:read', 'folderforge:write'],
+        readScope: 'folderforge:read',
+        writeScope: 'folderforge:write',
+        clientRegistration: 'dcr',
+        algorithms: ['RS256'],
+      },
+    };
+    applyHttpAuthDefaults(cfg);
+    expect(() => validateConfig(cfg)).not.toThrow();
+
+    cfg.server.http.auth.oauth!.metadataUrl = 'http://private.example/.well-known/oauth-protected-resource/mcp';
+    expect(() => validateConfig(cfg)).toThrow(/HTTPS/);
+    cfg.server.http.auth.oauth!.metadataUrl = 'http://127.0.0.1:7005/not-oauth-metadata';
+    expect(() => validateConfig(cfg)).toThrow(/oauth-protected-resource/);
+    cfg.server.http.auth.oauth!.metadataUrl =
+      'http://127.0.0.1:7005/.well-known/oauth-protected-resource-evil';
+    expect(() => validateConfig(cfg)).toThrow(/oauth-protected-resource/);
+  });
+
   it('rejects OAuth mixed with legacy credentials', () => {
     const cfg = loadConfig({ projectRoot: TS_FIXTURE });
     cfg.server.transport = 'http';

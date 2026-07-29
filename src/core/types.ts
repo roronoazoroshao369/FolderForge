@@ -34,8 +34,15 @@ export type HttpAuthMode = "none" | "token" | "oauth";
 export type OAuthClientRegistrationStrategy = "cimd" | "dcr" | "predefined";
 
 export interface OAuthHttpAuthConfig {
-  /** Canonical public MCP resource URI, normally the public `/mcp` URL. */
+  /** Canonical public MCP resource URI and JWT audience. */
   resource: string;
+  /**
+   * Optional local RFC 9728 metadata URL. This is useful when a private MCP
+   * endpoint is reached through a gateway that rewrites discovery URLs (for
+   * example OpenAI Secure MCP Tunnel). When omitted, it is derived from
+   * `resource` as before.
+   */
+  metadataUrl?: string;
   /** Trusted external authorization-server issuer. */
   issuer: string;
   /** Minimal scopes advertised by protected-resource metadata. */

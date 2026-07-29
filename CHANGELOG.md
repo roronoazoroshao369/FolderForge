@@ -6,6 +6,20 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.6] - 2026-07-29
+
+### Added
+
+- Add `folderforge connect chatgpt --openai-tunnel --oauth`, which provisions or reuses the existing Auth0/DCR lifecycle for the OpenAI-hosted tunnel resource, validates local RFC 9728 discovery, waits for ChatGPT registration, and repairs the detected OAuth client and grant.
+- Add a transport-level per-run gateway guard that is enforced before OAuth metadata and MCP requests without replacing the end-user bearer token or OAuth principal.
+- Allow OAuth JWT audience/resource URLs to be separated from a loopback protected-resource metadata URL for trusted tunnel and gateway deployments.
+
+### Security
+
+- Keep the OpenAI control-plane API key out of the FolderForge child environment and keep the per-run gateway secret out of receipts, logs, argv, and the OAuth identity model.
+- Require both a valid gateway guard and a correctly signed, scoped OAuth JWT before tunnel-backed tools execute.
+
+
 ## [2.7.5] - 2026-07-28
 
 ### Added
