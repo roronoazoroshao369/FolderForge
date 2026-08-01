@@ -237,6 +237,7 @@ try {
     '--oauth-issuer',
     '--oauth-resource-documentation',
     '--unsafe-oauth-http',
+    '--allow-unauthenticated-tunnel',
   ]) {
     if (!help.includes(flag)) throw new Error(`CLI help is missing ${flag}.`);
   }
@@ -461,6 +462,7 @@ try {
     '--port', String(httpPort),
     '--dashboard-port', String(dashboardPort),
     '--tools-preset', 'readonly',
+    '--allow-unauthenticated-tunnel',
   ], { cwd: temp, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const collectDashboardLog = (chunk) => {
     dashboardLogs = `${dashboardLogs}${chunk.toString()}`.slice(-65536);
@@ -529,6 +531,7 @@ try {
     '--oauth-algorithms', 'RS256',
     '--oauth-resource-documentation', `${oauthBase}/oauth-docs`,
     '--unsafe-oauth-http',
+    '--allow-unauthenticated-tunnel',
   ], { cwd: temp, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const collectOauthLog = (chunk) => { oauthLogs = `${oauthLogs}${chunk.toString()}`.slice(-65536); };
   oauthChild.stdout.on('data', collectOauthLog);
