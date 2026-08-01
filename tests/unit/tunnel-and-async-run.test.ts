@@ -33,11 +33,14 @@ describe('tunnel exposure detection', () => {
   });
 
   it('refuses an unauthenticated loopback bind while a tunnel client runs', async () => {
+    // tests/setup.ts sets the opt-out env var for the rest of the suite, so this
+    // test disables it explicitly to exercise the real production default.
     await expect(
       startHttpTransport((() => undefined) as never, {
         host: '127.0.0.1',
         port: 0,
         authMode: 'none',
+        allowUnauthenticatedTunnel: false,
         detectTunnelExposure: () => ({ exposed: true, clients: ['cloudflared'] }),
       })
     ).rejects.toThrow(/tunnel client\(s\) cloudflared/);
