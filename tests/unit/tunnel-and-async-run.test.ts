@@ -91,3 +91,36 @@ describe('long-running build tools in async mode', () => {
     expect(data.sessionId).toBeUndefined();
   });
 });
+
+describe('search_text path scoping', () => {
+  function registryFor() {
+    const projectRoot = isolatedFixture();
+    const config = loadConfig({ projectRoot });
+    return buildRegistry(new Container(config));
+  }
+
+  it('restricts matches to the requested directory', async () => {
+    const registry = registryFor();
+    const res = await registry.call('search_text', { query: 'Calculator', path: 'src' });
+    expect(res.ok).toBe(true);
+    const { matches } = res.data as { matches: Array<{ file: string }> };
+    expect(matches.length).toBeGreaterThan(0);
+    for (const match of matches) expect(match.file.startsWith('src')).toBe(true);
+  });
+
+  it('rejects a path that is not a directory', async () => {
+    const registry = registryFor();
+    const res = await registry.call('search_text', {
+      query: 'Calculator',
+      path: 'src/calculator.ts',
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/must be a directory/);
+  });
+
+  it('refuses to escape the workspace root', async () => {
+    const registry = registryFor();
+    const res = await registry.call('search_text', { query: 'Calculator', path: '../..' });
+    expect(res.ok).toBe(false);
+  });
+});
