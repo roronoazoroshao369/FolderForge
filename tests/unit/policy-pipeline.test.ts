@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, describe, it, expect } from 'vitest';
 import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { PolicyMode } from '../../src/core/types.js';
 import { TS_FIXTURE } from '../integration/fixtures.js';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 /**
  * End-to-end policy pipeline coverage.
@@ -15,8 +18,35 @@ import { TS_FIXTURE } from '../integration/fixtures.js';
  * this file proves they compose correctly through the registry.
  */
 
+const isolatedRoots: string[] = [];
+
+/**
+ * Every Container writes governance evidence to `<projectRoot>/.folderforge`.
+ * Pointing several parallel test files at the shared committed fixture makes
+ * them race on one audit file; a losing writer fails the audit preflight and
+ * the tool returns AUDIT_UNAVAILABLE before approval gating ever runs, which
+ * surfaced as a flaky `expected undefined to be defined` on `approvalId`.
+ * Give each setup() its own throwaway copy so the pipeline is deterministic.
+ */
+function isolatedProjectRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'folderforge-policy-pipeline-'));
+  // Never copy .folderforge: previous runs leave a multi-megabyte audit chain
+  // inside the committed fixture, and inheriting a truncated chain makes every
+  // approval call fail preflight with AUDIT_UNAVAILABLE.
+  cpSync(TS_FIXTURE, root, {
+    recursive: true,
+    filter: (source) => !source.includes('.folderforge'),
+  });
+  isolatedRoots.push(root);
+  return root;
+}
+
+afterAll(() => {
+  for (const root of isolatedRoots) rmSync(root, { recursive: true, force: true });
+});
+
 function setup(mode: PolicyMode) {
-  const config = loadConfig({ projectRoot: TS_FIXTURE });
+  const config = loadConfig({ projectRoot: isolatedProjectRoot() });
   config.policy.defaultMode = mode;
   const container = new Container(config);
   container.policy.setMode(mode);

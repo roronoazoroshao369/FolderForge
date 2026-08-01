@@ -3,10 +3,10 @@ import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { ToolResult } from '../../src/core/types.js';
-import { TS_FIXTURE } from './fixtures.js';
+import { isolatedFixture } from './fixtures.js';
 
 function setup(mode: 'readonly' | 'safe' | 'dev' | 'danger') {
-  const config = loadConfig({ projectRoot: TS_FIXTURE });
+  const config = loadConfig({ projectRoot: isolatedFixture() });
   config.policy.defaultMode = mode;
   const container = new Container(config);
   container.policy.setMode(mode);

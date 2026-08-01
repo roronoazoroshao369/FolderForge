@@ -3,7 +3,7 @@ import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import { defineTool } from '../../src/tools/registry.js';
-import { TS_FIXTURE } from '../integration/fixtures.js';
+import { isolatedFixture } from '../integration/fixtures.js';
 
 /**
  * Live-registry checks for the MCP metadata layer (roadmap Q1).
@@ -12,7 +12,7 @@ import { TS_FIXTURE } from '../integration/fixtures.js';
  * called out in the roadmap must advertise a structured `outputSchema`.
  */
 function liveRegistry() {
-  const config = loadConfig({ projectRoot: TS_FIXTURE });
+  const config = loadConfig({ projectRoot: isolatedFixture() });
   const container = new Container(config);
   return buildRegistry(container);
 }

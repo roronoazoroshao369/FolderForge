@@ -3,16 +3,19 @@ import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
 import type { ToolResult } from '../../src/core/types.js';
-import { TS_FIXTURE, PY_FIXTURE } from './fixtures.js';
+import { TS_FIXTURE, PY_FIXTURE, isolatedFixture } from './fixtures.js';
 
 /** Build a container + registry rooted at a fixture project, in a given mode. */
-function setup(projectRoot: string, mode: 'readonly' | 'safe' | 'dev' | 'danger' = 'dev') {
+function setup(sourceFixture: string, mode: 'readonly' | 'safe' | 'dev' | 'danger' = 'dev') {
+  // Activating a workspace writes runtime state (audit chain, approvals) into
+  // the project root, so each test works on a throwaway copy of the fixture.
+  const projectRoot = isolatedFixture(sourceFixture);
   const config = loadConfig({ projectRoot });
   config.policy.defaultMode = mode;
   const container = new Container(config);
   container.policy.setMode(mode);
   const registry = buildRegistry(container);
-  return { container, registry };
+  return { container, registry, projectRoot };
 }
 
 function data<T = Record<string, unknown>>(res: ToolResult): T {
@@ -22,8 +25,8 @@ function data<T = Record<string, unknown>>(res: ToolResult): T {
 
 describe('tool registry pipeline against fixtures', () => {
   it('activates the TypeScript fixture and detects the language', async () => {
-    const { registry } = setup(TS_FIXTURE);
-    await registry.call('workspace_activate', { path: TS_FIXTURE });
+    const { registry, projectRoot } = setup(TS_FIXTURE);
+    await registry.call('workspace_activate', { path: projectRoot });
     const status = data<{ active: boolean; project: { languageHints: string[] } }>(
       await registry.call('workspace_status', {})
     );
@@ -32,8 +35,8 @@ describe('tool registry pipeline against fixtures', () => {
   });
 
   it('activates the Python fixture and detects the language', async () => {
-    const { registry } = setup(PY_FIXTURE);
-    await registry.call('workspace_activate', { path: PY_FIXTURE });
+    const { registry, projectRoot } = setup(PY_FIXTURE);
+    await registry.call('workspace_activate', { path: projectRoot });
     const status = data<{ project: { languageHints: string[] } }>(
       await registry.call('workspace_status', {})
     );
@@ -41,8 +44,8 @@ describe('tool registry pipeline against fixtures', () => {
   });
 
   it('reads a known fixture file through file_read', async () => {
-    const { registry } = setup(TS_FIXTURE);
-    await registry.call('workspace_activate', { path: TS_FIXTURE });
+    const { registry, projectRoot } = setup(TS_FIXTURE);
+    await registry.call('workspace_activate', { path: projectRoot });
     const res = data<{ content: string }>(
       await registry.call('file_read', { path: 'src/calculator.ts' })
     );
@@ -51,8 +54,8 @@ describe('tool registry pipeline against fixtures', () => {
   });
 
   it('finds files by glob and text by regex', async () => {
-    const { registry } = setup(TS_FIXTURE);
-    await registry.call('workspace_activate', { path: TS_FIXTURE });
+    const { registry, projectRoot } = setup(TS_FIXTURE);
+    await registry.call('workspace_activate', { path: projectRoot });
 
     const files = data<{ matches: string[] }>(
       await registry.call('search_files', { glob: 'src/**/*.ts' })
@@ -66,8 +69,8 @@ describe('tool registry pipeline against fixtures', () => {
   });
 
   it('finds Python symbols via search_text in the python fixture', async () => {
-    const { registry } = setup(PY_FIXTURE);
-    await registry.call('workspace_activate', { path: PY_FIXTURE });
+    const { registry, projectRoot } = setup(PY_FIXTURE);
+    await registry.call('workspace_activate', { path: projectRoot });
     const text = data<{ matches: unknown[] }>(
       await registry.call('search_text', { query: 'def greet', glob: '**/*.py' })
     );
@@ -84,8 +87,8 @@ describe('tool registry pipeline against fixtures', () => {
 
 describe('policy enforcement through the pipeline', () => {
   it('blocks mutations in readonly mode', async () => {
-    const { registry } = setup(TS_FIXTURE, 'readonly');
-    await registry.call('workspace_activate', { path: TS_FIXTURE }).catch(() => undefined);
+    const { registry, projectRoot } = setup(TS_FIXTURE, 'readonly');
+    await registry.call('workspace_activate', { path: projectRoot }).catch(() => undefined);
     const res = await registry.call('file_write', {
       path: 'scratch/should-not-write.txt',
       content: 'nope',
@@ -95,8 +98,8 @@ describe('policy enforcement through the pipeline', () => {
   });
 
   it('requires approval for file_delete and surfaces an approvalId', async () => {
-    const { registry } = setup(TS_FIXTURE, 'safe');
-    await registry.call('workspace_activate', { path: TS_FIXTURE });
+    const { registry, projectRoot } = setup(TS_FIXTURE, 'safe');
+    await registry.call('workspace_activate', { path: projectRoot });
     const res = await registry.call('file_delete', { path: 'src/calculator.ts' });
     expect(res.ok).toBe(false);
     expect(res.approvalId).toBeTruthy();

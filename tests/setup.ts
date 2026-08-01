@@ -2,6 +2,7 @@ import { afterAll } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { cleanupIsolatedFixtures } from './integration/fixtures.js';
 
 const approvalRoot = mkdtempSync(join(tmpdir(), 'folderforge-test-approvals-'));
 const testHome = mkdtempSync(join(tmpdir(), 'folderforge-test-home-'));
@@ -15,6 +16,7 @@ process.env.USERPROFILE = testHome;
 process.env.npm_config_cache = join(testHome, '.npm');
 
 afterAll(() => {
+  cleanupIsolatedFixtures();
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
   if (originalUserProfile === undefined) delete process.env.USERPROFILE;
