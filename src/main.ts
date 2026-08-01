@@ -255,7 +255,13 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       default:
         if (a && a.startsWith("-")) {
-          logger.warn({ arg: a }, "Unknown argument ignored");
+          // Silently ignoring an unrecognized flag is dangerous: a single typo in a
+          // security flag (e.g. --apiKey instead of --api-key) drops the credential,
+          // which downgrades a loopback HTTP bind to authMode "none" and accepts every
+          // request. Fail fast instead of booting an unintentionally open server.
+          throw new Error(
+            `Unknown argument: ${a}. Run \`folderforge --help\` for supported flags.`,
+          );
         }
     }
   }
