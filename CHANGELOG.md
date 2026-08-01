@@ -6,6 +6,20 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Refuse to start an unauthenticated HTTP transport while a tunnel client is running on the host, with `--allow-unauthenticated-tunnel` / `FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL=1` as an explicit opt-out.
+- Add `{ "async": true }` to `run_test`, `run_lint`, `run_typecheck`, and `run_build`, which returns a `sessionId` to follow with `process_tail` instead of holding the MCP request open.
+- Give `search_text` a real `path` argument so searches can be scoped to a subdirectory.
+
+### Fixed
+
+- Reject unknown CLI flags instead of ignoring them, so a typo such as `--apiKey` can no longer start a silently unauthenticated server.
+- Always return `exitCode` from `shell_exec`, which previously violated the tool output schema on some paths.
+- Stop `doctor` from reporting healthy workflow runs of schema version 1 as corrupt.
+- Isolate test fixtures per run so the suite no longer writes multi-megabyte audit logs into the repository and slow itself down.
+- Stop tracking build output under `dist/`, which was both ignored and committed.
+
 ## [2.7.6] - 2026-07-29
 
 ### Added

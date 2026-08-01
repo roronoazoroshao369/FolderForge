@@ -229,6 +229,31 @@ stable HTTPS public URL and predefined-client workflow.
 See `docs/chatgpt-connect.md`, `docs/oauth.md` and `docs/adr-0004-oauth-resource-server.md` for deployment,
 threat-model, and ChatGPT setup details.
 
+## Tunnel exposure guard
+
+Binding to `127.0.0.1` is not by itself a security boundary. A tunnel client
+running on the same host can publish that loopback port to the public internet,
+and an unauthenticated FolderForge server behind such a tunnel exposes the full
+tool surface to anyone who learns the URL.
+
+Before starting an unauthenticated HTTP transport, FolderForge inspects the local
+process list for known tunnel clients (`cloudflared`, `ngrok`, `localtunnel`,
+`tailscale funnel`/`serve`, `bore`, `frpc`). If one is running, startup fails:
+
+```
+Refusing to start without authentication: tunnel client(s) cloudflared are
+running on this host, so the loopback bind may be reachable from the public
+internet. Supply --api-key or --token, or pass --allow-unauthenticated-tunnel
+to accept the risk.
+```
+
+The fix is to authenticate the server with `--token` or `--api-key`. Only when
+the running tunnel is known to be unrelated to FolderForge should the check be
+waived, with `--allow-unauthenticated-tunnel` or
+`FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL=1`. Detection is best-effort: it never
+blocks an authenticated server, and a failure to read the process list is
+treated as "no tunnel detected" rather than a hard error.
+
 ## Dashboard auth
 
 The dashboard (`src/dashboard/server.ts`) is unauthenticated when bound to a

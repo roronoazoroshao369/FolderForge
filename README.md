@@ -229,6 +229,12 @@ curl -sS -X POST http://127.0.0.1:7331/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"example","version":"1.0.0"}}}'
 ```
 
+If a tunnel client such as `cloudflared` or `ngrok` is running on the same
+machine, FolderForge refuses to start an *unauthenticated* HTTP server, because
+the loopback port may already be published to the internet. Authenticate the
+server, or pass `--allow-unauthenticated-tunnel` when the tunnel is known to be
+unrelated. See the [tunnel exposure guard](docs/security.md#tunnel-exposure-guard).
+
 Static credentials never act as OAuth credentials. OAuth mode never falls back
 to `X-API-Key`. For ChatGPT/Auth0 and external authorization-server setup, use:
 
