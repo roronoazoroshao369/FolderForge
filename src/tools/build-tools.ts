@@ -96,7 +96,7 @@ export function buildTools(): ToolDefinition[] {
       description: 'Run the project linter.',
       group: 'build',
       mutates: false,
-      inputSchema: { type: 'object', properties: {} },
+      inputSchema: { type: 'object', properties: { async: { type: 'boolean', description: 'Run in the background and return a sessionId instead of blocking.' } } },
       handler: async (a, ctx) => runScript(ctx, 'lint', a.async === true),
     }),
     defineTool({
@@ -104,7 +104,7 @@ export function buildTools(): ToolDefinition[] {
       description: 'Run the project type checker.',
       group: 'build',
       mutates: false,
-      inputSchema: { type: 'object', properties: {} },
+      inputSchema: { type: 'object', properties: { async: { type: 'boolean', description: 'Run in the background and return a sessionId instead of blocking.' } } },
       handler: async (a, ctx) => runScript(ctx, 'typecheck', a.async === true),
     }),
     defineTool({
@@ -112,7 +112,7 @@ export function buildTools(): ToolDefinition[] {
       description: 'Run the project build.',
       group: 'build',
       mutates: true,
-      inputSchema: { type: 'object', properties: {} },
+      inputSchema: { type: 'object', properties: { async: { type: 'boolean', description: 'Run in the background and return a sessionId instead of blocking.' } } },
       handler: async (a, ctx) => runScript(ctx, 'build', a.async === true),
     }),
     defineTool({
