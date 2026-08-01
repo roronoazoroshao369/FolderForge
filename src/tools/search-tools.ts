@@ -44,7 +44,9 @@ export function searchTools(): ToolDefinition[] {
 
     defineTool({
       name: 'search_text',
-      description: 'Search text/regex across files (ripgrep-style, native).',
+      description:
+        'Search text/regex across files (ripgrep-style, native). Use `path` to ' +
+        'scope the search to a subdirectory and `glob` to filter file names.',
       group: 'search',
       mutates: false,
       inputSchema: {
@@ -52,6 +54,11 @@ export function searchTools(): ToolDefinition[] {
         properties: {
           query: { type: 'string' },
           glob: { type: 'string' },
+          path: {
+            type: 'string',
+            description:
+              'Restrict the search to this directory (relative to the workspace root).',
+          },
           caseSensitive: { type: 'boolean' },
           limit: { type: 'number' },
         },
@@ -68,8 +75,26 @@ export function searchTools(): ToolDefinition[] {
           // Treat as literal if invalid regex.
           re = new RegExp(escapeRegExp(String(args.query)), flags);
         }
+        // A caller passing `path` expects the search to be scoped to it. Silently
+        // ignoring the argument returned matches from unrelated directories and
+        // looked like a broken search rather than an unsupported option.
+        let searchRoot = ctx.projectRoot;
+        if (args.path !== undefined) {
+          try {
+            searchRoot = ctx.container.policy.path.resolveSafe(
+              String(args.path),
+              ctx.projectRoot
+            );
+          } catch (err) {
+            return { ok: false, error: `Invalid path: ${(err as Error).message}` };
+          }
+          const st = lstatSync(searchRoot);
+          if (!st.isDirectory()) {
+            return { ok: false, error: `path must be a directory inside the workspace: ${String(args.path)}` };
+          }
+        }
         const files = await fg(glob, {
-          cwd: ctx.projectRoot,
+          cwd: searchRoot,
           ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**'],
           onlyFiles: true,
           absolute: true,

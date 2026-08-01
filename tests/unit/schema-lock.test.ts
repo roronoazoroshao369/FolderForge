@@ -4,7 +4,7 @@ import { Container } from '../../src/runtime/container.js';
 import { buildRegistry, TASK_PRESETS } from '../../src/tools/index.js';
 import { ROUTING_RECOVERY_TOOLS } from '../../src/tools/task-presets.js';
 import { FROZEN_TOOLS, FROZEN_TOOL_NAMES, frozenTool } from '../../src/tools/schema-lock.js';
-import { TS_FIXTURE } from '../integration/fixtures.js';
+import { isolatedFixture } from '../integration/fixtures.js';
 
 /**
  * Schema freeze guard.
@@ -18,7 +18,7 @@ import { TS_FIXTURE } from '../integration/fixtures.js';
  */
 
 function liveRegistry() {
-  const config = loadConfig({ projectRoot: TS_FIXTURE });
+  const config = loadConfig({ projectRoot: isolatedFixture() });
   const container = new Container(config);
   return buildRegistry(container);
 }

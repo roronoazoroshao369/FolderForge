@@ -9,7 +9,7 @@ import { Container } from '../../src/runtime/container.js';
 import { createMcpServer } from '../../src/server/mcp-server.js';
 import { buildRegistry, registerAdapterTools } from '../../src/tools/index.js';
 import { namespacedName, NS_SEP } from '../../src/tools/adapter-tools.js';
-import { TS_FIXTURE } from './fixtures.js';
+import { isolatedFixture } from './fixtures.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_SERVER = resolve(__dirname, '..', 'fixtures', 'fake-mcp-server.mjs');
@@ -35,7 +35,7 @@ async function within<T>(promise: Promise<T>, timeoutMs = 2_000): Promise<T> {
  * and shut the child down.
  */
 async function setupWithFakeAdapter() {
-  const config = loadConfig({ projectRoot: TS_FIXTURE });
+  const config = loadConfig({ projectRoot: isolatedFixture() });
   config.policy.defaultMode = 'dev';
   // Point the serena adapter at our fake child MCP server.
   config.adapters.serena = {
@@ -90,7 +90,7 @@ describe('child MCP adapter wiring', () => {
   });
 
   it('skips disabled adapters during discovery', async () => {
-    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    const config = loadConfig({ projectRoot: isolatedFixture() });
     config.adapters.serena = { enabled: false, command: process.execPath, args: [FAKE_SERVER] };
     const container = new Container(config);
     const registry = buildRegistry(container);
@@ -102,7 +102,7 @@ describe('child MCP adapter wiring', () => {
   });
 
   it('retains direct wrappers when child catalog refresh validation fails', async () => {
-    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    const config = loadConfig({ projectRoot: isolatedFixture() });
     config.policy.defaultMode = 'dev';
     config.adapters.serena = {
       enabled: true,
@@ -129,7 +129,7 @@ describe('child MCP adapter wiring', () => {
   });
 
   it('propagates a direct child tool-list change through the parent MCP connection', async () => {
-    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    const config = loadConfig({ projectRoot: isolatedFixture() });
     config.policy.defaultMode = 'dev';
     config.adapters.serena = {
       enabled: true,
@@ -174,7 +174,7 @@ describe('child MCP adapter wiring', () => {
   });
 
   it('continues degraded without advertising browser wrappers and retains the failure diagnostic', async () => {
-    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    const config = loadConfig({ projectRoot: isolatedFixture() });
     config.adapters.serena = { enabled: false, command: 'serena', args: [] };
     config.adapters.playwright = {
       enabled: true,

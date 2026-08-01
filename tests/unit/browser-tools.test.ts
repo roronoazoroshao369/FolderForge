@@ -5,7 +5,7 @@ import { workflowTools } from '../../src/tools/workflow-tools.js';
 import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry, resolveActiveTools, TASK_PRESETS } from '../../src/tools/index.js';
-import { TS_FIXTURE } from '../integration/fixtures.js';
+import { isolatedFixture } from '../integration/fixtures.js';
 
 describe('browser tool surface', () => {
   const tools = browserTools();
@@ -43,7 +43,7 @@ describe('browser tool surface', () => {
   });
 
   it('keeps every browser wrapper inside the 50-tool vibe-lite cap', () => {
-    const config = loadConfig({ projectRoot: TS_FIXTURE });
+    const config = loadConfig({ projectRoot: isolatedFixture() });
     const registry = buildRegistry(new Container(config));
     const active = resolveActiveTools(registry, { preset: 'vibe-lite' });
 

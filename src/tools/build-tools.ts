@@ -6,10 +6,43 @@ import { parseErrors } from './error-parser.js';
 import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
 import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 
-async function runScript(ctx: ToolContext, key: 'test' | 'lint' | 'typecheck' | 'build') {
+/**
+ * Run a detected project script.
+ *
+ * Test and build commands routinely outlive an MCP client's request timeout
+ * (commonly ~60s), which surfaces as a transport error rather than a result.
+ * Passing `async: true` starts the command as a managed process session and
+ * returns immediately, so the caller can follow it with process_tail.
+ */
+async function runScript(
+  ctx: ToolContext,
+  key: 'test' | 'lint' | 'typecheck' | 'build',
+  runAsync = false
+) {
   const cmds = detectCommands(ctx.projectRoot);
   const command = cmds.scripts[key];
   if (!command) return { ok: false, error: `No ${key} command detected for this project.` };
+  if (runAsync) {
+    const session = ctx.container.processes.start(
+      command,
+      ctx.projectRoot,
+      ctx.config.terminal.shell
+    );
+    return {
+      ok: true,
+      data: {
+        command,
+        exitCode: null,
+        stdout: '',
+        stderr: '',
+        errors: [],
+        async: true,
+        sessionId: session.sessionId,
+        status: session.status,
+        hint: `Started in the background. Poll process_tail with sessionId "${session.sessionId}" until done is true.`,
+      },
+    };
+  }
   const sub = await execa(
     ctx.config.terminal.shell,
     shellCommandArgs(ctx.config.terminal.shell, command),
@@ -25,9 +58,17 @@ async function runScript(ctx: ToolContext, key: 'test' | 'lint' | 'typecheck' | 
   const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, max));
   const stderr = ctx.container.policy.secret.redact((sub.stderr ?? '').slice(0, max));
   const errors = parseErrors(stdout + '\n' + stderr);
+  if (sub.timedOut) {
+    return {
+      ok: false,
+      error:
+        `The ${key} command timed out after ${ctx.config.terminal.defaultTimeoutMs}ms. ` +
+        `Re-run it with { "async": true } and follow the returned sessionId with process_tail.`,
+    };
+  }
   return {
     ok: sub.exitCode === 0,
-    data: { command, exitCode: sub.exitCode, stdout, stderr, errors },
+    data: { command, exitCode: sub.exitCode ?? null, stdout, stderr, errors },
   };
 }
 
@@ -46,9 +87,9 @@ export function buildTools(): ToolDefinition[] {
       description: 'Run the project test suite and parse failures.',
       group: 'build',
       mutates: false,
-      inputSchema: { type: 'object', properties: {} },
+      inputSchema: { type: 'object', properties: { async: { type: 'boolean', description: 'Run in the background and return a sessionId instead of blocking.' } } },
       outputSchema: RUN_SCRIPT_OUTPUT_SCHEMA,
-      handler: async (_a, ctx) => runScript(ctx, 'test'),
+      handler: async (a, ctx) => runScript(ctx, 'test', a.async === true),
     }),
     defineTool({
       name: 'run_lint',
@@ -56,7 +97,7 @@ export function buildTools(): ToolDefinition[] {
       group: 'build',
       mutates: false,
       inputSchema: { type: 'object', properties: {} },
-      handler: async (_a, ctx) => runScript(ctx, 'lint'),
+      handler: async (a, ctx) => runScript(ctx, 'lint', a.async === true),
     }),
     defineTool({
       name: 'run_typecheck',
@@ -64,7 +105,7 @@ export function buildTools(): ToolDefinition[] {
       group: 'build',
       mutates: false,
       inputSchema: { type: 'object', properties: {} },
-      handler: async (_a, ctx) => runScript(ctx, 'typecheck'),
+      handler: async (a, ctx) => runScript(ctx, 'typecheck', a.async === true),
     }),
     defineTool({
       name: 'run_build',
@@ -72,7 +113,7 @@ export function buildTools(): ToolDefinition[] {
       group: 'build',
       mutates: true,
       inputSchema: { type: 'object', properties: {} },
-      handler: async (_a, ctx) => runScript(ctx, 'build'),
+      handler: async (a, ctx) => runScript(ctx, 'build', a.async === true),
     }),
     defineTool({
       name: 'parse_errors',

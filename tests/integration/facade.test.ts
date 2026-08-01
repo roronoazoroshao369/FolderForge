@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { loadConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry, registerAdapterTools } from '../../src/tools/index.js';
-import { TS_FIXTURE } from './fixtures.js';
+import { isolatedFixture } from './fixtures.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAKE_LARGE = resolve(__dirname, '..', 'fixtures', 'fake-large-mcp-server.mjs');
@@ -16,7 +16,7 @@ type TestMode = 'readonly' | 'safe' | 'dev' | 'danger';
  * facade mode, then build + register tools. Returns the container and registry.
  */
 async function setupFacade(mode: TestMode = 'dev') {
-  const config = loadConfig({ projectRoot: TS_FIXTURE });
+  const config = loadConfig({ projectRoot: isolatedFixture() });
   config.policy.defaultMode = mode;
   config.adapters.serena = {
     enabled: true,

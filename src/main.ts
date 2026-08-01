@@ -48,6 +48,7 @@ interface CliArgs {
   token?: string;
   apiKeys?: string[];
   requireAuth?: boolean;
+  allowUnauthenticatedTunnel?: boolean;
   authMode?: "none" | "token" | "oauth";
   oauthResource?: string;
   oauthMetadataUrl?: string;
@@ -160,6 +161,9 @@ function parseArgs(argv: string[]): CliArgs {
       case "--require-auth":
         args.requireAuth = true;
         break;
+      case "--allow-unauthenticated-tunnel":
+        args.allowUnauthenticatedTunnel = true;
+        break;
       case "--auth": {
         const v = next();
         if (v !== undefined)
@@ -255,7 +259,13 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       default:
         if (a && a.startsWith("-")) {
-          logger.warn({ arg: a }, "Unknown argument ignored");
+          // Silently ignoring an unrecognized flag is dangerous: a single typo in a
+          // security flag (e.g. --apiKey instead of --api-key) drops the credential,
+          // which downgrades a loopback HTTP bind to authMode "none" and accepts every
+          // request. Fail fast instead of booting an unintentionally open server.
+          throw new Error(
+            `Unknown argument: ${a}. Run \`folderforge --help\` for supported flags.`,
+          );
         }
     }
   }
@@ -292,6 +302,7 @@ function printHelp(): void {
       "      --token <secret>     Bearer/API token required on the HTTP MCP endpoint",
       "      --api-key <csv>      Additional accepted API keys (repeatable / comma-separated)",
       "      --require-auth       Enforce auth even on a loopback (localhost) bind",
+      "      --allow-unauthenticated-tunnel  Start unauthenticated even if a tunnel client is running",
       "      --auth <mode>        HTTP auth mode (none|token|oauth)",
       "      --oauth-resource <url> Canonical public MCP resource URL",
       "      --oauth-metadata-url <url> Local RFC 9728 metadata URL override for trusted gateways",
@@ -466,6 +477,7 @@ async function main(): Promise<void> {
     ];
   }
   if (args.requireAuth) config.server.http.requireAuth = true;
+  if (args.allowUnauthenticatedTunnel) process.env.FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL = '1';
   if (args.authMode !== undefined) {
     config.server.http.auth = {
       ...(config.server.http.auth ?? {}),

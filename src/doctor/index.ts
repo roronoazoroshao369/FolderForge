@@ -1241,7 +1241,13 @@ function checkState(projectRoot: string, now: number, findings: DoctorFinding[])
     for (const name of runFiles.slice(0, 1000)) {
       try {
         const value = readJson(join(runsDir, name)) as Record<string, unknown>;
-        if (value.schemaVersion !== 1 || typeof value.id !== 'string') {
+        // WorkflowManager persists runs at schemaVersion 2; version 1 files are
+        // still valid historical evidence. Accepting only version 1 reported
+        // every run written by the current code as corrupt, failing doctor on a
+        // healthy workspace.
+        const runSchemaVersion = value.schemaVersion;
+        const knownSchemaVersion = runSchemaVersion === 1 || runSchemaVersion === 2;
+        if (!knownSchemaVersion || typeof value.id !== 'string') {
           corrupt++;
           continue;
         }
