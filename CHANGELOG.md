@@ -8,11 +8,24 @@ semantic versioning.
 
 ### Added
 
+- Add regex-based symbol fallback to `code_symbols_overview` so it always returns results even without a language server (lower fidelity, marked `source: 'regex'`).
+- Add `{ "async": true }` support to `run_coverage` to avoid MCP timeout on large suites.
+- Default `--tools-preset` to `vibe` (84 tools) instead of advertising all 337 tools, reducing token overhead by ~75% on first connection.
+- Add comprehensive CLI flags reference table to README.
+- Accept `workflowId` as an alias for `id` in `workflow_run` for a more tolerant API.
+- Add `pretest` script that ensures `dist/` is built before the test suite runs, eliminating soak-test failures on fresh clones.
+
 - Refuse to start an unauthenticated HTTP transport while a tunnel client is running on the host, with `--allow-unauthenticated-tunnel` / `FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL=1` as an explicit opt-out.
 - Add `{ "async": true }` to `run_test`, `run_lint`, `run_typecheck`, and `run_build`, which returns a `sessionId` to follow with `process_tail` instead of holding the MCP request open.
 - Give `search_text` a real `path` argument so searches can be scoped to a subdirectory.
 
 ### Fixed
+
+- Tighten the Rust error-parser pattern to require an error code (`[E0382]`) so generic `error: ...` output from Node.js or other tools is no longer mis-labeled as a Rust compile error.
+- Pass `--allow-unauthenticated-tunnel` to all HTTP spawns in `smoke-package` so the packaging smoke suite passes in environments with an active cloudflared tunnel.
+- Improve `db_connect` description to mention optional peer dependencies (`better-sqlite3`, `pg`).
+- Improve `browser_accessibility_audit` description to mention Playwright adapter requirement.
+- Add working schema example to `workflow_create` description.
 
 - Reject unknown CLI flags instead of ignoring them, so a typo such as `--apiKey` can no longer start a silently unauthenticated server.
 - Always return `exitCode` from `shell_exec`, which previously violated the tool output schema on some paths.
