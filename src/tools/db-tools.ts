@@ -6,7 +6,9 @@ export function dbTools(): ToolDefinition[] {
   return [
     defineTool({
       name: 'db_connect',
-      description: 'Register a read-only dev database connection (sqlite or postgres). Production targets are refused.',
+      description: 'Register a read-only dev database connection (sqlite or postgres). ' +
+        'Requires optional peer deps: npm install better-sqlite3 (SQLite) or pg (Postgres). ' +
+        'Production targets are refused.',
       group: 'db',
       mutates: true,
       inputSchema: {

@@ -217,7 +217,10 @@ export function workflowTools(): ToolDefinition[] {
   return [
     defineTool({
       name: 'workflow_create',
-      description: 'Validate and persist a deterministic, role-scoped workflow definition. Recursive workflow tool calls and detected secrets are rejected.',
+      description: 'Validate and persist a workflow definition. ' +
+        'Roles, allowedTools, and step ids are required. Example definition: ' +
+        '{"name":"my-wf","roles":{"executor":{"allowedTools":["shell_exec"]}},"steps":[{"id":"step1","role":"executor","tool":"shell_exec","args":{"command":"echo hi"}}]}. ' +
+        'Recursive workflow tool calls and detected secrets are rejected.',
       group: 'workflow', mutates: true, risk: 'MEDIUM',
       inputSchema: {
         type: 'object',
@@ -267,12 +270,13 @@ export function workflowTools(): ToolDefinition[] {
       name: 'workflow_run',
       description: 'Execute a created workflow through the normal tool policy/audit pipeline until completion, failure, cancellation, or approval pause.',
       group: 'workflow', mutates: true, risk: 'MEDIUM',
-      inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Workflow run id from workflow_create.' }, workflowId: { type: 'string', description: 'Alias for id.' } }, required: [] },
       outputSchema: runSchema,
       handler: async (args, ctx) => {
         try {
-          const run = ctx.container.workflows.get(String(args.id ?? ''), workflowPrincipal(ctx));
-          if (run.state !== 'created') return { ok: false, error: `workflow_run requires created state; current=${run.state}.`, data: ctx.container.workflows.report(run) };
+          const runId = String(args.id ?? args.workflowId ?? '');
+          const run = ctx.container.workflows.get(runId, workflowPrincipal(ctx));
+          if (run.state !== 'created') return { ok: false, error: `workflow_run requires created state; current=${run.state}. Use workflow_resume for paused runs.`, data: ctx.container.workflows.report(run) };
           return executeWorkflow(run, ctx, ctx.control);
         } catch (error) { return fail(error); }
       },

@@ -107,6 +107,36 @@ function noBackend(extra = ''): ToolResult {
 
 // --- handlers -------------------------------------------------------------
 
+
+/**
+ * Regex-based symbol extraction — always available, lower fidelity than LSP.
+ * Extracts exported/public declarations (functions, classes, consts, etc.).
+ */
+function regexSymbols(absPath: string): Array<{ name: string; kind: string; line: number }> {
+  let text: string;
+  try { text = readFileSync(absPath, 'utf8'); } catch { return []; }
+  const patterns: Array<{ re: RegExp; kind: string }> = [
+    { re: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/gm, kind: 'function' },
+    { re: /^(?:export\s+)?class\s+(\w+)/gm, kind: 'class' },
+    { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*[=:]/gm, kind: 'variable' },
+    { re: /^(?:export\s+)?interface\s+(\w+)/gm, kind: 'interface' },
+    { re: /^(?:export\s+)?type\s+(\w+)\s*=/gm, kind: 'type' },
+    { re: /^(?:export\s+)?enum\s+(\w+)/gm, kind: 'enum' },
+    { re: /^def\s+(\w+)\s*\(/gm, kind: 'function' },
+    { re: /^class\s+(\w+)/gm, kind: 'class' },
+  ];
+  const byLine = new Map<number, { name: string; kind: string; line: number }>();
+  for (const { re, kind } of patterns) {
+    let m: RegExpExecArray | null;
+    re.lastIndex = 0;
+    while ((m = re.exec(text)) !== null) {
+      const lineNum = text.slice(0, m.index).split('\n').length;
+      if (!byLine.has(lineNum) && m[1]) byLine.set(lineNum, { name: m[1]!, kind, line: lineNum });
+    }
+  }
+  return [...byLine.values()].sort((a, b) => a.line - b.line).slice(0, 200);
+}
+
 async function symbolsOverview(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
   const rel = String(args.relativePath ?? '');
   if (!rel) return { ok: false, error: 'relativePath is required.' };
@@ -119,7 +149,10 @@ async function symbolsOverview(args: Record<string, unknown>, ctx: ToolContext):
     return { ok: true, data: { source: 'lsp', symbols: flattenSymbols(result) } };
   }
   const serena = await routeToSerena(ctx, 'code_symbols_overview', args);
-  return serena ?? noBackend();
+  if (serena) return serena;
+  // Always-available regex fallback (no language-server required, lower fidelity)
+  const symbols = regexSymbols(absOf(ctx, rel));
+  return { ok: true, data: { source: 'regex', symbols, note: 'Install a language server for authoritative results.' } };
 }
 
 async function findSymbol(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {

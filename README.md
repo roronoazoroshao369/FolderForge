@@ -242,6 +242,30 @@ to `X-API-Key`. For ChatGPT/Auth0 and external authorization-server setup, use:
 - [OAuth deployment reference](docs/oauth.md)
 - [OAuth architecture decision](docs/adr-0004-oauth-resource-server.md)
 
+
+## CLI flags reference
+
+| Flag | Alias | Description | Default |
+|---|---|---|---|
+| `--tools-preset <id>` | | Filter advertised tools: `vibe` (84 tools), `vibe-lite`, `readonly`, `full` (337) | `vibe` |
+| `--http` | | Enable HTTP transport (in addition to stdio) | off |
+| `--stdio` | | Enable stdio transport | on |
+| `--port <n>` | | HTTP listen port | `7331` |
+| `--host <h>` | | HTTP bind host | `127.0.0.1` |
+| `--auth <mode>` | | Auth mode: `none`, `token`, `oauth` | `none` |
+| `--token <value>` | | Static bearer token (used with `--auth token`) | — |
+| `--api-key <csv>` | | One or more API keys accepted in `X-API-Key` header | — |
+| `--require-auth` | | Refuse requests that have no valid credential | off |
+| `--allow-unauthenticated-tunnel` | | Bypass the tunnel-exposure guard (see [Security](docs/security.md)) | off |
+| `--policy <mode>` | | Risk policy: `readonly`, `safe`, `dev`, `danger` | `dev` |
+| `--dangerously-allow-critical` | | Allow critical-risk tools in `danger` mode | off |
+| `--project <path>` | `-p` | Workspace root | `cwd` |
+| `--config <path>` | `-c` | Config file path | auto-detect |
+| `--no-dashboard` | | Disable the local dashboard server | off |
+| `--dashboard-port <n>` | | Dashboard listen port | `7332` |
+| `--version` | `-v` | Print version and exit | — |
+| `--help` | `-h` | Print help and exit | — |
+
 ## Tool surface
 
 Clients with a tool-count limit can select a preset:

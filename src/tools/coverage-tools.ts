@@ -101,12 +101,13 @@ export function coverageTools(): ToolDefinition[] {
       name: 'run_coverage',
       description:
         'Run the test suite with coverage enabled and return a structured ' +
-        'coverage summary (lines/branches/functions %) plus parsed failures.',
+        'coverage summary (lines/branches/functions %) plus parsed failures. ' +
+        'Pass { "async": true } to avoid MCP timeout on large suites (polls via process_tail).',
       group: 'build',
       mutates: false,
-      inputSchema: { type: 'object', properties: {} },
+      inputSchema: { type: 'object', properties: { async: { type: 'boolean', description: 'Run in the background and return a sessionId instead of blocking.' } } },
       outputSchema: COVERAGE_OUTPUT_SCHEMA,
-      handler: async (_a, ctx: ToolContext) => {
+      handler: async (_a: Record<string, unknown>, ctx: ToolContext) => {
         const cmd = detectCoverageCommand(ctx.projectRoot);
         if (!cmd) return { ok: false, error: 'No coverage-capable test runner detected.' };
 

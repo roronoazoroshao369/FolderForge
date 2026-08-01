@@ -544,7 +544,9 @@ export function browserTools(): ToolDefinition[] {
     }),
     defineTool({
       name: 'browser_accessibility_audit',
-      description: 'Run a bounded read-only DOM audit for names, labels, language, headings, duplicate IDs, and WCAG AA contrast.',
+      description: 'Run a bounded read-only DOM audit for names, labels, language, headings, duplicate IDs, and WCAG AA contrast. ' +
+        'Requires Playwright adapter (adapters.playwright in config). ' +
+        'First navigate with browser_open, then call this tool.',
       group: 'browser',
       mutates: false,
       inputSchema: { type: 'object', properties: {} },

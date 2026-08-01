@@ -39,9 +39,9 @@ const PATTERNS: Array<{ tool: string; re: RegExp; map: (m: RegExpExecArray) => P
     map: (m) => ({ tool: 'go', file: m[1], line: +m[2]!, column: +m[3]!, severity: 'error', message: m[4]! }),
   },
   {
-    // Rust: error[E0382]: msg
+    // Rust: error[E0382]: msg — require the error-code bracket to avoid matching generic 'error: ...' output from other tools
     tool: 'rust',
-    re: /^error(?:\[[A-Z]\d+\])?:\s+(.+)$/,
+    re: /^error\[[A-Z]\d+\]:\s+(.+)$/,
     map: (m) => ({ tool: 'rust', severity: 'error', message: m[1]! }),
   },
   {

@@ -559,7 +559,9 @@ async function main(): Promise<void> {
       };
     }
   ).tools;
-  const effectivePreset = args.toolsPreset ?? cfgTools?.preset;
+  // Default to 'vibe' (84 tools) instead of the full catalog (337 tools); LLMs work
+  // better with a focused surface and users can widen it with --tools-preset full.
+  const effectivePreset = args.toolsPreset ?? cfgTools?.preset ?? 'vibe';
   const active = resolveActiveTools(registry, {
     preset: effectivePreset,
     enabledGroups: args.toolsGroups ?? cfgTools?.enabledGroups,
