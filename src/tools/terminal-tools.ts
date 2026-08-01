@@ -51,7 +51,12 @@ export function terminalTools(): ToolDefinition[] {
           const redact = (s: string) =>
             ctx.container.policy.secret.redact((s ?? '').slice(0, maxBytes));
           const data = {
-            exitCode: sub.exitCode,
+            // execa reports `undefined` when the child is terminated by a signal
+            // (e.g. SIGTERM/SIGKILL) rather than exiting normally. The declared
+            // output schema requires `exitCode`, and an undefined value is dropped
+            // during JSON serialization, which made structuredContent fail client
+            // side validation. Normalize to null, which the schema permits.
+            exitCode: sub.exitCode ?? null,
             stdout: redact(sub.stdout),
             stderr: redact(sub.stderr),
             durationMs: Date.now() - started,
