@@ -41,6 +41,10 @@ export interface HttpTransportOptions {
   apiKeys?: string[];
   /** Force static-token auth in legacy mode, including on loopback. */
   requireAuth?: boolean;
+  /** Allow an unauthenticated loopback bind even when a tunnel client is running. */
+  allowUnauthenticatedTunnel?: boolean;
+  /** Injectable tunnel probe. Defaults to scanning host processes. */
+  detectTunnelExposure?: () => TunnelExposure;
   /** Optional transport-level guard enforced before token/OAuth authentication. */
   gatewayGuard?: HttpGatewayGuard;
   /** Allowed CORS origins. ['*'] allows any; empty/undefined disables CORS. */
@@ -48,6 +52,8 @@ export interface HttpTransportOptions {
   /** Idle session lifetime in ms before the transport session is expired. */
   sessionTtlMs?: number;
 }
+
+import { detectTunnelExposure, type TunnelExposure } from '../tunnel-exposure.js';
 
 /** True when the bind host is loopback-only and therefore safe without a token. */
 export function isLoopbackHost(host: string): boolean {
@@ -210,6 +216,19 @@ export async function startHttpTransport(
 
   if (authMode === 'none' && !isLoopbackHost(opts.host)) {
     throw new Error('HTTP auth mode none is only allowed on a loopback bind');
+  }
+  if (authMode === 'none') {
+    const allowTunnel =
+      opts.allowUnauthenticatedTunnel ??
+      process.env.FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL === '1';
+    if (!allowTunnel) {
+      const exposure = (opts.detectTunnelExposure ?? detectTunnelExposure)();
+      if (exposure.exposed) {
+        throw new Error(
+          `Refusing to start without authentication: tunnel client(s) ${exposure.clients.join(', ')} are running on this host, so the loopback bind may be reachable from the public internet. Supply --api-key or --token, or pass --allow-unauthenticated-tunnel to accept the risk.`
+        );
+      }
+    }
   }
   if (authMode === 'token' && credentials.length === 0) {
     throw new Error(
