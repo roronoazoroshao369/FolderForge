@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.7] - 2026-08-01
+
 ### Added
 
 - Add regex-based symbol fallback to `code_symbols_overview` so it always returns results even without a language server (lower fidelity, marked `source: 'regex'`).
