@@ -6,6 +6,10 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Document how to run `smoke:sandbox` locally in `docs/sandbox.md`, including how to pin `FOLDERFORGE_SANDBOX_IMAGE` to an already-present digest and what the fixture image must provide.
+
 ## [2.7.7] - 2026-08-01
 
 ### Added

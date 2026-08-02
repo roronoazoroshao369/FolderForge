@@ -74,6 +74,26 @@ and `tools/list` handshake through the container. Invalid sandbox arguments are
 classified as configuration failures and block automatic retry until the adapter
 or plugin is updated.
 
+## Verifying the boundary locally
+
+`npm run smoke:sandbox` proves the container boundary end to end: it starts a
+sandboxed child MCP adapter, confirms the declared environment value is visible
+inside the container, and confirms an undeclared host secret is not.
+
+The suite never pulls an image. Provide a digest-pinned image that is already
+present locally:
+
+```bash
+docker pull python:3.12-alpine
+export FOLDERFORGE_SANDBOX_IMAGE="$(docker inspect --format '{{index .RepoDigests 0}}' python:3.12-alpine)"
+npm run smoke:sandbox
+```
+
+The image only needs a `python` interpreter on `PATH`; the fixture server is
+mounted read-only from `tests/fixtures`. Without a valid
+`image@sha256:<digest>` value the suite exits with an explicit prerequisite
+message rather than a runtime failure.
+
 ## Boundary
 
 Container mode materially improves filesystem, process, capability, network, and
