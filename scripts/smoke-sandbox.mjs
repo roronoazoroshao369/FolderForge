@@ -8,7 +8,21 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const image = String(process.env.FOLDERFORGE_SANDBOX_IMAGE ?? '').trim();
 if (!/@sha256:[a-f0-9]{64}$/i.test(image)) {
-  throw new Error('FOLDERFORGE_SANDBOX_IMAGE must name an already-local image@sha256:<digest>.');
+  console.error(
+    [
+      'smoke:sandbox requires a digest-pinned container image that is already present locally.',
+      '',
+      'This is an environment prerequisite, not a code failure.',
+      '',
+      'Set it up with:',
+      '  docker pull <image>:<tag>',
+      "  export FOLDERFORGE_SANDBOX_IMAGE=\"$(docker inspect --format '{{index .RepoDigests 0}}' <image>:<tag>)\"",
+      '  npm run smoke:sandbox',
+      '',
+      `Received: ${image === '' ? '<unset>' : 'a value without an @sha256:<64-hex> digest suffix'}`,
+    ].join('\n')
+  );
+  process.exit(1);
 }
 
 const project = mkdtempSync(join(tmpdir(), 'folderforge sandbox ünicode-'));

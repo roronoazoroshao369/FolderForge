@@ -32,6 +32,8 @@ semantic versioning.
 - Stop `doctor` from reporting healthy workflow runs of schema version 1 as corrupt.
 - Isolate test fixtures per run so the suite no longer writes multi-megabyte audit logs into the repository and slow itself down.
 - Stop tracking build output under `dist/`, which was both ignored and committed.
+- Replace the raw stack trace in `smoke:sandbox` with an actionable prerequisite message that states the failure is an environment prerequisite and shows how to pin `FOLDERFORGE_SANDBOX_IMAGE` to a local `@sha256:` digest.
+- Add a usage block to `release:bundle:verify` so running it without `--bundle-dir` explains the correct invocation instead of printing a bare argument error.
 
 ## [2.7.6] - 2026-07-29
 

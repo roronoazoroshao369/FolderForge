@@ -20,7 +20,18 @@ function parseArgs(argv) {
     else if (arg === '--registry') registry = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
-  if (!bundleDir) throw new Error('Missing required --bundle-dir path');
+  if (!bundleDir) {
+    throw new Error(
+      [
+        'Missing required --bundle-dir path',
+        '',
+        'Usage:',
+        '  npm run release:bundle:verify -- --bundle-dir <dir> [--root <repo>] [--registry]',
+        '',
+        'Create a bundle first with: npm run release:bundle',
+      ].join('\n')
+    );
+  }
   return {
     bundleDir: resolve(bundleDir),
     root: root ? resolve(root) : '',
