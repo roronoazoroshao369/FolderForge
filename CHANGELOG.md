@@ -9,6 +9,9 @@ semantic versioning.
 ### Added
 
 - Document how to run `smoke:sandbox` locally in `docs/sandbox.md`, including how to pin `FOLDERFORGE_SANDBOX_IMAGE` to an already-present digest and what the fixture image must provide.
+- Cover the semantic code tools (`tests/unit/code-tools.test.ts`) across the native LSP path, the Serena adapter path, and the degraded no-backend path, including positional conversion, symbol location, and diagnostics normalisation.
+- Cover the package-manager resolution matrix, the package-spec argument-injection guard, and the shared `runPm` wrapper (`tests/unit/pkg-tools-matrix.test.ts`), including output capping and secret redaction.
+- Cover the runtime configuration environment overlay (`tests/unit/config-env.test.ts`), including audit switches, API key parsing, and every OAuth variable, plus the OAuth defaulting rules in `applyHttpAuthDefaults`.
 
 ## [2.7.7] - 2026-08-01
 
