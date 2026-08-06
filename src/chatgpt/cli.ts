@@ -67,6 +67,12 @@ export type ChatGptAdapter =
 export interface ChatGptRuntimeSettings {
   profile: ChatGptProfile;
   policyMode: ChatGptPolicyMode;
+  /**
+   * Let CRITICAL tools (git_push, git_reset, ...) run without an approval
+   * round-trip. Only meaningful together with policyMode "danger"; the server
+   * refuses the combination in any other mode.
+   */
+  allowCriticalInDanger: boolean;
   toolsPreset: ChatGptToolsPreset;
   adapters: ChatGptAdapter[];
   dashboard: boolean;
@@ -175,6 +181,7 @@ interface ExistingChatGptConfig {
   host?: string;
   port?: number;
   policyMode?: ChatGptPolicyMode;
+  allowCriticalInDanger?: boolean;
   toolsPreset?: ChatGptToolsPreset;
   adapters?: ChatGptAdapter[];
   dashboard?: boolean;
@@ -214,6 +221,9 @@ interface ParsedOptions {
   adapters?: ChatGptAdapter[];
   dashboard?: boolean;
   dashboardPort?: number;
+  dashboardPortAuto?: boolean;
+  openDashboard?: boolean;
+  allowCriticalInDanger?: boolean;
   offlineAccess?: boolean;
   dcrClientPolicy?: DcrClientPolicy;
   autoEnableDcr?: boolean;
@@ -459,9 +469,26 @@ export function parseChatGptArgs(
       case "--no-dashboard":
         options.dashboard = false;
         break;
-      case "--dashboard-port":
-        options.dashboardPort = parsePort(valueAfter(argv, index, arg), arg);
+      case "--dashboard-port": {
+        const raw = valueAfter(argv, index, arg);
+        if (raw === "auto") {
+          options.dashboardPortAuto = true;
+          delete options.dashboardPort;
+        } else {
+          options.dashboardPort = parsePort(raw, arg);
+          options.dashboardPortAuto = false;
+        }
         index += 1;
+        break;
+      }
+      case "--open":
+        options.openDashboard = true;
+        break;
+      case "--no-open":
+        options.openDashboard = false;
+        break;
+      case "--dangerously-allow-critical":
+        options.allowCriticalInDanger = true;
         break;
       case "--offline-access":
         options.offlineAccess = true;
@@ -547,7 +574,9 @@ export function chatGptHelp(): string {
     "      --adapters <list>   playwright,serena,desktop-commander,godot,all,none",
     "      --dashboard         Enable the local dashboard (disabled by default for ChatGPT)",
     "      --no-dashboard      Persistently disable the local dashboard",
-    "      --dashboard-port <n> Local dashboard port (default 7332)",
+    "      --dashboard-port <n|auto> Local dashboard port (default 7332; auto picks the first free port)",
+    "      --open/--no-open    Open the dashboard in the browser after connect (default: open when the dashboard is on)",
+    "      --dangerously-allow-critical  Run CRITICAL tools (git_push, git_reset) without an approval round-trip; requires --policy danger",
     "      --offline-access    Allow refresh tokens (default for ChatGPT)",
     "      --no-offline-access Disable refresh-token issuance",
     "      --dcr-client-policy <id> allow-all|require-grant; quick default provisions a scoped third-party DCR user grant",
@@ -1207,7 +1236,10 @@ function generatedConfig(
         port: settings.dashboardPort,
       },
     },
-    policy: { defaultMode: settings.policyMode },
+    policy: {
+      defaultMode: settings.policyMode,
+      allowCriticalInDanger: settings.allowCriticalInDanger,
+    },
     tools: { preset: settings.toolsPreset },
     adapters: {
       serena: {
@@ -1590,7 +1622,7 @@ function readExistingChatGptConfig(path: string): ExistingChatGptConfig {
         http?: { host?: string; port?: number };
         dashboard?: { enabled?: boolean; port?: number };
       };
-      policy?: { defaultMode?: string };
+      policy?: { defaultMode?: string; allowCriticalInDanger?: boolean };
       tools?: { preset?: string };
       adapters?: Record<string, { enabled?: boolean }>;
       chatgpt?: { profile?: string };
@@ -1639,6 +1671,9 @@ function readExistingChatGptConfig(path: string): ExistingChatGptConfig {
         ? { port: httpPort }
         : {}),
       ...(policyMode ? { policyMode } : {}),
+      ...(typeof config.policy?.allowCriticalInDanger === "boolean"
+        ? { allowCriticalInDanger: config.policy.allowCriticalInDanger }
+        : {}),
       ...(toolsPreset ? { toolsPreset } : {}),
       ...(config.adapters ? { adapters } : {}),
       ...(typeof config.server?.dashboard?.enabled === "boolean"
@@ -1678,6 +1713,11 @@ function resolveChatGptSettings(
       existing.policyMode ??
       previousRuntime?.policyMode ??
       defaults.policyMode,
+    allowCriticalInDanger:
+      options.allowCriticalInDanger ??
+      existing.allowCriticalInDanger ??
+      previousRuntime?.allowCriticalInDanger ??
+      false,
     toolsPreset:
       options.toolsPreset ??
       existing.toolsPreset ??
@@ -1829,6 +1869,52 @@ async function assertPortAvailable(
       server.close((error) => (error ? rejectPort(error) : resolvePort()));
     });
   });
+}
+
+async function isPortFree(host: string, port: number): Promise<boolean> {
+  try {
+    await assertPortAvailable(host, port);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** First free TCP port at or after `preferred`, skipping `exclude`. */
+export async function findAvailablePort(
+  host: string,
+  preferred: number,
+  attempts = 64,
+  exclude: number[] = [],
+): Promise<number> {
+  for (let offset = 0; offset < attempts; offset += 1) {
+    const candidate = preferred + offset;
+    if (candidate > 65535) break;
+    if (exclude.includes(candidate)) continue;
+    if (await isPortFree(host, candidate)) return candidate;
+  }
+  throw new Error(
+    `No free port available between ${preferred} and ${Math.min(preferred + attempts - 1, 65535)} on ${host}.`,
+  );
+}
+
+/** Best-effort browser launch; never throws. */
+export function openInBrowser(url: string): boolean {
+  const isWindows = process.platform === "win32";
+  const command = isWindows
+    ? "cmd"
+    : process.platform === "darwin"
+      ? "open"
+      : "xdg-open";
+  const args = isWindows ? ["/c", "start", "", url] : [url];
+  try {
+    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => undefined);
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function assertChatGptRuntimePortsAvailable(settings: {
@@ -2170,6 +2256,29 @@ async function connect(
           "✓ Previous FolderForge server stopped before applying the new configuration",
         );
       }
+      if (settings.dashboard && options.dashboardPort === undefined) {
+        const picked = await findAvailablePort(
+          "127.0.0.1",
+          settings.dashboardPort,
+          64,
+          [settings.port],
+        );
+        if (picked !== settings.dashboardPort) {
+          sink.line(
+            `• Dashboard port ${settings.dashboardPort} was busy; using 127.0.0.1:${picked} instead`,
+          );
+          settings.dashboardPort = picked;
+        }
+      }
+      if (
+        settings.policyMode === "danger" &&
+        !settings.allowCriticalInDanger &&
+        !settings.dashboard
+      ) {
+        sink.line(
+          "! CRITICAL tools (git_push, git_reset) still pause for approval and the dashboard is off, so nothing can resolve them. Add --dashboard or --dangerously-allow-critical.",
+        );
+      }
       await assertChatGptRuntimePortsAvailable(settings);
       sink.line(`✓ Local port ${settings.host}:${settings.port} is available`);
       if (settings.dashboard) {
@@ -2358,6 +2467,7 @@ async function connect(
       runtime: {
         profile: settings.profile,
         policyMode: settings.policyMode,
+        allowCriticalInDanger: settings.allowCriticalInDanger,
         toolsPreset: settings.toolsPreset,
         adapters: [...settings.adapters],
         dashboard: settings.dashboard,
@@ -2381,6 +2491,14 @@ async function connect(
 
     if (options.start && !options.dryRun) {
       const serverPid = startServer(receipt, settings);
+      if (settings.dashboard && (options.openDashboard ?? true)) {
+        const dashboardUrl = `http://127.0.0.1:${settings.dashboardPort}`;
+        sink.line(
+          openInBrowser(dashboardUrl)
+            ? `✓ Dashboard opened at ${dashboardUrl}`
+            : `• Open the dashboard manually at ${dashboardUrl}`,
+        );
+      }
       if (!receipt.processes.serverPid) startedPids.push(serverPid);
       receipt.processes.serverPid = serverPid;
       await waitForUrl(
@@ -2989,6 +3107,7 @@ async function startFromReceipt(
     receipt.runtime = {
       profile: settings.profile,
       policyMode: settings.policyMode,
+      allowCriticalInDanger: settings.allowCriticalInDanger,
       toolsPreset: settings.toolsPreset,
       adapters: [...settings.adapters],
       dashboard: settings.dashboard,
