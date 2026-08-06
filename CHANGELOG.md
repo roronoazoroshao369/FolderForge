@@ -6,6 +6,16 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.9] - 2026-08-06
+
+### Added
+
+- Add ChatGPT CLI controls for automatic dashboard-port selection, optional browser launch, and persistence of the explicit `policy.allowCriticalInDanger` setting.
+
+### Security
+
+- Keep CRITICAL tools approval-gated by default; `--dangerously-allow-critical` is an explicit opt-out for danger mode, while dashboard-disabled sessions warn when pending approvals would otherwise be impossible to resolve.
+
 ## [2.7.8] - 2026-08-06
 
 ### Added
