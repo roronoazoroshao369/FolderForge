@@ -1,25 +1,7 @@
-import { realpathSync, existsSync } from 'node:fs';
-import { resolve, relative, isAbsolute, sep, dirname, basename } from 'node:path';
+import { resolve, relative, isAbsolute, sep } from 'node:path';
 import picomatchLite from './glob-match.js';
 import { PathEscapeError } from '../core/errors.js';
-
-function canonicalizePath(input: string): string {
-  const abs = resolve(input);
-  let probe = abs;
-  const suffix: string[] = [];
-  while (!existsSync(probe)) {
-    const parent = dirname(probe);
-    if (parent === probe) return abs;
-    suffix.unshift(basename(probe));
-    probe = parent;
-  }
-  try {
-    const real = realpathSync(probe);
-    return suffix.length > 0 ? resolve(real, ...suffix) : real;
-  } catch {
-    return abs;
-  }
-}
+import { canonicalCandidatePath, isPathWithin } from '../core/path-identity.js';
 
 /**
  * PathPolicy enforces the workspace boundary:
@@ -32,7 +14,7 @@ export class PathPolicy {
   private deniedGlobs: string[];
 
   constructor(allowedDirectories: string[], deniedGlobs: string[]) {
-    this.allowed = allowedDirectories.map((d) => canonicalizePath(d));
+    this.allowed = allowedDirectories.map((d) => canonicalCandidatePath(d));
     this.deniedGlobs = deniedGlobs;
   }
 
@@ -46,11 +28,8 @@ export class PathPolicy {
   }
 
   isInsideAllowed(abs: string): boolean {
-    const canonical = canonicalizePath(abs);
-    return this.allowed.some((root) => {
-      const rel = relative(root, canonical);
-      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-    });
+    const canonical = canonicalCandidatePath(abs);
+    return this.allowed.some((root) => isPathWithin(root, canonical));
   }
 
   assertInsideAllowed(abs: string): void {
@@ -79,7 +58,7 @@ export class PathPolicy {
 
   /** Resolve aliases/symlinks on the nearest existing ancestor and re-check the boundary. */
   assertNoSymlinkEscape(abs: string): void {
-    const real = canonicalizePath(abs);
+    const real = canonicalCandidatePath(abs);
     if (!this.isInsideAllowed(real)) {
       throw new PathEscapeError(`Symlink escapes the workspace boundary: ${abs} -> ${real}`);
     }

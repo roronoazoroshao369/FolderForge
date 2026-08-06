@@ -1,19 +1,24 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync,
-  realpathSync,
   mkdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import type {
   CapsuleEnforcement,
   RiskLevel,
   ToolPrincipal,
 } from '../core/types.js';
 import { projectPrincipalId } from '../core/principal.js';
+import {
+  canonicalCandidatePath,
+  isPathWithin,
+  legacyPersistedPath,
+  samePath,
+} from '../core/path-identity.js';
 
 export type PermissionProfile = 'observe' | 'propose' | 'develop' | 'autopilot';
 export type CapsuleIsolation = 'direct' | 'checkpoint' | 'worktree';
@@ -120,26 +125,8 @@ const NEVER_AUTONOMOUS = new Set([
 const NETWORK_COMMAND = /(^|[;&|\s])(curl|wget|ssh|scp|rsync|npm\s+(install|add|publish)|pnpm\s+(add|install|publish)|yarn\s+(add|install|publish)|pip\s+install|git\s+(fetch|pull|push))([;&|\s]|$)/i;
 
 
-function canonicalizePath(input: string): string {
-  const absolute = resolve(input);
-  let probe = absolute;
-  const suffix: string[] = [];
-  while (!existsSync(probe)) {
-    const parent = dirname(probe);
-    if (parent === probe) return absolute;
-    suffix.unshift(basename(probe));
-    probe = parent;
-  }
-  try {
-    const real = realpathSync(probe);
-    return suffix.length > 0 ? resolve(real, ...suffix) : real;
-  } catch {
-    return absolute;
-  }
-}
-
 function workspaceId(root: string): string {
-  return `workspace:${createHash('sha256').update(canonicalizePath(root)).digest('hex').slice(0, 24)}`;
+  return `workspace:${createHash('sha256').update(legacyPersistedPath(root)).digest('hex').slice(0, 24)}`;
 }
 
 function uniqueStrings(values: string[] | undefined): string[] {
@@ -193,7 +180,7 @@ export class WorkspaceCapsuleManager {
   }
 
   create(input: CreateCapsuleInput): WorkspaceCapsule {
-    const root = canonicalizePath(input.workspaceRoot);
+    const root = legacyPersistedPath(input.workspaceRoot);
     this.assertAllowedRoot(root);
     if (!input.principalId.trim()) throw new Error('principalId is required.');
     if (!Object.hasOwn(PROFILE_DEFAULTS, input.profile)) {
@@ -352,13 +339,12 @@ export class WorkspaceCapsuleManager {
       return { kind: 'deny', capsule, reason: 'Capsule mutation budget exhausted.' };
     }
     const referencedPaths = [...new Set(pathLikeValues(call.args))];
-    const capsuleRoot = canonicalizePath(capsule.workspaceRoot);
+    const capsuleRoot = canonicalCandidatePath(capsule.workspaceRoot);
     for (const value of referencedPaths) {
-      const target = canonicalizePath(
+      const target = canonicalCandidatePath(
         isAbsolute(value) ? resolve(value) : resolve(projectRoot, value),
       );
-      const rel = relative(capsuleRoot, target);
-      if (rel.startsWith('..') || isAbsolute(rel)) {
+      if (!isPathWithin(capsuleRoot, target)) {
         return {
           kind: 'deny',
           capsule,
@@ -366,7 +352,7 @@ export class WorkspaceCapsuleManager {
         };
       }
       const managedRoot = this.managedWorktreeForPath(target);
-      if (managedRoot && canonicalizePath(managedRoot) !== capsuleRoot) {
+      if (managedRoot && !samePath(canonicalCandidatePath(managedRoot), capsuleRoot)) {
         return {
           kind: 'deny',
           capsule,
@@ -453,10 +439,12 @@ export class WorkspaceCapsuleManager {
 
   private resolveBinding(principal: ToolPrincipal, projectRoot: string): CapsuleDecision {
     if (principal.role === 'admin') return { kind: 'allow' };
-    const root = canonicalizePath(projectRoot);
+    const root = canonicalCandidatePath(projectRoot);
     const expectedProjectId = principal.projectId ?? projectPrincipalId(root);
     const candidates = [...this.capsules.values()].filter(
-      (capsule) => capsule.workspaceRoot === root && capsule.principalId === principal.id,
+      (capsule) =>
+        samePath(canonicalCandidatePath(capsule.workspaceRoot), root) &&
+        capsule.principalId === principal.id,
     );
     if (candidates.length === 0) {
       const remote = principal.authMode === 'token' || principal.authMode === 'oauth';
@@ -499,16 +487,17 @@ export class WorkspaceCapsuleManager {
   }
 
   private assertAllowedRoot(root: string): void {
-    const allowed = this.allowedDirectories.some((directory) => {
-      const candidate = canonicalizePath(directory);
-      return root === candidate || root.startsWith(`${candidate}${sep}`);
-    });
+    const identity = canonicalCandidatePath(root);
+    const allowed = this.allowedDirectories.some((directory) =>
+      isPathWithin(canonicalCandidatePath(directory), identity),
+    );
     if (!allowed) throw new Error(`Capsule workspace is outside allowed directories: ${root}`);
   }
 
   private assertEvidenceDestination(capsule: WorkspaceCapsule): void {
-    const target = resolve(capsule.evidenceDestination);
-    if (target !== capsule.workspaceRoot && !target.startsWith(`${capsule.workspaceRoot}${sep}`)) {
+    const root = canonicalCandidatePath(capsule.workspaceRoot);
+    const target = canonicalCandidatePath(capsule.evidenceDestination);
+    if (!isPathWithin(root, target)) {
       throw new Error('Capsule evidence destination must stay inside the workspace root.');
     }
   }
@@ -520,7 +509,7 @@ export class WorkspaceCapsuleManager {
     const capsule = value as WorkspaceCapsule;
     if (!/^caps_[a-f0-9]{20}$/.test(capsule.id)) throw new Error('Capsule id is invalid.');
     if (typeof capsule.workspaceRoot !== 'string') throw new Error('Capsule workspaceRoot is invalid.');
-    capsule.workspaceRoot = canonicalizePath(capsule.workspaceRoot);
+    capsule.workspaceRoot = legacyPersistedPath(capsule.workspaceRoot);
     this.assertAllowedRoot(capsule.workspaceRoot);
     if (capsule.workspaceId !== workspaceId(capsule.workspaceRoot)) {
       throw new Error('Capsule workspace identity does not match its root.');

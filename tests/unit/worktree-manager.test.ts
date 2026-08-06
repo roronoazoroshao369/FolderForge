@@ -26,6 +26,8 @@ function repository(): string {
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.email', 'test@example.com');
   git(root, 'config', 'user.name', 'FolderForge Test');
+  // Fixture bytes must not depend on the host Git installation's EOL policy.
+  git(root, 'config', 'core.autocrlf', 'false');
   writeFileSync(join(root, 'tracked.txt'), 'original\n');
   git(root, 'add', 'tracked.txt');
   git(root, 'commit', '-m', 'initial');
@@ -93,12 +95,17 @@ describe('WorktreeManager', () => {
     writeFileSync(join(root, 'tracked.txt'), 'original\n');
     const clean = sourceClean(root);
     expect(clean).toBe(true);
+    const outside = mkdtempSync(join(tmpdir(), 'folderforge-worktree-link-target-'));
+    roots.push(outside);
+    const outsideFile = join(outside, 'outside.txt');
+    writeFileSync(outsideFile, 'outside\n');
+
     const symlink = manager.create('task-symlink');
-    symlinkSync('/etc/passwd', join(symlink.worktreeRoot, 'escape-link'));
+    symlinkSync(outsideFile, join(symlink.worktreeRoot, 'escape-link'), 'file');
     expect(() => manager.apply(symlink.id)).toThrow(/regular file|outside managed root/);
 
     const trackedSymlink = manager.create('task-tracked-symlink');
-    symlinkSync('/etc/passwd', join(trackedSymlink.worktreeRoot, 'tracked-link'));
+    symlinkSync(outsideFile, join(trackedSymlink.worktreeRoot, 'tracked-link'), 'file');
     git(trackedSymlink.worktreeRoot, 'add', 'tracked-link');
     expect(() => manager.apply(trackedSymlink.id)).toThrow(
       /regular file or deletion|outside managed root/
@@ -192,8 +199,8 @@ describe('WorktreeManager', () => {
     expect(manager.get(isolation.id)).toMatchObject({ state: 'applied' });
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'revalidates an untracked target after preflight and blocks a symlink swap',
+  it(
+    'revalidates an untracked target after preflight and blocks a symlink or junction swap',
     () => {
       const root = repository();
       const outside = mkdtempSync(join(tmpdir(), 'folderforge-worktree-outside-'));
@@ -205,7 +212,7 @@ describe('WorktreeManager', () => {
           swapped = true;
           const parent = join(root, 'nested');
           expect(target).toBe(join(parent, 'new.txt'));
-          symlinkSync(outside, parent, 'dir');
+          symlinkSync(outside, parent, process.platform === 'win32' ? 'junction' : 'dir');
         },
       });
       const isolation = manager.create('task-target-swap');

@@ -1,7 +1,6 @@
-import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ToolPrincipal } from './types.js';
+import { canonicalCandidatePath } from './path-identity.js';
 
 export const STDIO_AGENT_PRINCIPAL: ToolPrincipal = {
   id: 'local:stdio-agent',
@@ -36,17 +35,8 @@ export function adminPrincipalFromCredential(credential?: string): ToolPrincipal
     : LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL;
 }
 
-function canonicalProjectRoot(projectRoot: string): string {
-  const resolved = resolve(projectRoot);
-  try {
-    return realpathSync.native(resolved);
-  } catch {
-    return resolved;
-  }
-}
-
 export function projectPrincipalId(projectRoot: string): string {
-  return `project:${createHash('sha256').update(canonicalProjectRoot(projectRoot)).digest('hex').slice(0, 24)}`;
+  return `project:${createHash('sha256').update(canonicalCandidatePath(projectRoot)).digest('hex').slice(0, 24)}`;
 }
 
 export function scopedSessionId(principalId: string, hint?: string): string {

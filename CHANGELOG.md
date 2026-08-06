@@ -6,12 +6,28 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.7.8] - 2026-08-06
+
 ### Added
 
 - Document how to run `smoke:sandbox` locally in `docs/sandbox.md`, including how to pin `FOLDERFORGE_SANDBOX_IMAGE` to an already-present digest and what the fixture image must provide.
 - Cover the semantic code tools (`tests/unit/code-tools.test.ts`) across the native LSP path, the Serena adapter path, and the degraded no-backend path, including positional conversion, symbol location, and diagnostics normalisation.
 - Cover the package-manager resolution matrix, the package-spec argument-injection guard, and the shared `runPm` wrapper (`tests/unit/pkg-tools-matrix.test.ts`), including output capping and secret redaction.
 - Cover the runtime configuration environment overlay (`tests/unit/config-env.test.ts`), including audit switches, API key parsing, and every OAuth variable, plus the OAuth defaulting rules in `applyHttpAuthDefaults`.
+- Add shared canonical path-identity helpers and cross-platform regression coverage for POSIX aliases, Windows drive/UNC semantics, symlinks, and junctions.
+- Add a test-runtime isolation transaction that snapshots and restores every managed environment variable and performs idempotent fixture cleanup.
+
+### Fixed
+
+- Canonicalize workspace and security identity consistently across activation, memory lookup, path policy, capsule binding, principals, and managed worktrees while preserving lexical display paths and persisted capsule compatibility.
+- Prevent Windows short-path/long-path aliases and macOS `/var`/`/private/var` aliases from splitting one workspace into multiple identities or rejecting valid in-workspace operations.
+- Make managed-worktree fixtures independent of host Git EOL configuration and use portable out-of-workspace link targets on Windows, macOS, and Linux.
+- Restore approval-store and unauthenticated-tunnel environment variables after every test file so reused workers and reordered suites cannot inherit deleted fixture paths or permissive host state.
+
+### Security
+
+- Keep segment-aware canonical containment fail-closed for missing paths, symlink/junction escapes, capsule roots, exact approval bindings, verification evidence, and worktree mutation revalidation.
+- Update the exact `fast-uri` transitive override to `3.1.5`, refresh the lockfile, and restore zero-vulnerability production and full dependency audits.
 
 ## [2.7.7] - 2026-08-01
 

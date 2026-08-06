@@ -1,16 +1,6 @@
-import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { ToolDefinition } from '../core/types.js';
+import { canonicalCandidatePath, samePath } from '../core/path-identity.js';
 import { defineTool } from './registry.js';
-
-function canonicalRoot(path: string): string {
-  const resolved = resolve(path);
-  try {
-    return realpathSync.native(resolved);
-  } catch {
-    return resolved;
-  }
-}
 
 export function isolationTools(): ToolDefinition[] {
   return [
@@ -43,8 +33,8 @@ export function isolationTools(): ToolDefinition[] {
         additionalProperties: false,
       },
       handler: async (args, ctx) => {
-        const sourceRoot = canonicalRoot(ctx.config.workspace.defaultProject);
-        if (canonicalRoot(ctx.projectRoot) !== sourceRoot) {
+        const sourceRoot = canonicalCandidatePath(ctx.config.workspace.defaultProject);
+        if (!samePath(canonicalCandidatePath(ctx.projectRoot), sourceRoot)) {
           return {
             ok: false,
             error: 'Create isolation from the configured source repository, not from an existing task worktree.',

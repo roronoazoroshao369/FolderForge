@@ -13,6 +13,11 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import {
+  canonicalCandidatePath,
+  isPathWithin,
+  samePath,
+} from '../core/path-identity.js';
 
 export type IsolationState = 'active' | 'applying' | 'applied' | 'rolled_back' | 'discarded';
 
@@ -81,12 +86,7 @@ function git(cwd: string, args: string[], input?: string): string {
 }
 
 function canonicalRoot(path: string): string {
-  const resolved = resolve(path);
-  try {
-    return realpathSync.native(resolved);
-  } catch {
-    return resolved;
-  }
+  return canonicalCandidatePath(path);
 }
 
 function cloneIsolation(value: WorktreeIsolation): WorktreeIsolation {
@@ -191,7 +191,7 @@ export class WorktreeManager {
       this.rollbacksRoot = resolve(this.projectRoot, '.folderforge', 'rollbacks');
       return;
     }
-    if (topLevel !== this.projectRoot) {
+    if (!samePath(topLevel, this.projectRoot)) {
       this.available = false;
       this.unavailableReason = `Worktree isolation requires the activated workspace to be a Git repository root (repo root: ${topLevel}).`;
       this.statePath = resolve(this.projectRoot, '.folderforge', 'isolations-unavailable.json');
@@ -259,7 +259,7 @@ export class WorktreeManager {
   isManagedRoot(root: string): boolean {
     const target = canonicalRoot(root);
     return [...this.isolations.values()].some(
-      (item) => item.state !== 'discarded' && canonicalRoot(item.worktreeRoot) === target,
+      (item) => item.state !== 'discarded' && samePath(canonicalRoot(item.worktreeRoot), target),
     );
   }
 
@@ -269,7 +269,7 @@ export class WorktreeManager {
       .filter((item) => item.state !== 'discarded')
       .map((item) => canonicalRoot(item.worktreeRoot))
       .sort((left, right) => right.length - left.length)
-      .find((root) => target === root || target.startsWith(`${root}${sep}`));
+      .find((root) => isPathWithin(root, target));
   }
 
   status(id: string): WorktreeStatus {
