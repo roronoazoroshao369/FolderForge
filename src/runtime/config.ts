@@ -185,6 +185,9 @@ const DEFAULT_DENIED_GLOBS = [
   '**/.folderforge/verifications/**',
   '**/.folderforge/mission-control.json',
   '**/.folderforge/mission-control.json.*.tmp',
+  '**/.folderforge/fleet.json',
+  '**/.folderforge/fleet.json.*.tmp',
+  '**/.folderforge/fleet/**',
 ];
 
 export function defaultConfig(projectRoot: string): FolderForgeConfig {
