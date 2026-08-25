@@ -64,6 +64,9 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /approvals/:id/approve  -> approve (body: { scope?: 'once'|'session' })
  *   POST /approvals/:id/deny     -> deny
  *   POST /policy/mode             -> change runtime policy mode (admin only)
+ *   GET  /fleet                    -> provisioned per-folder MCP instances
+ *   POST /fleet                    -> provision a folder (body: { projectPath, name?, toolsPreset?, policyMode? })
+ *   POST /fleet/:id/start|stop     -> instance lifecycle (governed via provision_start/stop)
  */
 export function startDashboard(
   container: Container,
@@ -688,6 +691,53 @@ async function handle(
       container,
       principal,
       action === 'rollback' ? 'isolation_rollback' : 'isolation_discard',
+      { id },
+    );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/fleet") {
+    return sendJson(res, 200, { instances: container.fleet.list() });
+  }
+
+  if (method === "POST" && path === "/fleet") {
+    const body = await readJsonBody(req);
+    const projectPath =
+      typeof body?.projectPath === 'string' ? body.projectPath.trim() : '';
+    if (!projectPath) {
+      return sendJson(res, 400, {
+        error: 'invalid_fleet_create',
+        message: 'projectPath (string) is required.',
+      });
+    }
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      'provision_create',
+      {
+        projectPath,
+        ...(typeof body?.name === 'string' ? { name: body.name } : {}),
+        ...(typeof body?.toolsPreset === 'string'
+          ? { toolsPreset: body.toolsPreset }
+          : {}),
+        ...(typeof body?.policyMode === 'string'
+          ? { policyMode: body.policyMode }
+          : {}),
+      },
+    );
+    return sendJson(res, result.ok ? 201 : 409, result);
+  }
+
+  const fleetLifecycleMatch = /^\/fleet\/([^/]+)\/(start|stop)$/.exec(path);
+  if (method === "POST" && fleetLifecycleMatch) {
+    const id = decodeURIComponent(fleetLifecycleMatch[1]!);
+    const action = fleetLifecycleMatch[2]!;
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      action === 'start' ? 'provision_start' : 'provision_stop',
       { id },
     );
     return sendJson(res, result.ok ? 200 : 409, result);
