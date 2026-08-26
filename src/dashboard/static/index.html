@@ -588,6 +588,12 @@
           </div>
         </div>
       </section>
+      <section class="wide" id="workspaces-panel">
+        <h2>Workspaces</h2>
+        <div class="body">
+          <div id="workspaces-list">…</div>
+        </div>
+      </section>
       <section class="wide">
         <h2>Overall status <span class="refresh" id="last-checked"></span></h2>
         <div class="body" id="chatgpt-overall">…</div>
@@ -1123,6 +1129,25 @@
         }
       }
 
+      function renderWorkspaces(data) {
+        const el = document.getElementById("workspaces-list");
+        if (!el) return;
+        const workspaces = (data && data.workspaces) || [];
+        el.innerHTML = missionTable(
+          ["Workspace", "Status", "Action"],
+          workspaces.map((ws) => {
+            const path = ws.projectRoot || ws.path || ws.root || "";
+            const isCurrent = Boolean(ws.current || ws.active || ws.isCurrent);
+            const action = isCurrent
+              ? '<span class="pill check-pass">current</span>'
+              : missionButton("Switch", "/workspaces/switch", "primary", { path });
+            return `<tr><td class="mono">${esc(path)}</td><td>${esc(isCurrent ? "current" : "registered")}</td><td>${action}</td></tr>`;
+          }),
+          "No workspaces registered yet. Activate one via workspace_activate.",
+        );
+        bindMissionActions();
+      }
+
       function renderPlugins(pluginsData, marketplaceData) {
         const installedEl = document.getElementById("plugins-list");
         const marketEl = document.getElementById("marketplace-list");
@@ -1167,7 +1192,7 @@
 
       async function refreshControlPlane() {
         try {
-          const [status, approvals, processes, audit, missionControl, fleet, plugins, marketplace] = await Promise.all([
+          const [status, approvals, processes, audit, missionControl, fleet, plugins, marketplace, workspaces] = await Promise.all([
             requestJson("/status"),
             requestJson("/approvals"),
             requestJson("/processes"),
@@ -1176,6 +1201,7 @@
             requestJson("/fleet"),
             requestJson("/plugins").catch(() => null),
             requestJson("/marketplace").catch(() => null),
+            requestJson("/workspaces").catch(() => null),
           ]);
           renderStatus(status);
           renderApprovals(approvals, status.policy.mode);
@@ -1184,6 +1210,7 @@
           renderMissionControl(missionControl);
           renderFleet(fleet);
           renderPlugins(plugins, marketplace);
+          renderWorkspaces(workspaces);
         } catch (error) {
           document.getElementById("server-meta").textContent = "disconnected";
           toast(error.message, true);

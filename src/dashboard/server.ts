@@ -71,6 +71,8 @@ export function isLoopbackHost(host: string): boolean {
  *   GET  /plugins                  -> installed plugins (via plugin_list)
  *   GET  /marketplace              -> marketplace index entries (via marketplace_list)
  *   POST /plugins/:id/enable|disable -> plugin lifecycle (governed via plugin_enable/disable)
+ *   GET  /workspaces               -> activated workspaces (via workspace_list)
+ *   POST /workspaces/switch        -> switch current workspace (body: { path })
  */
 export function startDashboard(
   container: Container,
@@ -785,6 +787,25 @@ async function handle(
       action === 'enable' ? 'plugin_enable' : 'plugin_disable',
       { id },
     );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/workspaces") {
+    const result = await runOperatorTool(registry, container, principal, 'workspace_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  if (method === "POST" && path === "/workspaces/switch") {
+    const body = await readJsonBody(req);
+    if (typeof body?.path !== 'string' || body.path.length === 0) {
+      return sendJson(res, 400, {
+        error: 'invalid_workspace',
+        message: 'path must be a non-empty string.',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'workspace_switch', {
+      path: body.path,
+    });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
