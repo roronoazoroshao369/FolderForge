@@ -28,6 +28,7 @@ import {
   executeConnectClientCli,
   executeInitCli,
 } from './onboarding/cli.js';
+import { executeControlCli } from './control/cli.js';
 
 const VERSION = readFolderForgeVersion();
 
@@ -289,6 +290,7 @@ function printHelp(): void {
       "  distributed serve      Start the authenticated remote-worker coordinator API",
       "  worker init|run        Create a worker identity or run an allowlisted remote worker",
       "  plugin <command>       init|validate|test|pack|keygen|sign plugin SDK workflow",
+      "  control <command>      start|stop|status|open the local Mission Control plane",
       "",
       "Options:",
       "  -p, --project <dir>      Project root to activate (default: cwd)",
@@ -417,6 +419,12 @@ async function main(): Promise<void> {
           }),
     });
     if (json || !streamed) process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === "control") {
+    const result = await executeControlCli(argv.slice(1));
+    process.stdout.write(result.output);
     process.exitCode = result.exitCode;
     return;
   }
