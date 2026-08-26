@@ -529,6 +529,8 @@
     <header>
       <h1><span class="brand">FolderForge</span> · local development control plane</h1>
       <div class="header-actions">
+        <input id="auth-token" type="password" placeholder="Bearer token" aria-label="Dashboard bearer token" autocomplete="off" style="width: 170px;" />
+        <button id="auth-save" aria-label="Save bearer token for this browser">Save token</button>
         <a class="approval-nav" id="approval-nav" href="#approvals-panel">Approvals · …</a>
         <span class="meta" id="server-meta">connecting…</span>
       </div>
@@ -599,7 +601,7 @@
         <div class="body">
           <div class="notice warn">Quick tunnels expose a local port on a PUBLIC trycloudflare URL. Only expose token-protected endpoints; starting a tunnel is a HIGH-risk, policy-gated action.</div>
           <div class="inline-control" style="margin-bottom: 12px;">
-            <input id="tunnel-port" type="number" min="1024" max="65535" placeholder="Local port (e.g. 7410)" style="width: 200px;" />
+            <input id="tunnel-port" type="number" min="1024" max="65535" placeholder="Local port (e.g. 7410)" aria-label="Local port to expose publicly" style="width: 200px;" />
             <button id="tunnel-create" class="primary">Start tunnel</button>
           </div>
           <div id="tunnels-list">…</div>
@@ -656,7 +658,10 @@
           (char) =>
             ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char],
         );
-      const dashboardToken = new URLSearchParams(location.search).get("token");
+      let dashboardToken =
+        new URLSearchParams(location.search).get("token") ||
+        localStorage.getItem("folderforge.dashboard.token") ||
+        "";
       const withToken = (path) => {
         if (!dashboardToken) return path;
         const url = new URL(path, location.origin);
@@ -1285,6 +1290,21 @@
       document
         .getElementById("tunnel-create")
         .addEventListener("click", createTunnel);
+      const authTokenInput = document.getElementById("auth-token");
+      if (authTokenInput && dashboardToken) authTokenInput.value = dashboardToken;
+      document.getElementById("auth-save").addEventListener("click", () => {
+        const value = authTokenInput.value.trim();
+        if (value) {
+          localStorage.setItem("folderforge.dashboard.token", value);
+          dashboardToken = value;
+          toast("Token saved for this browser.", false);
+        } else {
+          localStorage.removeItem("folderforge.dashboard.token");
+          dashboardToken = "";
+          toast("Token cleared.", false);
+        }
+        refreshControlPlane();
+      });
       document
         .getElementById("log-subsystem")
         .addEventListener("change", refreshLogs);
