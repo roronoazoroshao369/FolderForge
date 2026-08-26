@@ -55,6 +55,8 @@ interface ControlState {
   projectRoot: string;
   startedAt: string;
   version: string;
+  /** Extra directories the control plane may govern (from --allow). */
+  allow?: string[];
 }
 
 export interface ControlDeps {
@@ -212,6 +214,7 @@ interface ControlOptions {
   projectRoot: string;
   port?: number;
   open?: boolean;
+  allow?: string[];
   json: boolean;
   help: boolean;
 }
@@ -221,6 +224,7 @@ function parseControlArgs(argv: string[]): ControlOptions {
   let projectRoot: string | undefined;
   let port: number | undefined;
   let open: boolean | undefined;
+  let allow: string[] | undefined;
   let json = false;
   let help = false;
   for (let i = 0; i < argv.length; i++) {
@@ -247,6 +251,12 @@ function parseControlArgs(argv: string[]): ControlOptions {
       case '--open':
         open = true;
         break;
+      case '--allow': {
+        const v = argv[++i];
+        if (v === undefined) throw new Error('--allow requires a directory');
+        (allow ??= []).push(v);
+        break;
+      }
       case '--no-open':
         open = false;
         break;
@@ -271,6 +281,7 @@ function parseControlArgs(argv: string[]): ControlOptions {
   };
   if (port !== undefined) result.port = port;
   if (open !== undefined) result.open = open;
+  if (allow !== undefined) result.allow = allow;
   return result;
 }
 
@@ -289,6 +300,7 @@ export function controlHelp(): string {
     'Options:',
     '  -p, --project <dir>  Project the control plane governs (default: cwd)',
     '      --port <n>       Dashboard port (default 7332)',
+    '      --allow <dir>      Extra directory the plane may govern (repeatable)',
     '      --open/--no-open Open the SPA after start (default: open on a TTY)',
     '      --json           Machine-readable output for status',
     '  -h, --help           Show this help',
@@ -341,6 +353,7 @@ async function controlStart(
     projectRoot,
     '--port',
     String(port),
+    ...(options.allow ?? []).flatMap((dir) => ['--allow', dir]),
   ];
   let pid: number;
   try {
@@ -383,6 +396,7 @@ async function controlStart(
     projectRoot,
     startedAt: new Date(deps.now()).toISOString(),
     version: deps.version,
+    ...(options.allow && options.allow.length > 0 ? { allow: options.allow } : {}),
   });
 
   const url = `http://127.0.0.1:${port}/app`;
@@ -521,6 +535,14 @@ async function controlServe(
   deps: ControlDeps,
 ): Promise<ControlCliResult> {
   const config = loadConfig({ projectRoot: options.projectRoot });
+  if (options.allow && options.allow.length > 0) {
+    // Extra governable directories passed by the operator at start time.
+    const extra = options.allow.map((dir) => resolve(options.projectRoot, dir));
+    config.workspace.allowedDirectories = [
+      ...(config.workspace.allowedDirectories ?? []),
+      ...extra,
+    ];
+  }
   config.server.dashboard.enabled = true;
   config.server.dashboard.host = '127.0.0.1';
   if (options.port !== undefined) config.server.dashboard.port = options.port;

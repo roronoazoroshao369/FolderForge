@@ -390,6 +390,23 @@ export class FleetManager {
   }
 
   /**
+   * Change the policy mode. The mode is baked into the spawn command (the CLI
+   * flag wins over the instance config file), so it applies on next start.
+   */
+  setPolicyMode(id: string, mode: string): FleetInstance {
+    if (!(FLEET_POLICY_MODES as readonly string[]).includes(mode)) {
+      throw new Error(
+        `Invalid policy mode: ${mode} (expected one of ${FLEET_POLICY_MODES.join(', ')}).`,
+      );
+    }
+    const record = this.mutable(id);
+    record.policyMode = mode;
+    this.touch(record);
+    this.persist();
+    return { ...record };
+  }
+
+  /**
    * Handle an unexpected process exit. Deliberate stops pass through
    * `stopping`/`stopped` first, so a `running` state here means a crash.
    * Auto-restart is rate-limited per instance to avoid restart loops.

@@ -78,6 +78,16 @@ export interface ToolsCatalog {
 
 export interface StatusSnapshot {
   policy?: { mode?: string };
-  workspace?: { projectRoot?: string };
+  workspace?: { projectRoot?: string; allowedDirectories?: string[]; browsePoint?: string };
   server?: { version?: string };
+}
+
+/** Response shape of POST /fs/browse. */
+export interface BrowseResult {
+  path: string;
+  parent: string;
+  canGoUp: boolean;
+  home: string;
+  root: string;
+  directories: Array<{ name: string; path: string }>;
 }

@@ -247,6 +247,7 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'provision_health', mutates: false, risk: 'LOW' },
   { name: 'provision_restart', mutates: true, risk: 'HIGH' },
   { name: 'provision_update', mutates: true, risk: 'MEDIUM' },
+  { name: 'provision_rotate_token', mutates: true, risk: 'HIGH' },
 
   // --- tunnels (ADR-0012 Phase 3: quick-tunnel public exposure) ---
   { name: 'tunnel_start', mutates: true, risk: 'HIGH' },

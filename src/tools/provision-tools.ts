@@ -273,9 +273,8 @@ export function provisionTools(): ToolDefinition[] {
     defineTool({
       name: 'provision_update',
       description:
-        'Update instance settings: autoRestart (boolean) and/or toolsPreset ' +
-        '(vibe|vibe-lite|readonly|full|godot). A preset change applies on the ' +
-        'next start/restart of the instance.',
+        'Update instance settings: autoRestart (boolean), toolsPreset, and/or policyMode ' +
+        '(readonly|safe|dev|danger). Preset/policy changes apply on the next start/restart.',
       group: 'provision',
       mutates: true,
       risk: 'MEDIUM',
@@ -288,6 +287,10 @@ export function provisionTools(): ToolDefinition[] {
             type: 'string',
             enum: ['vibe', 'vibe-lite', 'readonly', 'full', 'godot'],
           },
+          policyMode: {
+            type: 'string',
+            enum: ['readonly', 'safe', 'dev', 'danger'],
+          },
         },
         required: ['id'],
         additionalProperties: false,
@@ -297,8 +300,13 @@ export function provisionTools(): ToolDefinition[] {
           const id = String(args.id);
           const autoRestart = args.autoRestart;
           const toolsPreset = args.toolsPreset;
-          if (typeof autoRestart !== 'boolean' && typeof toolsPreset !== 'string') {
-            throw new Error('Nothing to update: pass autoRestart and/or toolsPreset.');
+          const policyMode = args.policyMode;
+          if (
+            typeof autoRestart !== 'boolean' &&
+            typeof toolsPreset !== 'string' &&
+            typeof policyMode !== 'string'
+          ) {
+            throw new Error('Nothing to update: pass autoRestart, toolsPreset, and/or policyMode.');
           }
           const changes: string[] = [];
           if (typeof autoRestart === 'boolean') {
@@ -309,12 +317,50 @@ export function provisionTools(): ToolDefinition[] {
             ctx.container.fleet.setToolsPreset(id, toolsPreset);
             changes.push(`tools-preset -> ${toolsPreset} (restart to apply)`);
           }
+          if (typeof policyMode === 'string') {
+            ctx.container.fleet.setPolicyMode(id, policyMode);
+            changes.push(`policy-mode -> ${policyMode} (restart to apply)`);
+          }
           const instance = ctx.container.fleet.get(id);
           ctx.container.audit.record({
             type: 'provision_event',
             summary: `update ${instance.id}: ${changes.join('; ')}`,
           });
           return { ok: true, data: publicInstance(instance) };
+        }),
+    }),
+
+    defineTool({
+      name: 'provision_rotate_token',
+      description:
+        'Rotate an instance bearer token: invalidates the previous one and returns the new token ' +
+        'exactly once. HIGH risk; requires approval per policy. Restart the instance to apply.',
+      group: 'provision',
+      mutates: true,
+      risk: 'HIGH',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      handler: async (args, ctx) =>
+        guard(() => {
+          const rotated = ctx.container.fleet.rotateToken(String(args.id));
+          ctx.container.audit.record({
+            type: 'provision_event',
+            summary: `rotate token ${rotated.instance.id}`,
+          });
+          return {
+            ok: true,
+            data: {
+              ...publicInstance(rotated.instance),
+              token: rotated.token,
+              restartRequired: rotated.restartRequired,
+              tokenNote:
+                'Store this token now. It is returned exactly once and never persisted in plaintext.',
+            },
+          };
         }),
     }),
   ];

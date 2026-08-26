@@ -58,6 +58,19 @@ describe('FleetManager', () => {
     expect(() => fleet.setToolsPreset('flt_missing', 'full')).toThrow(/Unknown fleet instance/);
   });
 
+  it('changes the policy mode, persists it, and validates the allowed list', () => {
+    const { root, project } = fixture();
+    const fleet = new FleetManager(root);
+    const { instance } = fleet.create({ projectPath: project });
+
+    const updated = fleet.setPolicyMode(instance.id, 'safe');
+    expect(updated.policyMode).toBe('safe');
+    expect(new FleetManager(root).get(instance.id).policyMode).toBe('safe');
+
+    expect(() => fleet.setPolicyMode(instance.id, 'nope')).toThrow(/Invalid policy mode/);
+    expect(() => fleet.setPolicyMode('flt_missing', 'safe')).toThrow(/Unknown fleet instance/);
+  });
+
   it('rejects duplicate folders, port collisions, bad presets, and bad ports', () => {
     const { root, project } = fixture();
     const fleet = new FleetManager(root);

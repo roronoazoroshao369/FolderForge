@@ -11,7 +11,8 @@ export type AuditEventType =
   | 'workspace_activate'
   | 'process_event'
   | 'task_event'
-  | 'server_start';
+  | 'server_start'
+  | 'dashboard_action';
 
 export interface AuditEvent {
   ts: string;
