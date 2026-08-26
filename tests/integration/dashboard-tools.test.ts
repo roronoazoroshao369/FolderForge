@@ -118,4 +118,21 @@ describe('dashboard tools endpoints', () => {
     const record = (listed.instances ?? []).find((i) => i.id === id);
     expect(record?.toolsPreset).toBe('full');
   });
+
+  it('serves the SPA shell at /app and falls back for client-side routes', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+
+    const bare = await fetch(`${harness.baseUrl}/app`, { redirect: 'manual' });
+    expect(bare.status).toBe(308);
+    expect(bare.headers.get('location')).toBe('/app/');
+
+    const root = await fetch(`${harness.baseUrl}/app/`);
+    expect(root.status).toBe(200);
+    expect(await root.text()).toContain('Mission Control');
+
+    const clientRoute = await fetch(`${harness.baseUrl}/app/fleet`);
+    expect(clientRoute.status).toBe(200);
+    expect(await clientRoute.text()).toContain('Mission Control');
+  });
 });

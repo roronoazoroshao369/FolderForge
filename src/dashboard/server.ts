@@ -34,6 +34,7 @@ import { ApprovalResolutionError } from "../policy/approvals.js";
 import { logger } from "../core/logger.js";
 import { MISSION_CONTROL_OPERATOR_ROLE } from "../operator/mission-control.js";
 import { GROUP_PRESETS, resolveActiveTools } from "../tools/index.js";
+import { readFolderForgeVersion } from "../core/version.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -178,6 +179,17 @@ function serveMissionControlApp(res: ServerResponse, path: string): void {
       res.writeHead(200, { "content-type": type });
       res.end(readFileSync(file));
       return;
+    }
+  }
+  // Client-side routes (e.g. /app/fleet) have no asset file: fall back to the SPA shell.
+  if (!/\.[a-z0-9]+$/i.test(relative)) {
+    for (const rootDir of roots) {
+      const file = join(rootDir, "index.html");
+      if (existsSync(file) && statSync(file).isFile()) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(readFileSync(file));
+        return;
+      }
     }
   }
   res.writeHead(404, { "content-type": "text/plain" });
@@ -628,7 +640,15 @@ async function handle(
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
 
-  if (method === "GET" && (path === "/app" || path === "/app/" || path.startsWith("/app/"))) {
+  if (method === "GET" && path === "/app") {
+    // The canonical mount has a trailing slash so the SPA's relative assets
+    // resolve under /app/. Preserve the query string (?token= flows through).
+    res.writeHead(308, { location: `/app/${url.search}` });
+    res.end();
+    return;
+  }
+
+  if (method === "GET" && (path === "/app/" || path.startsWith("/app/"))) {
     return serveMissionControlApp(res, path);
   }
 
@@ -642,6 +662,7 @@ async function handle(
       server: {
         name: container.config.server.name,
         transport: container.config.server.transport,
+        version: readFolderForgeVersion(),
       },
       workspace: {
         active: Boolean(active),
