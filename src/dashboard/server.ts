@@ -68,6 +68,9 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fleet                    -> provision a folder (body: { projectPath, name?, toolsPreset?, policyMode? })
  *   POST /fleet/:id/start|stop|restart -> instance lifecycle (governed via provision_* tools)
  *   POST /fleet/:id/auto-restart   -> toggle auto-restart (body: { enabled: boolean })
+ *   GET  /plugins                  -> installed plugins (via plugin_list)
+ *   GET  /marketplace              -> marketplace index entries (via marketplace_list)
+ *   POST /plugins/:id/enable|disable -> plugin lifecycle (governed via plugin_enable/disable)
  */
 export function startDashboard(
   container: Container,
@@ -758,6 +761,30 @@ async function handle(
       id,
       autoRestart: body.enabled,
     });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/plugins") {
+    const result = await runOperatorTool(registry, container, principal, 'plugin_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  if (method === "GET" && path === "/marketplace") {
+    const result = await runOperatorTool(registry, container, principal, 'marketplace_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  const pluginLifecycleMatch = /^\/plugins\/([^/]+)\/(enable|disable)$/.exec(path);
+  if (method === "POST" && pluginLifecycleMatch) {
+    const id = decodeURIComponent(pluginLifecycleMatch[1]!);
+    const action = pluginLifecycleMatch[2]!;
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      action === 'enable' ? 'plugin_enable' : 'plugin_disable',
+      { id },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 

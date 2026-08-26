@@ -573,6 +573,21 @@
           <div id="fleet-list">…</div>
         </div>
       </section>
+      <section class="wide" id="plugins-panel">
+        <h2>Plugins &amp; Marketplace</h2>
+        <div class="body">
+          <div class="mission-sections">
+            <div class="mission-section">
+              <h3>Installed plugins</h3>
+              <div class="content" id="plugins-list">…</div>
+            </div>
+            <div class="mission-section">
+              <h3>Marketplace index</h3>
+              <div class="content" id="marketplace-list">…</div>
+            </div>
+          </div>
+        </div>
+      </section>
       <section class="wide">
         <h2>Overall status <span class="refresh" id="last-checked"></span></h2>
         <div class="body" id="chatgpt-overall">…</div>
@@ -1108,6 +1123,40 @@
         }
       }
 
+      function renderPlugins(pluginsData, marketplaceData) {
+        const installedEl = document.getElementById("plugins-list");
+        const marketEl = document.getElementById("marketplace-list");
+        if (installedEl) {
+          const plugins = (pluginsData && pluginsData.plugins) || [];
+          installedEl.innerHTML = missionTable(
+            ["Plugin", "Version", "State", "Action"],
+            plugins.map((plugin) => {
+              const encoded = encodeURIComponent(plugin.id);
+              const toggle = plugin.enabled
+                ? missionButton("Disable", `/plugins/${encoded}/disable`, "danger")
+                : missionButton("Enable", `/plugins/${encoded}/enable`, "primary");
+              return `<tr><td class="mono">${esc(plugin.id)}</td><td class="mono">${esc(plugin.version || "-")}</td><td>${esc(plugin.enabled ? "enabled" : "disabled")}</td><td>${toggle}</td></tr>`;
+            }),
+            "No plugins installed.",
+          );
+        }
+        if (marketEl) {
+          const entries =
+            (marketplaceData &&
+              (marketplaceData.plugins || marketplaceData.results || marketplaceData.entries)) ||
+            [];
+          marketEl.innerHTML = missionTable(
+            ["Package", "Publisher", "Version"],
+            entries.map(
+              (entry) =>
+                `<tr><td class="mono">${esc(entry.id || entry.name || "-")}</td><td class="mono">${esc(entry.publisher || "-")}</td><td class="mono">${esc(entry.version || "-")}</td></tr>`,
+            ),
+            "Marketplace index is empty. Sync an index to browse verified packages.",
+          );
+        }
+        bindMissionActions();
+      }
+
       async function refreshChatGpt() {
         try {
           renderChatGpt(await requestJson("/chatgpt/status"));
@@ -1118,13 +1167,15 @@
 
       async function refreshControlPlane() {
         try {
-          const [status, approvals, processes, audit, missionControl, fleet] = await Promise.all([
+          const [status, approvals, processes, audit, missionControl, fleet, plugins, marketplace] = await Promise.all([
             requestJson("/status"),
             requestJson("/approvals"),
             requestJson("/processes"),
             requestJson("/audit?limit=50"),
             requestJson("/mission-control"),
             requestJson("/fleet"),
+            requestJson("/plugins").catch(() => null),
+            requestJson("/marketplace").catch(() => null),
           ]);
           renderStatus(status);
           renderApprovals(approvals, status.policy.mode);
@@ -1132,6 +1183,7 @@
           renderAudit(audit);
           renderMissionControl(missionControl);
           renderFleet(fleet);
+          renderPlugins(plugins, marketplace);
         } catch (error) {
           document.getElementById("server-meta").textContent = "disconnected";
           toast(error.message, true);
