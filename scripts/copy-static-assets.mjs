@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,3 +12,13 @@ if (!existsSync(source)) {
 
 mkdirSync(dirname(target), { recursive: true });
 copyFileSync(source, target);
+
+// Mission Control SPA: shipped at dist/dashboard/app when the package has been
+// built (npm run build:mission-control). Absent in minimal/dev builds — the
+// dashboard then serves the vanilla UI only.
+const spaSource = join(root, 'packages', 'mission-control', 'dist');
+const spaTarget = join(root, 'dist', 'dashboard', 'app');
+if (existsSync(join(spaSource, 'index.html'))) {
+  mkdirSync(spaTarget, { recursive: true });
+  cpSync(spaSource, spaTarget, { recursive: true });
+}

@@ -71,7 +71,8 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "build:adapter-godot": "tsc -p packages/adapter-godot/tsconfig.json",
-    "build": "npm run build:adapter-godot && tsc -p tsconfig.json && node scripts/copy-static-assets.mjs && node scripts/ensure-bin-mode.mjs",
+    "build:mission-control": "node scripts/build-mission-control.mjs",
+    "build": "npm run build:adapter-godot && node scripts/build-mission-control.mjs && tsc -p tsconfig.json && node scripts/copy-static-assets.mjs && node scripts/ensure-bin-mode.mjs",
     "clean": "node scripts/clean.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

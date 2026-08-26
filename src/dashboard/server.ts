@@ -57,6 +57,7 @@ export function isLoopbackHost(host: string): boolean {
  *
  * Endpoints:
  *   GET  /            -> static dashboard (dashboard/static/index.html)
+ *   GET  /app         -> Mission Control SPA (packages/mission-control build, when present)
  *   GET  /status      -> server + workspace + policy snapshot
  *   GET  /audit       -> recent audit events
  *   GET  /processes   -> managed long-running processes
@@ -139,6 +140,46 @@ function extractDashboardCredential(req: IncomingMessage): string | undefined {
   }
   const url = new URL(req.url ?? "/", "http://localhost");
   return url.searchParams.get("token") ?? undefined;
+}
+
+/**
+ * Serve the Mission Control SPA (built from packages/mission-control) under
+ * /app. Prefers the packaged build output (dist/dashboard/app) and falls back
+ * to the in-repo package dist when running from a checkout. 404 with build
+ * instructions when the SPA has not been built.
+ */
+function serveMissionControlApp(res: ServerResponse, path: string): void {
+  const relative = path === "/app" || path === "/app/" ? "index.html" : path.slice("/app/".length);
+  if (relative.includes("..")) {
+    res.writeHead(400, { "content-type": "text/plain" });
+    res.end("bad path");
+    return;
+  }
+  const roots = [
+    join(__dirname, "app"),
+    join(process.cwd(), "packages", "mission-control", "dist"),
+  ];
+  for (const rootDir of roots) {
+    const file = join(rootDir, relative);
+    if (existsSync(file) && statSync(file).isFile()) {
+      const type = relative.endsWith(".js")
+        ? "text/javascript"
+        : relative.endsWith(".css")
+          ? "text/css"
+          : relative.endsWith(".svg")
+            ? "image/svg+xml"
+            : relative.endsWith(".json")
+              ? "application/json"
+              : "text/html; charset=utf-8";
+      res.writeHead(200, { "content-type": type });
+      res.end(readFileSync(file));
+      return;
+    }
+  }
+  res.writeHead(404, { "content-type": "text/plain" });
+  res.end(
+    "Mission Control app not built. Run: npm --prefix packages/mission-control install && npm run build:mission-control",
+  );
 }
 
 function timingSafeEqualStr(a: string, b: string): boolean {
@@ -582,6 +623,10 @@ async function handle(
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
+
+  if (method === "GET" && (path === "/app" || path === "/app/" || path.startsWith("/app/"))) {
+    return serveMissionControlApp(res, path);
+  }
 
   if (method === "GET" && (path === "/" || path === "/index.html")) {
     return sendStatic(res);
