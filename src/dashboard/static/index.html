@@ -529,6 +529,8 @@
     <header>
       <h1><span class="brand">FolderForge</span> · local development control plane</h1>
       <div class="header-actions">
+        <input id="auth-token" type="password" placeholder="Bearer token" aria-label="Dashboard bearer token" autocomplete="off" style="width: 170px;" />
+        <button id="auth-save" aria-label="Save bearer token for this browser">Save token</button>
         <a class="approval-nav" id="approval-nav" href="#approvals-panel">Approvals · …</a>
         <span class="meta" id="server-meta">connecting…</span>
       </div>
@@ -545,6 +547,65 @@
       <section class="wide" id="mission-control-panel">
         <h2>Mission Control <span class="refresh" id="mission-control-checked"></span></h2>
         <div class="body" id="mission-control">…</div>
+      </section>
+      <section class="wide" id="fleet-panel">
+        <h2>Fleet — per-folder MCP instances</h2>
+        <div class="body">
+          <div class="logs-toolbar">
+            <input id="fleet-path" type="text" placeholder="Absolute folder path to provision" aria-label="Folder path" style="flex:1;min-width:280px" />
+            <select id="fleet-preset" aria-label="Tools preset">
+              <option value="vibe">vibe</option>
+              <option value="vibe-lite">vibe-lite</option>
+              <option value="readonly">readonly</option>
+              <option value="full">full</option>
+              <option value="godot">godot</option>
+            </select>
+            <select id="fleet-policy" aria-label="Policy mode">
+              <option value="dev">dev</option>
+              <option value="safe">safe</option>
+              <option value="readonly">readonly</option>
+              <option value="danger">danger</option>
+            </select>
+            <button id="fleet-create" class="primary">Provision</button>
+          </div>
+          <div id="fleet-token-row" style="display:none;margin:8px 0">
+            <strong>Instance token (shown once — copy it now):</strong>
+            <pre id="fleet-token" class="mono"></pre>
+          </div>
+          <div id="fleet-list">…</div>
+        </div>
+      </section>
+      <section class="wide" id="plugins-panel">
+        <h2>Plugins &amp; Marketplace</h2>
+        <div class="body">
+          <div class="mission-sections">
+            <div class="mission-section">
+              <h3>Installed plugins</h3>
+              <div class="content" id="plugins-list">…</div>
+            </div>
+            <div class="mission-section">
+              <h3>Marketplace index</h3>
+              <div class="content" id="marketplace-list">…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="wide" id="workspaces-panel">
+        <h2>Workspaces</h2>
+        <div class="body">
+          <div id="workspaces-list">…</div>
+        </div>
+      </section>
+      <section class="wide" id="tunnels-panel">
+        <h2>Tunnels · Public exposure</h2>
+        <div class="body">
+          <div class="notice warn">Quick tunnels expose a local port on a PUBLIC trycloudflare URL. Only expose token-protected endpoints; starting a tunnel is a HIGH-risk, policy-gated action.</div>
+          <div class="inline-control" style="margin-bottom: 12px;">
+            <input id="tunnel-port" type="number" min="1024" max="65535" placeholder="Local port (e.g. 7410)" aria-label="Local port to expose publicly" style="width: 200px;" />
+            <button id="tunnel-create" class="primary">Start tunnel</button>
+          </div>
+          <div id="tunnels-list">…</div>
+        </div>
       </section>
       <section class="wide">
         <h2>Overall status <span class="refresh" id="last-checked"></span></h2>
@@ -597,7 +658,10 @@
           (char) =>
             ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char],
         );
-      const dashboardToken = new URLSearchParams(location.search).get("token");
+      let dashboardToken =
+        new URLSearchParams(location.search).get("token") ||
+        localStorage.getItem("folderforge.dashboard.token") ||
+        "";
       const withToken = (path) => {
         if (!dashboardToken) return path;
         const url = new URL(path, location.origin);
@@ -1018,6 +1082,168 @@
         }
       }
 
+      function renderFleet(data) {
+        const el = document.getElementById("fleet-list");
+        if (!el) return;
+        const instances = (data && data.instances) || [];
+        el.innerHTML = missionTable(
+          ["Instance", "Folder", "Port", "Preset", "Policy", "State", "Auto-restart", "Lifecycle"],
+          instances.map((instance) => {
+            const encoded = encodeURIComponent(instance.id);
+            const lifecycle =
+              instance.state === "running"
+                ? `${missionButton("Stop", `/fleet/${encoded}/stop`, "primary")} ${missionButton("Restart", `/fleet/${encoded}/restart`, "")}`
+                : instance.state === "stopped" || instance.state === "failed"
+                  ? missionButton("Start", `/fleet/${encoded}/start`, "primary")
+                  : "-";
+            const autoRestart = missionButton(
+              instance.autoRestart ? "on" : "off",
+              `/fleet/${encoded}/auto-restart`,
+              instance.autoRestart ? "primary" : "",
+              { enabled: !instance.autoRestart },
+            );
+            return `<tr><td class="mono">${esc(instance.id)}</td><td class="mono" title="${esc(instance.projectPath)}">${esc(instance.name)}</td><td class="mono">${esc(instance.port)}</td><td class="mono">${esc(instance.toolsPreset)}</td><td class="mono">${esc(instance.policyMode)}</td><td>${esc(instance.state)}${instance.lastError ? ` <span title="${esc(instance.lastError)}">warn</span>` : ""}</td><td>${autoRestart}</td><td>${lifecycle}</td></tr>`;
+          }),
+          "No provisioned instances yet. Provision a folder above.",
+        );
+        bindMissionActions();
+      }
+
+      async function createFleetInstance() {
+        const input = document.getElementById("fleet-path");
+        const preset = document.getElementById("fleet-preset");
+        const policy = document.getElementById("fleet-policy");
+        const tokenRow = document.getElementById("fleet-token-row");
+        const tokenOut = document.getElementById("fleet-token");
+        const projectPath = (input.value || "").trim();
+        if (!projectPath) {
+          toast("Enter a folder path to provision.", true);
+          return;
+        }
+        try {
+          const result = await requestJson("/fleet", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              projectPath,
+              toolsPreset: preset.value,
+              policyMode: policy.value,
+            }),
+          });
+          const token = result && result.data && result.data.token;
+          if (token) {
+            tokenOut.textContent = token;
+            tokenRow.style.display = "";
+            toast("Instance provisioned. Copy the token now — it is shown only once.");
+          } else {
+            toast(`Provisioned ${projectPath}.`);
+          }
+          input.value = "";
+          await refreshControlPlane();
+        } catch (error) {
+          toast(error.message, true);
+        }
+      }
+
+      function renderTunnels(data) {
+        const el = document.getElementById("tunnels-list");
+        if (!el) return;
+        const tunnels = (data && data.tunnels) || [];
+        el.innerHTML = missionTable(
+          ["Tunnel", "Target", "Public URL", "State", "Action"],
+          tunnels.map((tunnel) => {
+            const publicUrl = tunnel.publicUrl
+              ? `<a href="${esc(tunnel.publicUrl)}" target="_blank" rel="noopener noreferrer">${esc(tunnel.publicUrl)}</a>`
+              : "-";
+            const action =
+              tunnel.state === "running" || tunnel.state === "starting"
+                ? missionButton("Stop", `/tunnels/${encodeURIComponent(tunnel.id)}/stop`, "danger")
+                : "-";
+            return `<tr><td class="mono">${esc(tunnel.id)}</td><td class="mono">${esc(tunnel.targetUrl || `:${tunnel.targetPort}`)}</td><td class="mono">${publicUrl}</td><td>${esc(tunnel.state)}${tunnel.lastError ? ` <span title="${esc(tunnel.lastError)}">warn</span>` : ""}</td><td>${action}</td></tr>`;
+          }),
+          "No tunnels running. Expose a port above.",
+        );
+        bindMissionActions();
+      }
+
+      async function createTunnel() {
+        const portInput = document.getElementById("tunnel-port");
+        const targetPort = Number(portInput.value);
+        if (!Number.isInteger(targetPort) || targetPort < 1024 || targetPort > 65535) {
+          toast("Enter a valid local port (1024-65535).", true);
+          return;
+        }
+        const button = document.getElementById("tunnel-create");
+        button.disabled = true;
+        try {
+          const result = await requestJson("/tunnels", { method: "POST", body: { targetPort } });
+          if (result && result.ok && result.data && result.data.publicUrl) {
+            toast(`Tunnel live: ${result.data.publicUrl}`, false);
+          } else {
+            toast("Tunnel started.", false);
+          }
+          portInput.value = "";
+          await refreshControlPlane();
+        } catch (error) {
+          toast(error.message, true);
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      function renderWorkspaces(data) {
+        const el = document.getElementById("workspaces-list");
+        if (!el) return;
+        const workspaces = (data && data.workspaces) || [];
+        el.innerHTML = missionTable(
+          ["Workspace", "Status", "Action"],
+          workspaces.map((ws) => {
+            const path = ws.projectRoot || ws.path || ws.root || "";
+            const isCurrent = Boolean(ws.current || ws.active || ws.isCurrent);
+            const action = isCurrent
+              ? '<span class="pill check-pass">current</span>'
+              : missionButton("Switch", "/workspaces/switch", "primary", { path });
+            return `<tr><td class="mono">${esc(path)}</td><td>${esc(isCurrent ? "current" : "registered")}</td><td>${action}</td></tr>`;
+          }),
+          "No workspaces registered yet. Activate one via workspace_activate.",
+        );
+        bindMissionActions();
+      }
+
+      function renderPlugins(pluginsData, marketplaceData) {
+        const installedEl = document.getElementById("plugins-list");
+        const marketEl = document.getElementById("marketplace-list");
+        if (installedEl) {
+          const plugins = (pluginsData && pluginsData.plugins) || [];
+          installedEl.innerHTML = missionTable(
+            ["Plugin", "Version", "State", "Action"],
+            plugins.map((plugin) => {
+              const encoded = encodeURIComponent(plugin.id);
+              const toggle = plugin.enabled
+                ? missionButton("Disable", `/plugins/${encoded}/disable`, "danger")
+                : missionButton("Enable", `/plugins/${encoded}/enable`, "primary");
+              return `<tr><td class="mono">${esc(plugin.id)}</td><td class="mono">${esc(plugin.version || "-")}</td><td>${esc(plugin.enabled ? "enabled" : "disabled")}</td><td>${toggle}</td></tr>`;
+            }),
+            "No plugins installed.",
+          );
+        }
+        if (marketEl) {
+          const entries =
+            (marketplaceData &&
+              (marketplaceData.plugins || marketplaceData.results || marketplaceData.entries)) ||
+            [];
+          marketEl.innerHTML = missionTable(
+            ["Package", "Publisher", "Version"],
+            entries.map(
+              (entry) =>
+                `<tr><td class="mono">${esc(entry.id || entry.name || "-")}</td><td class="mono">${esc(entry.publisher || "-")}</td><td class="mono">${esc(entry.version || "-")}</td></tr>`,
+            ),
+            "Marketplace index is empty. Sync an index to browse verified packages.",
+          );
+        }
+        bindMissionActions();
+      }
+
       async function refreshChatGpt() {
         try {
           renderChatGpt(await requestJson("/chatgpt/status"));
@@ -1028,18 +1254,27 @@
 
       async function refreshControlPlane() {
         try {
-          const [status, approvals, processes, audit, missionControl] = await Promise.all([
+          const [status, approvals, processes, audit, missionControl, fleet, plugins, marketplace, workspaces, tunnels] = await Promise.all([
             requestJson("/status"),
             requestJson("/approvals"),
             requestJson("/processes"),
             requestJson("/audit?limit=50"),
             requestJson("/mission-control"),
+            requestJson("/fleet"),
+            requestJson("/plugins").catch(() => null),
+            requestJson("/marketplace").catch(() => null),
+            requestJson("/workspaces").catch(() => null),
+            requestJson("/tunnels").catch(() => null),
           ]);
           renderStatus(status);
           renderApprovals(approvals, status.policy.mode);
           renderProcesses(processes);
           renderAudit(audit);
           renderMissionControl(missionControl);
+          renderFleet(fleet);
+          renderPlugins(plugins, marketplace);
+          renderWorkspaces(workspaces);
+          renderTunnels(tunnels);
         } catch (error) {
           document.getElementById("server-meta").textContent = "disconnected";
           toast(error.message, true);
@@ -1049,6 +1284,27 @@
       document
         .getElementById("refresh-logs")
         .addEventListener("click", refreshLogs);
+      document
+        .getElementById("fleet-create")
+        .addEventListener("click", createFleetInstance);
+      document
+        .getElementById("tunnel-create")
+        .addEventListener("click", createTunnel);
+      const authTokenInput = document.getElementById("auth-token");
+      if (authTokenInput && dashboardToken) authTokenInput.value = dashboardToken;
+      document.getElementById("auth-save").addEventListener("click", () => {
+        const value = authTokenInput.value.trim();
+        if (value) {
+          localStorage.setItem("folderforge.dashboard.token", value);
+          dashboardToken = value;
+          toast("Token saved for this browser.", false);
+        } else {
+          localStorage.removeItem("folderforge.dashboard.token");
+          dashboardToken = "";
+          toast("Token cleared.", false);
+        }
+        refreshControlPlane();
+      });
       document
         .getElementById("log-subsystem")
         .addEventListener("change", refreshLogs);

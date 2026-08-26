@@ -1,0 +1,36 @@
+name: mission-control-pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/dashboard/static/**'
+      - '.github/workflows/mission-control-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy dashboard to Cloudflare Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble static site
+        run: |
+          mkdir -p pages-dist
+          cp src/dashboard/static/index.html pages-dist/index.html
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy pages-dist --project-name=folderforge-mission-control

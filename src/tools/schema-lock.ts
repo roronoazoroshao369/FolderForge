@@ -236,6 +236,24 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   // --- security ---
   { name: 'secret_scan', mutates: false, risk: 'LOW' },
 
+  // --- provision (ADR-0012 Phase 1: per-folder MCP fleet) ---
+  { name: 'provision_create', mutates: true, risk: 'MEDIUM' },
+  { name: 'provision_list', mutates: false, risk: 'LOW' },
+  { name: 'provision_status', mutates: false, risk: 'LOW' },
+  { name: 'provision_start', mutates: true, risk: 'HIGH' },
+  { name: 'provision_stop', mutates: true, risk: 'MEDIUM' },
+  { name: 'provision_logs', mutates: false, risk: 'LOW' },
+  { name: 'provision_destroy', mutates: true, risk: 'HIGH' },
+  { name: 'provision_health', mutates: false, risk: 'LOW' },
+  { name: 'provision_restart', mutates: true, risk: 'HIGH' },
+  { name: 'provision_update', mutates: true, risk: 'MEDIUM' },
+
+  // --- tunnels (ADR-0012 Phase 3: quick-tunnel public exposure) ---
+  { name: 'tunnel_start', mutates: true, risk: 'HIGH' },
+  { name: 'tunnel_stop', mutates: true, risk: 'MEDIUM' },
+  { name: 'tunnel_list', mutates: false, risk: 'LOW' },
+  { name: 'tunnel_status', mutates: false, risk: 'LOW' },
+
   // --- policy / audit / approvals ---
   { name: 'policy_get', mutates: false, risk: 'LOW' },
   { name: 'policy_explain', mutates: false, risk: 'LOW' },

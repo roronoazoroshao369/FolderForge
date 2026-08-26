@@ -7,6 +7,8 @@ import { RateLimiter } from '../policy/rate-limiter.js';
 import { AuditLog } from '../audit/audit-log.js';
 import { WorkspaceManager } from '../workspace/workspace-manager.js';
 import { ProcessManager } from '../managers/process-manager.js';
+import { FleetManager } from '../provisioner/fleet-manager.js';
+import { TunnelManager } from '../tunnels/tunnel-manager.js';
 import { ChildMcpRegistry } from '../adapters/child-mcp/registry.js';
 import { DbManager } from '../managers/db-manager.js';
 import { LspManager } from '../managers/lsp-manager.js';
@@ -37,6 +39,8 @@ export class Container {
   readonly audit: AuditLog;
   readonly workspace: WorkspaceManager;
   readonly processes: ProcessManager;
+  readonly fleet: FleetManager;
+  readonly tunnels: TunnelManager;
   readonly adapters: ChildMcpRegistry;
   readonly db: DbManager;
   readonly lsp: LspManager;
@@ -89,6 +93,22 @@ export class Container {
       this.audit,
     );
     this.processes = new ProcessManager();
+    // Fleet instances spawn through ProcessManager so Mission Control process
+    // containment (stop/kill) and write-freeze apply to them unchanged.
+    this.fleet = new FleetManager(config.workspace.defaultProject, {
+      spawn: (command, cwd) => this.processes.start(command, cwd, config.terminal.shell),
+      stopSession: (sessionId) => this.processes.stop(sessionId),
+      readSession: (sessionId) => this.processes.read(sessionId).output,
+      onExit: (sessionId, listener) => this.processes.onExit(sessionId, listener),
+    });
+    // Quick tunnels spawn through ProcessManager as well, so the same process
+    // containment and crash detection apply to public exposure paths.
+    this.tunnels = new TunnelManager({
+      spawn: (command, cwd) => this.processes.start(command, cwd, config.terminal.shell),
+      stopSession: (sessionId) => this.processes.stop(sessionId),
+      readSession: (sessionId) => this.processes.read(sessionId).output,
+      onExit: (sessionId, listener) => this.processes.onExit(sessionId, listener),
+    });
     this.plugins = new PluginManager(config.workspace.defaultProject, readFolderForgeVersion());
     this.workflows = new WorkflowManager(config.workspace.defaultProject);
     this.proofPacks = new ProofPackManager(

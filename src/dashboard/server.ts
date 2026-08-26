@@ -64,6 +64,18 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /approvals/:id/approve  -> approve (body: { scope?: 'once'|'session' })
  *   POST /approvals/:id/deny     -> deny
  *   POST /policy/mode             -> change runtime policy mode (admin only)
+ *   GET  /fleet                    -> provisioned per-folder MCP instances
+ *   POST /fleet                    -> provision a folder (body: { projectPath, name?, toolsPreset?, policyMode? })
+ *   POST /fleet/:id/start|stop|restart -> instance lifecycle (governed via provision_* tools)
+ *   POST /fleet/:id/auto-restart   -> toggle auto-restart (body: { enabled: boolean })
+ *   GET  /plugins                  -> installed plugins (via plugin_list)
+ *   GET  /marketplace              -> marketplace index entries (via marketplace_list)
+ *   POST /plugins/:id/enable|disable -> plugin lifecycle (governed via plugin_enable/disable)
+ *   GET  /workspaces               -> activated workspaces (via workspace_list)
+ *   POST /workspaces/switch        -> switch current workspace (body: { path })
+ *   GET  /tunnels                  -> quick tunnels (via tunnel_list)
+ *   POST /tunnels                  -> expose a port publicly (body: { targetPort }) HIGH risk
+ *   POST /tunnels/:id/stop         -> close a tunnel (governed via tunnel_stop)
  */
 export function startDashboard(
   container: Container,
@@ -690,6 +702,139 @@ async function handle(
       action === 'rollback' ? 'isolation_rollback' : 'isolation_discard',
       { id },
     );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/fleet") {
+    return sendJson(res, 200, { instances: container.fleet.list() });
+  }
+
+  if (method === "POST" && path === "/fleet") {
+    const body = await readJsonBody(req);
+    const projectPath =
+      typeof body?.projectPath === 'string' ? body.projectPath.trim() : '';
+    if (!projectPath) {
+      return sendJson(res, 400, {
+        error: 'invalid_fleet_create',
+        message: 'projectPath (string) is required.',
+      });
+    }
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      'provision_create',
+      {
+        projectPath,
+        ...(typeof body?.name === 'string' ? { name: body.name } : {}),
+        ...(typeof body?.toolsPreset === 'string'
+          ? { toolsPreset: body.toolsPreset }
+          : {}),
+        ...(typeof body?.policyMode === 'string'
+          ? { policyMode: body.policyMode }
+          : {}),
+      },
+    );
+    return sendJson(res, result.ok ? 201 : 409, result);
+  }
+
+  const fleetLifecycleMatch = /^\/fleet\/([^/]+)\/(start|stop|restart)$/.exec(path);
+  if (method === "POST" && fleetLifecycleMatch) {
+    const id = decodeURIComponent(fleetLifecycleMatch[1]!);
+    const action = fleetLifecycleMatch[2]!;
+    const tool =
+      action === 'start'
+        ? 'provision_start'
+        : action === 'stop'
+          ? 'provision_stop'
+          : 'provision_restart';
+    const result = await runOperatorTool(registry, container, principal, tool, { id });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetAutoRestartMatch = /^\/fleet\/([^/]+)\/auto-restart$/.exec(path);
+  if (method === "POST" && fleetAutoRestartMatch) {
+    const id = decodeURIComponent(fleetAutoRestartMatch[1]!);
+    const body = await readJsonBody(req);
+    if (typeof body?.enabled !== 'boolean') {
+      return sendJson(res, 400, {
+        error: 'invalid_auto_restart',
+        message: 'enabled must be a boolean.',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'provision_update', {
+      id,
+      autoRestart: body.enabled,
+    });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/plugins") {
+    const result = await runOperatorTool(registry, container, principal, 'plugin_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  if (method === "GET" && path === "/marketplace") {
+    const result = await runOperatorTool(registry, container, principal, 'marketplace_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  const pluginLifecycleMatch = /^\/plugins\/([^/]+)\/(enable|disable)$/.exec(path);
+  if (method === "POST" && pluginLifecycleMatch) {
+    const id = decodeURIComponent(pluginLifecycleMatch[1]!);
+    const action = pluginLifecycleMatch[2]!;
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      action === 'enable' ? 'plugin_enable' : 'plugin_disable',
+      { id },
+    );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/workspaces") {
+    const result = await runOperatorTool(registry, container, principal, 'workspace_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  if (method === "POST" && path === "/workspaces/switch") {
+    const body = await readJsonBody(req);
+    if (typeof body?.path !== 'string' || body.path.length === 0) {
+      return sendJson(res, 400, {
+        error: 'invalid_workspace',
+        message: 'path must be a non-empty string.',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'workspace_switch', {
+      path: body.path,
+    });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/tunnels") {
+    const result = await runOperatorTool(registry, container, principal, 'tunnel_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  if (method === "POST" && path === "/tunnels") {
+    const body = await readJsonBody(req);
+    if (typeof body?.targetPort !== 'number' || !Number.isInteger(body.targetPort)) {
+      return sendJson(res, 400, {
+        error: 'invalid_tunnel',
+        message: 'targetPort must be an integer port (1024-65535).',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'tunnel_start', {
+      targetPort: body.targetPort,
+    });
+    return sendJson(res, result.ok ? 201 : 409, result);
+  }
+
+  const tunnelStopMatch = /^\/tunnels\/([^/]+)\/stop$/.exec(path);
+  if (method === "POST" && tunnelStopMatch) {
+    const id = decodeURIComponent(tunnelStopMatch[1]!);
+    const result = await runOperatorTool(registry, container, principal, 'tunnel_stop', { id });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
