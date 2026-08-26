@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
@@ -76,5 +76,34 @@ describe('dashboard workspaces endpoints', () => {
     expect(unknown.status).not.toBe(200);
     const unknownBody = (await unknown.json()) as { ok?: boolean };
     expect(unknownBody.ok).not.toBe(true);
+  });
+
+  it('activates a new folder from the dashboard and validates the payload', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+
+    const invalid = await fetch(`${harness.baseUrl}/workspaces/activate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(invalid.status).toBe(400);
+
+    const folder = join(harness.root, 'extra-folder');
+    mkdirSync(folder, { recursive: true });
+    const activated = await fetch(`${harness.baseUrl}/workspaces/activate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: folder }),
+    });
+    expect(activated.status).toBe(200);
+
+    const list = await fetch(`${harness.baseUrl}/workspaces`);
+    expect(list.status).toBe(200);
+    const body = (await list.json()) as {
+      workspaces?: Array<{ projectRoot?: string; path?: string }>;
+    };
+    const paths = (body.workspaces ?? []).map((w) => w.projectRoot ?? w.path);
+    expect(paths).toContain(folder);
   });
 });

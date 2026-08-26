@@ -272,6 +272,19 @@ button.danger { border-color: #71302d; color: var(--danger); }
 
 a { color: var(--blue); }
 
+.tool-group h3 { margin: 14px 0 8px; font-size: 12px; }
+.tool-group h3 .hint { margin-left: 6px; }
+.tool-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #0c1220;
+  color: var(--fg);
+  font: 11px var(--mono);
+}
+.chip .hint { margin-left: 4px; }
+
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }

@@ -66,6 +66,20 @@ interface AuditRecord {
   risk?: string;
 }
 
+interface ToolRecord {
+  name: string;
+  group: string;
+  risk: string;
+  mutates: boolean;
+  title?: string;
+  description?: string;
+}
+
+interface ToolsCatalog {
+  tools?: ToolRecord[];
+  presets?: Record<string, { groups: string[]; toolCount: number }>;
+}
+
 interface StatusSnapshot {
   policy?: { mode?: string };
   workspace?: { projectRoot?: string };
@@ -77,6 +91,7 @@ type Page =
   | 'fleet'
   | 'tunnels'
   | 'workspaces'
+  | 'tools'
   | 'plugins'
   | 'approvals'
   | 'audit'
@@ -330,7 +345,25 @@ function FleetScreen() {
               {i.name}
             </span>,
             <code key="p">{i.port}</code>,
-            <code key="t">{i.toolsPreset}</code>,
+            <select
+              key="t"
+              value={i.toolsPreset}
+              aria-label={`Tool preset for ${i.id}`}
+              disabled={action.busy}
+              onChange={(e) =>
+                void action
+                  .run(`/fleet/${encodeURIComponent(i.id)}/preset`, { toolsPreset: e.target.value })
+                  .then((ok) => {
+                    if (ok) fleet.reload();
+                  })
+              }
+            >
+              {['vibe', 'vibe-lite', 'readonly', 'full', 'godot'].map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>,
             <code key="m">{i.policyMode}</code>,
             <StatePill key="s" value={i.state} />,
             <button
@@ -365,7 +398,8 @@ function FleetScreen() {
         />
         <ErrorNote message={action.error} />
         <div className="hint">
-          Instance endpoint: http://127.0.0.1:PORT/mcp with its bearer token.
+          Instance endpoint: http://127.0.0.1:PORT/mcp with its bearer token. Changing the
+          preset applies on the next start/restart of the instance.
         </div>
       </Card>
     </div>
@@ -445,6 +479,14 @@ function TunnelsScreen() {
 function WorkspacesScreen() {
   const ws = useApi<{ workspaces: WorkspaceRecord[] }>('/workspaces');
   const action = useAction();
+  const [newPath, setNewPath] = useState('');
+
+  const addFolder = async () => {
+    if (await action.run('/workspaces/activate', { path: newPath.trim() })) {
+      setNewPath('');
+      ws.reload();
+    }
+  };
   const rows = (ws.data?.workspaces ?? []).map((w) => {
     const path = w.projectRoot ?? w.path ?? w.root ?? '';
     const current = Boolean(w.current ?? w.active ?? w.isCurrent);
@@ -481,6 +523,20 @@ function WorkspacesScreen() {
   });
   return (
     <div className="stack">
+      <Card title="Add a folder" hint="activate any folder as a governed workspace">
+        <div className="form-row">
+          <input
+            value={newPath}
+            onChange={(e) => setNewPath(e.target.value)}
+            placeholder="/absolute/path/to/folder"
+            aria-label="Folder path to activate"
+          />
+          <button className="primary" disabled={!newPath.trim() || action.busy} onClick={() => void addFolder()}>
+            Add folder
+          </button>
+        </div>
+        <ErrorNote message={action.error} />
+      </Card>
       <Card title="Activated workspaces" hint="path-less tool calls run in the current one">
         <Table head={['Workspace', 'Status', 'Action']} rows={rows} empty="No workspaces registered." />
         <ErrorNote message={action.error ?? ws.error} />
@@ -686,11 +742,79 @@ function SettingsScreen() {
   );
 }
 
+function ToolsScreen() {
+  const catalog = useApi<ToolsCatalog>('/tools');
+  const [filter, setFilter] = useState('');
+  const tools = catalog.data?.tools ?? [];
+  const q = filter.trim().toLowerCase();
+  const filtered = q
+    ? tools.filter(
+        (t) =>
+          t.name.includes(q) ||
+          t.group.includes(q) ||
+          (t.description ?? '').toLowerCase().includes(q),
+      )
+    : tools;
+  const byGroup = new Map<string, ToolRecord[]>();
+  for (const t of filtered) {
+    const list = byGroup.get(t.group) ?? [];
+    list.push(t);
+    byGroup.set(t.group, list);
+  }
+  const presets = Object.entries(catalog.data?.presets ?? {});
+  return (
+    <div className="stack">
+      <Card title="Tool presets" hint="group bundles advertised to MCP clients">
+        <div className="grid">
+          {presets.map(([name, p]) => (
+            <div className="kv" key={name}>
+              <span>
+                <code>{name}</code> — {p.groups.length} groups
+              </span>
+              <strong>{p.toolCount} tools</strong>
+            </div>
+          ))}
+        </div>
+        <div className="hint">
+          Set an instance preset from the Fleet screen; it applies on the next start.
+        </div>
+      </Card>
+      <Card title="Tool catalog" hint={`${filtered.length} of ${tools.length} tools`}>
+        <div className="form-row">
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter by name, group, or description"
+            aria-label="Filter tools"
+          />
+        </div>
+        <ErrorNote message={catalog.error} />
+        {filtered.length === 0 ? <div className="empty">No tools match.</div> : null}
+        {[...byGroup.entries()].map(([group, list]) => (
+          <div key={group} className="tool-group">
+            <h3>
+              <code>{group}</code> <span className="hint">{list.length} tools</span>
+            </h3>
+            <div className="tool-chips">
+              {list.map((t) => (
+                <span key={t.name} className="chip" title={t.description ?? t.name}>
+                  {t.name} <span className="hint">{t.risk}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
 /* ---------- shell ---------- */
 
 const NAV: Array<{ id: Page; label: string; icon: string }> = [
   { id: 'overview', label: 'Overview', icon: '⬢' },
   { id: 'fleet', label: 'Fleet', icon: '⛁' },
+  { id: 'tools', label: 'Tools', icon: '⚒' },
   { id: 'tunnels', label: 'Tunnels', icon: '⇄' },
   { id: 'workspaces', label: 'Workspaces', icon: '▣' },
   { id: 'plugins', label: 'Plugins', icon: '✦' },
@@ -735,6 +859,7 @@ export function App() {
         {page === 'fleet' && <FleetScreen />}
         {page === 'tunnels' && <TunnelsScreen />}
         {page === 'workspaces' && <WorkspacesScreen />}
+        {page === 'tools' && <ToolsScreen />}
         {page === 'plugins' && <PluginsScreen />}
         {page === 'approvals' && <ApprovalsScreen />}
         {page === 'audit' && <AuditScreen />}

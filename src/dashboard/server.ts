@@ -33,6 +33,7 @@ import { adminPrincipalFromCredential } from "../core/principal.js";
 import { ApprovalResolutionError } from "../policy/approvals.js";
 import { logger } from "../core/logger.js";
 import { MISSION_CONTROL_OPERATOR_ROLE } from "../operator/mission-control.js";
+import { GROUP_PRESETS, resolveActiveTools } from "../tools/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,11 +70,14 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fleet                    -> provision a folder (body: { projectPath, name?, toolsPreset?, policyMode? })
  *   POST /fleet/:id/start|stop|restart -> instance lifecycle (governed via provision_* tools)
  *   POST /fleet/:id/auto-restart   -> toggle auto-restart (body: { enabled: boolean })
+ *   POST /fleet/:id/preset         -> change tool preset (body: { toolsPreset }); applies on next start
+ *   GET  /tools                    -> tool catalog with groups, risk, and preset coverage
  *   GET  /plugins                  -> installed plugins (via plugin_list)
  *   GET  /marketplace              -> marketplace index entries (via marketplace_list)
  *   POST /plugins/:id/enable|disable -> plugin lifecycle (governed via plugin_enable/disable)
  *   GET  /workspaces               -> activated workspaces (via workspace_list)
  *   POST /workspaces/switch        -> switch current workspace (body: { path })
+ *   POST /workspaces/activate      -> activate a folder as a workspace (body: { path })
  *   GET  /tunnels                  -> quick tunnels (via tunnel_list)
  *   POST /tunnels                  -> expose a port publicly (body: { targetPort }) HIGH risk
  *   POST /tunnels/:id/stop         -> close a tunnel (governed via tunnel_stop)
@@ -814,6 +818,23 @@ async function handle(
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
+  const fleetPresetMatch = /^\/fleet\/([^/]+)\/preset$/.exec(path);
+  if (method === "POST" && fleetPresetMatch) {
+    const id = decodeURIComponent(fleetPresetMatch[1]!);
+    const body = await readJsonBody(req);
+    if (typeof body?.toolsPreset !== 'string' || body.toolsPreset.length === 0) {
+      return sendJson(res, 400, {
+        error: 'invalid_preset',
+        message: 'toolsPreset must be one of: vibe, vibe-lite, readonly, full, godot.',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'provision_update', {
+      id,
+      toolsPreset: body.toolsPreset,
+    });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
   if (method === "GET" && path === "/plugins") {
     const result = await runOperatorTool(registry, container, principal, 'plugin_list', {});
     return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
@@ -838,6 +859,26 @@ async function handle(
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
+  if (method === "GET" && path === "/tools") {
+    const tools = registry.listAll().map((tool) => ({
+      name: tool.name,
+      group: tool.group,
+      risk: tool.risk,
+      mutates: tool.mutates,
+      title: tool.annotations?.title ?? tool.name,
+      description: tool.description,
+    }));
+    const presets: Record<string, { groups: string[]; toolCount: number }> = {};
+    for (const [preset, groups] of Object.entries(GROUP_PRESETS)) {
+      const active = resolveActiveTools(registry, { preset });
+      presets[preset] = {
+        groups,
+        toolCount: active === null ? tools.length : active.length,
+      };
+    }
+    return sendJson(res, 200, { tools, presets });
+  }
+
   if (method === "GET" && path === "/workspaces") {
     const result = await runOperatorTool(registry, container, principal, 'workspace_list', {});
     return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
@@ -852,6 +893,20 @@ async function handle(
       });
     }
     const result = await runOperatorTool(registry, container, principal, 'workspace_switch', {
+      path: body.path,
+    });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "POST" && path === "/workspaces/activate") {
+    const body = await readJsonBody(req);
+    if (typeof body?.path !== 'string' || body.path.length === 0) {
+      return sendJson(res, 400, {
+        error: 'invalid_workspace',
+        message: 'path must be a non-empty string.',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'workspace_activate', {
       path: body.path,
     });
     return sendJson(res, result.ok ? 200 : 409, result);
