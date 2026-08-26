@@ -36,6 +36,8 @@ export interface FleetInstance {
   policyMode: string;
   /** SHA-256 of the instance bearer token. The raw token is never persisted. */
   tokenSha256: string;
+  /** Restart automatically after an unexpected exit (rate-limited). */
+  autoRestart?: boolean;
   state: FleetInstanceState;
   sessionId?: string;
   pid?: number;
@@ -53,16 +55,35 @@ export interface FleetSpawnResult {
 export type FleetSpawner = (command: string, cwd: string) => FleetSpawnResult;
 export type FleetSessionStopper = (sessionId: string) => unknown;
 export type FleetLogReader = (sessionId: string) => string;
+/** Probe an instance endpoint; resolves true when it answers and enforces auth. */
+export type FleetHealthProbe = (port: number) => Promise<boolean>;
+/** Check whether a pid refers to a live process. */
+export type FleetPidAlive = (pid: number) => boolean;
+/** Subscribe to a managed session's exit; returns an unsubscribe function. */
+export type FleetExitSubscribe = (sessionId: string, listener: () => void) => () => void;
+
+export interface FleetHealth {
+  id: string;
+  state: FleetInstanceState;
+  pidAlive: boolean;
+  endpointOk: boolean;
+  healthy: boolean;
+}
 
 export interface FleetManagerOptions {
   spawn?: FleetSpawner;
   stopSession?: FleetSessionStopper;
   readSession?: FleetLogReader;
+  probe?: FleetHealthProbe;
+  isAlive?: FleetPidAlive;
+  onExit?: FleetExitSubscribe;
   /** Entrypoint of the built runtime; defaults to <dist>/main.js. */
   mainJs?: string;
   /** Hard cap on provisioned instances (operator-controlled, not agent-set). */
   maxFleet?: number;
   portRange?: { start: number; end: number };
+  /** Minimum delay between automatic restarts of the same instance. */
+  autoRestartCooldownMs?: number;
   now?: () => number;
 }
 
@@ -111,6 +132,34 @@ function instanceConfigYaml(record: FleetInstance, token: string): string {
   ].join('\n');
 }
 
+/** Default endpoint probe: the instance is up when /mcp answers and enforces auth. */
+async function defaultEndpointProbe(port: number): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'initialize', params: {} }),
+      signal: AbortSignal.timeout(3000),
+    });
+    return response.status === 200 || response.status === 401;
+  } catch {
+    return false;
+  }
+}
+
+/** Default liveness check for a spawned pid. */
+function defaultPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class FleetManager {
   private readonly statePath: string;
   private readonly fleetDir: string;
@@ -121,6 +170,11 @@ export class FleetManager {
   private readonly spawnFn: FleetSpawner | undefined;
   private readonly stopFn: FleetSessionStopper | undefined;
   private readonly readFn: FleetLogReader | undefined;
+  private readonly probeFn: FleetHealthProbe;
+  private readonly isAliveFn: FleetPidAlive;
+  private readonly onExitFn: FleetExitSubscribe | undefined;
+  private readonly autoRestartCooldownMs: number;
+  private readonly lastAutoRestart = new Map<string, number>();
   private readonly now: () => number;
   private instances: FleetInstance[] = [];
 
@@ -136,6 +190,10 @@ export class FleetManager {
     this.spawnFn = options.spawn;
     this.stopFn = options.stopSession;
     this.readFn = options.readSession;
+    this.probeFn = options.probe ?? defaultEndpointProbe;
+    this.isAliveFn = options.isAlive ?? defaultPidAlive;
+    this.onExitFn = options.onExit;
+    this.autoRestartCooldownMs = options.autoRestartCooldownMs ?? 60_000;
     this.now = options.now ?? (() => Date.now());
     this.load();
   }
@@ -220,6 +278,9 @@ export class FleetManager {
       record.state = 'running';
       record.sessionId = session.sessionId;
       if (session.pid !== undefined) record.pid = session.pid;
+      if (this.onExitFn) {
+        this.onExitFn(session.sessionId, () => this.handleExit(id, session.sessionId));
+      }
     } catch (error) {
       record.state = 'failed';
       record.lastError = error instanceof Error ? error.message : String(error);
@@ -280,6 +341,61 @@ export class FleetManager {
     const record = this.mutable(id);
     if (!record.sessionId || !this.readFn) return '';
     return this.readFn(record.sessionId);
+  }
+
+  /** Probe one instance: policy state, pid liveness, and HTTP auth enforcement. */
+  async health(id: string): Promise<FleetHealth> {
+    const record = this.mutable(id);
+    const pidAlive = record.pid !== undefined ? this.isAliveFn(record.pid) : false;
+    const endpointOk = record.state === 'running' ? await this.probeFn(record.port) : false;
+    return {
+      id: record.id,
+      state: record.state,
+      pidAlive,
+      endpointOk,
+      healthy: record.state === 'running' && pidAlive && endpointOk,
+    };
+  }
+
+  /** Restart an instance: graceful stop followed by start. */
+  restart(id: string): FleetInstance {
+    this.stop(id);
+    return this.start(id);
+  }
+
+  /** Enable or disable automatic restart after an unexpected exit. */
+  setAutoRestart(id: string, enabled: boolean): FleetInstance {
+    const record = this.mutable(id);
+    record.autoRestart = enabled;
+    this.touch(record);
+    this.persist();
+    return { ...record };
+  }
+
+  /**
+   * Handle an unexpected process exit. Deliberate stops pass through
+   * `stopping`/`stopped` first, so a `running` state here means a crash.
+   * Auto-restart is rate-limited per instance to avoid restart loops.
+   */
+  private handleExit(id: string, sessionId: string): void {
+    const record = this.instances.find((instance) => instance.id === id);
+    if (!record || record.sessionId !== sessionId) return; // stale session
+    if (record.state !== 'running') return; // deliberate stop
+    record.state = 'failed';
+    record.lastError = 'Process exited unexpectedly.';
+    delete record.sessionId;
+    delete record.pid;
+    this.touch(record);
+    this.persist();
+    if (!record.autoRestart) return;
+    const last = this.lastAutoRestart.get(id) ?? 0;
+    if (this.now() - last < this.autoRestartCooldownMs) return;
+    this.lastAutoRestart.set(id, this.now());
+    try {
+      this.start(id);
+    } catch {
+      // The record stays failed; start() already captured the reason in lastError.
+    }
   }
 
   private mutable(id: string): FleetInstance {

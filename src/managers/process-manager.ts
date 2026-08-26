@@ -33,6 +33,7 @@ function wakeWaiters(session: InternalSession): void {
 export class ProcessManager {
   private sessions = new Map<string, InternalSession>();
   private maxBuffer = 1_000_000;
+  private exitListeners = new Map<string, Set<() => void>>();
 
   start(command: string, cwd: string, shell: string): ProcessSession {
     const sessionId = `proc_${randomUUID().slice(0, 8)}`;
@@ -69,10 +70,35 @@ export class ProcessManager {
       session.status = session.status === 'killed' ? 'killed' : 'exited';
       session.exitCode = code;
       wakeWaiters(session);
+      const listeners = this.exitListeners.get(sessionId);
+      if (listeners) {
+        this.exitListeners.delete(sessionId);
+        for (const listener of listeners) listener();
+      }
     });
 
     this.sessions.set(sessionId, session);
     return this.publicView(session);
+  }
+
+  /**
+   * Register a one-shot listener fired when the session's process exits.
+   * Listeners are removed after firing. Returns an unsubscribe function; a
+   * session that is unknown or already exited yields a no-op unsubscribe.
+   */
+  onExit(sessionId: string, listener: () => void): () => void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.status !== 'running') return () => {};
+    let set = this.exitListeners.get(sessionId);
+    if (!set) {
+      set = new Set();
+      this.exitListeners.set(sessionId, set);
+    }
+    const active = set;
+    active.add(listener);
+    return () => {
+      active.delete(listener);
+    };
   }
 
   read(sessionId: string): { output: string; status: string; cursor: number } {

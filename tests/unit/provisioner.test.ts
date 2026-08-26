@@ -154,4 +154,101 @@ describe('FleetManager', () => {
     const { instance } = fleet.create({ projectPath: project });
     expect(() => fleet.start(instance.id)).toThrow(/entrypoint/);
   });
+
+  it('restarts an instance (stop + start cycle)', () => {
+    const { root, project } = fixture();
+    const calls: string[] = [];
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner(calls),
+      stopSession: (sessionId) => {
+        calls.push(`stop ${sessionId}`);
+      },
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    fleet.start(instance.id);
+    const restarted = fleet.restart(instance.id);
+    expect(restarted.state).toBe('running');
+    expect(restarted.sessionId).toBe('proc_stub_2');
+    expect(calls).toContain('stop proc_stub_1');
+  });
+
+  it('reports health from state, pid liveness, and endpoint probe', async () => {
+    const { root, project } = fixture();
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner([]),
+      probe: async () => true,
+      isAlive: () => true,
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    const down = await fleet.health(instance.id);
+    expect(down.healthy).toBe(false);
+    expect(down.endpointOk).toBe(false);
+    fleet.start(instance.id);
+    const up = await fleet.health(instance.id);
+    expect(up).toMatchObject({
+      id: instance.id,
+      state: 'running',
+      pidAlive: true,
+      endpointOk: true,
+      healthy: true,
+    });
+  });
+
+  it('marks a crashed instance failed and auto-restarts only when enabled', () => {
+    const { root, project } = fixture();
+    const calls: string[] = [];
+    const exitListeners = new Map<string, () => void>();
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner(calls),
+      stopSession: () => undefined,
+      onExit: (sessionId, listener) => {
+        exitListeners.set(sessionId, listener);
+        return () => {
+          exitListeners.delete(sessionId);
+        };
+      },
+      autoRestartCooldownMs: 0,
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    fleet.start(instance.id);
+
+    // Crash without autoRestart -> failed, stays down.
+    exitListeners.get('proc_stub_1')?.();
+    expect(fleet.get(instance.id).state).toBe('failed');
+    expect(calls.filter((call) => call.includes('--tools-preset'))).toHaveLength(1);
+
+    // Enable auto-restart -> the next crash restarts exactly once.
+    fleet.setAutoRestart(instance.id, true);
+    fleet.start(instance.id);
+    exitListeners.get('proc_stub_2')?.();
+    const after = fleet.get(instance.id);
+    expect(after.state).toBe('running');
+    expect(after.sessionId).toBe('proc_stub_3');
+  });
+
+  it('rate-limits auto-restart within the cooldown window', () => {
+    const { root, project } = fixture();
+    const exitListeners = new Map<string, () => void>();
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner([]),
+      stopSession: () => undefined,
+      onExit: (sessionId, listener) => {
+        exitListeners.set(sessionId, listener);
+        return () => {
+          exitListeners.delete(sessionId);
+        };
+      },
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    fleet.setAutoRestart(instance.id, true);
+    fleet.start(instance.id); // proc_stub_1
+    exitListeners.get('proc_stub_1')?.(); // crash -> auto-restart -> proc_stub_2
+    expect(fleet.get(instance.id).state).toBe('running');
+    exitListeners.get('proc_stub_2')?.(); // second crash inside cooldown -> stays failed
+    expect(fleet.get(instance.id).state).toBe('failed');
+  });
 });

@@ -244,6 +244,9 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'provision_stop', mutates: true, risk: 'MEDIUM' },
   { name: 'provision_logs', mutates: false, risk: 'LOW' },
   { name: 'provision_destroy', mutates: true, risk: 'HIGH' },
+  { name: 'provision_health', mutates: false, risk: 'LOW' },
+  { name: 'provision_restart', mutates: true, risk: 'HIGH' },
+  { name: 'provision_update', mutates: true, risk: 'MEDIUM' },
 
   // --- policy / audit / approvals ---
   { name: 'policy_get', mutates: false, risk: 'LOW' },

@@ -113,4 +113,24 @@ describe('dashboard fleet endpoints', () => {
     const missing = await postJson(`${harness.baseUrl}/fleet/flt_missing/stop`);
     expect(missing.status).toBe(409);
   });
+
+  it('toggles auto-restart through the governed route', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const created = await postJson(`${harness.baseUrl}/fleet`, { projectPath: harness.root });
+    const id = created.json.data?.id ?? '';
+
+    const enabled = await postJson(`${harness.baseUrl}/fleet/${id}/auto-restart`, { enabled: true });
+    expect(enabled.status).toBe(200);
+    expect(enabled.json.ok).toBe(true);
+
+    const listedResponse = await fetch(`${harness.baseUrl}/fleet`);
+    const listed = (await listedResponse.json()) as {
+      instances: Array<FleetInstanceView & { autoRestart?: boolean }>;
+    };
+    expect(listed.instances[0]?.autoRestart).toBe(true);
+
+    const invalid = await postJson(`${harness.baseUrl}/fleet/${id}/auto-restart`, {});
+    expect(invalid.status).toBe(400);
+  });
 });

@@ -66,7 +66,8 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /policy/mode             -> change runtime policy mode (admin only)
  *   GET  /fleet                    -> provisioned per-folder MCP instances
  *   POST /fleet                    -> provision a folder (body: { projectPath, name?, toolsPreset?, policyMode? })
- *   POST /fleet/:id/start|stop     -> instance lifecycle (governed via provision_start/stop)
+ *   POST /fleet/:id/start|stop|restart -> instance lifecycle (governed via provision_* tools)
+ *   POST /fleet/:id/auto-restart   -> toggle auto-restart (body: { enabled: boolean })
  */
 export function startDashboard(
   container: Container,
@@ -729,17 +730,34 @@ async function handle(
     return sendJson(res, result.ok ? 201 : 409, result);
   }
 
-  const fleetLifecycleMatch = /^\/fleet\/([^/]+)\/(start|stop)$/.exec(path);
+  const fleetLifecycleMatch = /^\/fleet\/([^/]+)\/(start|stop|restart)$/.exec(path);
   if (method === "POST" && fleetLifecycleMatch) {
     const id = decodeURIComponent(fleetLifecycleMatch[1]!);
     const action = fleetLifecycleMatch[2]!;
-    const result = await runOperatorTool(
-      registry,
-      container,
-      principal,
-      action === 'start' ? 'provision_start' : 'provision_stop',
-      { id },
-    );
+    const tool =
+      action === 'start'
+        ? 'provision_start'
+        : action === 'stop'
+          ? 'provision_stop'
+          : 'provision_restart';
+    const result = await runOperatorTool(registry, container, principal, tool, { id });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetAutoRestartMatch = /^\/fleet\/([^/]+)\/auto-restart$/.exec(path);
+  if (method === "POST" && fleetAutoRestartMatch) {
+    const id = decodeURIComponent(fleetAutoRestartMatch[1]!);
+    const body = await readJsonBody(req);
+    if (typeof body?.enabled !== 'boolean') {
+      return sendJson(res, 400, {
+        error: 'invalid_auto_restart',
+        message: 'enabled must be a boolean.',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'provision_update', {
+      id,
+      autoRestart: body.enabled,
+    });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 

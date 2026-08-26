@@ -1050,15 +1050,22 @@
         if (!el) return;
         const instances = (data && data.instances) || [];
         el.innerHTML = missionTable(
-          ["Instance", "Folder", "Port", "Preset", "Policy", "State", "Lifecycle"],
+          ["Instance", "Folder", "Port", "Preset", "Policy", "State", "Auto-restart", "Lifecycle"],
           instances.map((instance) => {
+            const encoded = encodeURIComponent(instance.id);
             const lifecycle =
               instance.state === "running"
-                ? missionButton("Stop", `/fleet/${encodeURIComponent(instance.id)}/stop`, "primary")
+                ? `${missionButton("Stop", `/fleet/${encoded}/stop`, "primary")} ${missionButton("Restart", `/fleet/${encoded}/restart`, "")}`
                 : instance.state === "stopped" || instance.state === "failed"
-                  ? missionButton("Start", `/fleet/${encodeURIComponent(instance.id)}/start`, "primary")
+                  ? missionButton("Start", `/fleet/${encoded}/start`, "primary")
                   : "-";
-            return `<tr><td class="mono">${esc(instance.id)}</td><td class="mono" title="${esc(instance.projectPath)}">${esc(instance.name)}</td><td class="mono">${esc(instance.port)}</td><td class="mono">${esc(instance.toolsPreset)}</td><td class="mono">${esc(instance.policyMode)}</td><td>${esc(instance.state)}${instance.lastError ? ` <span title="${esc(instance.lastError)}">warn</span>` : ""}</td><td>${lifecycle}</td></tr>`;
+            const autoRestart = missionButton(
+              instance.autoRestart ? "on" : "off",
+              `/fleet/${encoded}/auto-restart`,
+              instance.autoRestart ? "primary" : "",
+              { enabled: !instance.autoRestart },
+            );
+            return `<tr><td class="mono">${esc(instance.id)}</td><td class="mono" title="${esc(instance.projectPath)}">${esc(instance.name)}</td><td class="mono">${esc(instance.port)}</td><td class="mono">${esc(instance.toolsPreset)}</td><td class="mono">${esc(instance.policyMode)}</td><td>${esc(instance.state)}${instance.lastError ? ` <span title="${esc(instance.lastError)}">warn</span>` : ""}</td><td>${autoRestart}</td><td>${lifecycle}</td></tr>`;
           }),
           "No provisioned instances yet. Provision a folder above.",
         );

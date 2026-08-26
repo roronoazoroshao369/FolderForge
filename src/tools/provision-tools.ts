@@ -47,6 +47,14 @@ function guard(fn: () => ToolResult): ToolResult {
   }
 }
 
+async function guardAsync(fn: () => Promise<ToolResult>): Promise<ToolResult> {
+  try {
+    return await fn();
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function provisionTools(): ToolDefinition[] {
   return [
     defineTool({
@@ -214,6 +222,82 @@ export function provisionTools(): ToolDefinition[] {
             summary: `destroy ${result.destroyed}`,
           });
           return { ok: true, data: result };
+        }),
+    }),
+
+    defineTool({
+      name: 'provision_health',
+      description:
+        'Probe one provisioned instance: policy state, pid liveness, and whether its ' +
+        'loopback MCP endpoint answers and enforces auth.',
+      group: 'provision',
+      mutates: false,
+      risk: 'LOW',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      handler: async (args, ctx) =>
+        guardAsync(async () => ({
+          ok: true,
+          data: await ctx.container.fleet.health(String(args.id)),
+        })),
+    }),
+
+    defineTool({
+      name: 'provision_restart',
+      description:
+        'Restart a provisioned instance (graceful stop then start). HIGH risk; requires approval per policy.',
+      group: 'provision',
+      mutates: true,
+      risk: 'HIGH',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      handler: async (args, ctx) =>
+        guard(() => {
+          const instance = ctx.container.fleet.restart(String(args.id));
+          ctx.container.audit.record({
+            type: 'provision_event',
+            summary: `restart ${instance.id} (session ${instance.sessionId ?? 'n/a'})`,
+          });
+          return { ok: true, data: publicInstance(instance) };
+        }),
+    }),
+
+    defineTool({
+      name: 'provision_update',
+      description:
+        'Update instance settings. Currently supports autoRestart (boolean): restart the ' +
+        'instance automatically after an unexpected exit (rate-limited per instance).',
+      group: 'provision',
+      mutates: true,
+      risk: 'MEDIUM',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          autoRestart: { type: 'boolean' },
+        },
+        required: ['id', 'autoRestart'],
+        additionalProperties: false,
+      },
+      handler: async (args, ctx) =>
+        guard(() => {
+          const instance = ctx.container.fleet.setAutoRestart(
+            String(args.id),
+            Boolean(args.autoRestart),
+          );
+          ctx.container.audit.record({
+            type: 'provision_event',
+            summary: `auto-restart ${instance.autoRestart ? 'enabled' : 'disabled'} for ${instance.id}`,
+          });
+          return { ok: true, data: publicInstance(instance) };
         }),
     }),
   ];

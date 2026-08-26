@@ -97,6 +97,7 @@ export class Container {
       spawn: (command, cwd) => this.processes.start(command, cwd, config.terminal.shell),
       stopSession: (sessionId) => this.processes.stop(sessionId),
       readSession: (sessionId) => this.processes.read(sessionId).output,
+      onExit: (sessionId, listener) => this.processes.onExit(sessionId, listener),
     });
     this.plugins = new PluginManager(config.workspace.defaultProject, readFolderForgeVersion());
     this.workflows = new WorkflowManager(config.workspace.defaultProject);
