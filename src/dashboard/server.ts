@@ -73,6 +73,9 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /plugins/:id/enable|disable -> plugin lifecycle (governed via plugin_enable/disable)
  *   GET  /workspaces               -> activated workspaces (via workspace_list)
  *   POST /workspaces/switch        -> switch current workspace (body: { path })
+ *   GET  /tunnels                  -> quick tunnels (via tunnel_list)
+ *   POST /tunnels                  -> expose a port publicly (body: { targetPort }) HIGH risk
+ *   POST /tunnels/:id/stop         -> close a tunnel (governed via tunnel_stop)
  */
 export function startDashboard(
   container: Container,
@@ -806,6 +809,32 @@ async function handle(
     const result = await runOperatorTool(registry, container, principal, 'workspace_switch', {
       path: body.path,
     });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  if (method === "GET" && path === "/tunnels") {
+    const result = await runOperatorTool(registry, container, principal, 'tunnel_list', {});
+    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+  }
+
+  if (method === "POST" && path === "/tunnels") {
+    const body = await readJsonBody(req);
+    if (typeof body?.targetPort !== 'number' || !Number.isInteger(body.targetPort)) {
+      return sendJson(res, 400, {
+        error: 'invalid_tunnel',
+        message: 'targetPort must be an integer port (1024-65535).',
+      });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'tunnel_start', {
+      targetPort: body.targetPort,
+    });
+    return sendJson(res, result.ok ? 201 : 409, result);
+  }
+
+  const tunnelStopMatch = /^\/tunnels\/([^/]+)\/stop$/.exec(path);
+  if (method === "POST" && tunnelStopMatch) {
+    const id = decodeURIComponent(tunnelStopMatch[1]!);
+    const result = await runOperatorTool(registry, container, principal, 'tunnel_stop', { id });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 

@@ -28,6 +28,7 @@ import { capsuleTools } from './capsule-tools.js';
 import { isolationTools } from './isolation-tools.js';
 import { proofPackTools } from './proof-pack-tools.js';
 import { provisionTools } from './provision-tools.js';
+import { tunnelTools } from './tunnel-tools.js';
 
 /**
  * Build the full tool registry with every group registered.
@@ -60,6 +61,7 @@ export function buildRegistry(container: Container): ToolRegistry {
     ...distributedTools(),
     ...marketplaceTools(),
     ...provisionTools(),
+    ...tunnelTools(),
     ...gameTools(),
   ]);
   // Expose the registry on the container so routing tools (workspace_route)
@@ -173,6 +175,7 @@ export const GROUP_PRESETS: Record<string, string[]> = {
     'workspace', 'workflow', 'agent', 'file', 'search', 'terminal', 'process', 'git', 'build',
     'memory', 'security', 'code', 'browser', 'db', 'pkg', 'format', 'coverage', 'plugin',
     'artifact', 'distributed', 'marketplace', 'game', 'provision',
+    'tunnel',
   ],
   // Godot game-dev focus: the coding essentials plus the `game` group, so an
   // agent can read/edit project files and drive the engine without the db /

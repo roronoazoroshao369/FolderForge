@@ -594,6 +594,17 @@
           <div id="workspaces-list">…</div>
         </div>
       </section>
+      <section class="wide" id="tunnels-panel">
+        <h2>Tunnels · Public exposure</h2>
+        <div class="body">
+          <div class="notice warn">Quick tunnels expose a local port on a PUBLIC trycloudflare URL. Only expose token-protected endpoints; starting a tunnel is a HIGH-risk, policy-gated action.</div>
+          <div class="inline-control" style="margin-bottom: 12px;">
+            <input id="tunnel-port" type="number" min="1024" max="65535" placeholder="Local port (e.g. 7410)" style="width: 200px;" />
+            <button id="tunnel-create" class="primary">Start tunnel</button>
+          </div>
+          <div id="tunnels-list">…</div>
+        </div>
+      </section>
       <section class="wide">
         <h2>Overall status <span class="refresh" id="last-checked"></span></h2>
         <div class="body" id="chatgpt-overall">…</div>
@@ -1129,6 +1140,52 @@
         }
       }
 
+      function renderTunnels(data) {
+        const el = document.getElementById("tunnels-list");
+        if (!el) return;
+        const tunnels = (data && data.tunnels) || [];
+        el.innerHTML = missionTable(
+          ["Tunnel", "Target", "Public URL", "State", "Action"],
+          tunnels.map((tunnel) => {
+            const publicUrl = tunnel.publicUrl
+              ? `<a href="${esc(tunnel.publicUrl)}" target="_blank" rel="noopener noreferrer">${esc(tunnel.publicUrl)}</a>`
+              : "-";
+            const action =
+              tunnel.state === "running" || tunnel.state === "starting"
+                ? missionButton("Stop", `/tunnels/${encodeURIComponent(tunnel.id)}/stop`, "danger")
+                : "-";
+            return `<tr><td class="mono">${esc(tunnel.id)}</td><td class="mono">${esc(tunnel.targetUrl || `:${tunnel.targetPort}`)}</td><td class="mono">${publicUrl}</td><td>${esc(tunnel.state)}${tunnel.lastError ? ` <span title="${esc(tunnel.lastError)}">warn</span>` : ""}</td><td>${action}</td></tr>`;
+          }),
+          "No tunnels running. Expose a port above.",
+        );
+        bindMissionActions();
+      }
+
+      async function createTunnel() {
+        const portInput = document.getElementById("tunnel-port");
+        const targetPort = Number(portInput.value);
+        if (!Number.isInteger(targetPort) || targetPort < 1024 || targetPort > 65535) {
+          toast("Enter a valid local port (1024-65535).", true);
+          return;
+        }
+        const button = document.getElementById("tunnel-create");
+        button.disabled = true;
+        try {
+          const result = await requestJson("/tunnels", { method: "POST", body: { targetPort } });
+          if (result && result.ok && result.data && result.data.publicUrl) {
+            toast(`Tunnel live: ${result.data.publicUrl}`, false);
+          } else {
+            toast("Tunnel started.", false);
+          }
+          portInput.value = "";
+          await refreshControlPlane();
+        } catch (error) {
+          toast(error.message, true);
+        } finally {
+          button.disabled = false;
+        }
+      }
+
       function renderWorkspaces(data) {
         const el = document.getElementById("workspaces-list");
         if (!el) return;
@@ -1192,7 +1249,7 @@
 
       async function refreshControlPlane() {
         try {
-          const [status, approvals, processes, audit, missionControl, fleet, plugins, marketplace, workspaces] = await Promise.all([
+          const [status, approvals, processes, audit, missionControl, fleet, plugins, marketplace, workspaces, tunnels] = await Promise.all([
             requestJson("/status"),
             requestJson("/approvals"),
             requestJson("/processes"),
@@ -1202,6 +1259,7 @@
             requestJson("/plugins").catch(() => null),
             requestJson("/marketplace").catch(() => null),
             requestJson("/workspaces").catch(() => null),
+            requestJson("/tunnels").catch(() => null),
           ]);
           renderStatus(status);
           renderApprovals(approvals, status.policy.mode);
@@ -1211,6 +1269,7 @@
           renderFleet(fleet);
           renderPlugins(plugins, marketplace);
           renderWorkspaces(workspaces);
+          renderTunnels(tunnels);
         } catch (error) {
           document.getElementById("server-meta").textContent = "disconnected";
           toast(error.message, true);
@@ -1223,6 +1282,9 @@
       document
         .getElementById("fleet-create")
         .addEventListener("click", createFleetInstance);
+      document
+        .getElementById("tunnel-create")
+        .addEventListener("click", createTunnel);
       document
         .getElementById("log-subsystem")
         .addEventListener("change", refreshLogs);
