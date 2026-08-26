@@ -273,8 +273,9 @@ export function provisionTools(): ToolDefinition[] {
     defineTool({
       name: 'provision_update',
       description:
-        'Update instance settings. Currently supports autoRestart (boolean): restart the ' +
-        'instance automatically after an unexpected exit (rate-limited per instance).',
+        'Update instance settings: autoRestart (boolean) and/or toolsPreset ' +
+        '(vibe|vibe-lite|readonly|full|godot). A preset change applies on the ' +
+        'next start/restart of the instance.',
       group: 'provision',
       mutates: true,
       risk: 'MEDIUM',
@@ -283,19 +284,35 @@ export function provisionTools(): ToolDefinition[] {
         properties: {
           id: { type: 'string' },
           autoRestart: { type: 'boolean' },
+          toolsPreset: {
+            type: 'string',
+            enum: ['vibe', 'vibe-lite', 'readonly', 'full', 'godot'],
+          },
         },
-        required: ['id', 'autoRestart'],
+        required: ['id'],
         additionalProperties: false,
       },
       handler: async (args, ctx) =>
         guard(() => {
-          const instance = ctx.container.fleet.setAutoRestart(
-            String(args.id),
-            Boolean(args.autoRestart),
-          );
+          const id = String(args.id);
+          const autoRestart = args.autoRestart;
+          const toolsPreset = args.toolsPreset;
+          if (typeof autoRestart !== 'boolean' && typeof toolsPreset !== 'string') {
+            throw new Error('Nothing to update: pass autoRestart and/or toolsPreset.');
+          }
+          const changes: string[] = [];
+          if (typeof autoRestart === 'boolean') {
+            ctx.container.fleet.setAutoRestart(id, autoRestart);
+            changes.push(`auto-restart ${autoRestart ? 'enabled' : 'disabled'}`);
+          }
+          if (typeof toolsPreset === 'string') {
+            ctx.container.fleet.setToolsPreset(id, toolsPreset);
+            changes.push(`tools-preset -> ${toolsPreset} (restart to apply)`);
+          }
+          const instance = ctx.container.fleet.get(id);
           ctx.container.audit.record({
             type: 'provision_event',
-            summary: `auto-restart ${instance.autoRestart ? 'enabled' : 'disabled'} for ${instance.id}`,
+            summary: `update ${instance.id}: ${changes.join('; ')}`,
           });
           return { ok: true, data: publicInstance(instance) };
         }),

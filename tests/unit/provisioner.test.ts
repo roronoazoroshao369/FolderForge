@@ -44,6 +44,20 @@ describe('FleetManager', () => {
     expect(reloaded.get(instance.id).projectPath).toBe(project);
   });
 
+  it('changes the tool preset, persists it, and validates the allowed list', () => {
+    const { root, project } = fixture();
+    const fleet = new FleetManager(root);
+    const { instance } = fleet.create({ projectPath: project });
+    expect(instance.toolsPreset).toBe('vibe');
+
+    const updated = fleet.setToolsPreset(instance.id, 'full');
+    expect(updated.toolsPreset).toBe('full');
+    expect(new FleetManager(root).get(instance.id).toolsPreset).toBe('full');
+
+    expect(() => fleet.setToolsPreset(instance.id, 'nope')).toThrow(/Invalid tools preset/);
+    expect(() => fleet.setToolsPreset('flt_missing', 'full')).toThrow(/Unknown fleet instance/);
+  });
+
   it('rejects duplicate folders, port collisions, bad presets, and bad ports', () => {
     const { root, project } = fixture();
     const fleet = new FleetManager(root);

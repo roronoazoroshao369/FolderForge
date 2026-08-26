@@ -373,6 +373,23 @@ export class FleetManager {
   }
 
   /**
+   * Change the advertised tool preset. The preset is baked into the spawn
+   * command, so it applies on the next start/restart of the instance.
+   */
+  setToolsPreset(id: string, preset: string): FleetInstance {
+    if (!(FLEET_TOOLS_PRESETS as readonly string[]).includes(preset)) {
+      throw new Error(
+        `Invalid tools preset: ${preset} (expected one of ${FLEET_TOOLS_PRESETS.join(', ')}).`,
+      );
+    }
+    const record = this.mutable(id);
+    record.toolsPreset = preset;
+    this.touch(record);
+    this.persist();
+    return { ...record };
+  }
+
+  /**
    * Handle an unexpected process exit. Deliberate stops pass through
    * `stopping`/`stopped` first, so a `running` state here means a crash.
    * Auto-restart is rate-limited per instance to avoid restart loops.
