@@ -66,6 +66,21 @@ export class ProcessManager {
     };
     child.stdout.on('data', append);
     child.stderr.on('data', append);
+    child.on('error', (error) => {
+      // A missing shell/binary (ENOENT) or permission error (EACCES) must never
+      // crash the host process: surface it on the session instead of throwing
+      // an unhandled 'error' event.
+      const detail = error instanceof Error ? error.message : String(error);
+      session.output += `[folderforge] failed to start: ${detail}\n`;
+      session.status = session.status === 'killed' ? 'killed' : 'exited';
+      session.exitCode = null;
+      wakeWaiters(session);
+      const listeners = this.exitListeners.get(sessionId);
+      if (listeners) {
+        this.exitListeners.delete(sessionId);
+        for (const listener of listeners) listener();
+      }
+    });
     child.on('exit', (code) => {
       session.status = session.status === 'killed' ? 'killed' : 'exited';
       session.exitCode = code;

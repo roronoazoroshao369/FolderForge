@@ -6,6 +6,7 @@ import type {
   OAuthHttpAuthConfig,
 } from '../core/types.js';
 import { logger } from '../core/logger.js';
+import { resolveExistingShell } from '../core/shell.js';
 import { defaultShell } from '../core/shell.js';
 import { packageLocalPlaywrightDef } from '../adapters/child-mcp/resolve.js';
 
@@ -324,6 +325,18 @@ export function loadConfig(opts: LoadConfigOptions = {}): FolderForgeConfig {
 
   applyEnvironmentOverrides(cfg);
   applyHttpAuthDefaults(cfg);
+
+  // A pinned but uninstalled shell (e.g. terminal.shell: /bin/zsh without zsh)
+  // crashes every command spawn with ENOENT — fall back to an existing shell
+  // and say so once at load time.
+  const shellResolution = resolveExistingShell(cfg.terminal.shell);
+  if (shellResolution.fellBack) {
+    logger.warn(
+      { configured: cfg.terminal.shell, resolved: shellResolution.shell },
+      'Configured terminal.shell does not exist on this machine; falling back'
+    );
+    cfg.terminal.shell = shellResolution.shell;
+  }
 
   // Normalize allowed dirs to absolute.
   cfg.workspace.allowedDirectories = cfg.workspace.allowedDirectories.map((d) =>
