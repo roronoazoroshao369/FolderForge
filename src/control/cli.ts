@@ -57,6 +57,8 @@ interface ControlState {
   version: string;
   /** Extra directories the control plane may govern (from --allow). */
   allow?: string[];
+  /** Detached watchdog pid (from --watchdog); killed before the plane on stop. */
+  watchdogPid?: number;
 }
 
 export interface ControlDeps {
@@ -215,6 +217,7 @@ interface ControlOptions {
   port?: number;
   open?: boolean;
   allow?: string[];
+  watchdog?: boolean;
   json: boolean;
   help: boolean;
 }
@@ -225,6 +228,7 @@ function parseControlArgs(argv: string[]): ControlOptions {
   let port: number | undefined;
   let open: boolean | undefined;
   let allow: string[] | undefined;
+  let watchdog = false;
   let json = false;
   let help = false;
   for (let i = 0; i < argv.length; i++) {
@@ -257,6 +261,9 @@ function parseControlArgs(argv: string[]): ControlOptions {
         (allow ??= []).push(v);
         break;
       }
+      case '--watchdog':
+        watchdog = true;
+        break;
       case '--no-open':
         open = false;
         break;
@@ -282,6 +289,7 @@ function parseControlArgs(argv: string[]): ControlOptions {
   if (port !== undefined) result.port = port;
   if (open !== undefined) result.open = open;
   if (allow !== undefined) result.allow = allow;
+  if (watchdog) result.watchdog = true;
   return result;
 }
 
@@ -301,6 +309,7 @@ export function controlHelp(): string {
     '  -p, --project <dir>  Project the control plane governs (default: cwd)',
     '      --port <n>       Dashboard port (default 7332)',
     '      --allow <dir>      Extra directory the plane may govern (repeatable)',
+    '    --watchdog          auto-restart the plane if it stops answering',
     '      --open/--no-open Open the SPA after start (default: open on a TTY)',
     '      --json           Machine-readable output for status',
     '  -h, --help           Show this help',
@@ -389,7 +398,7 @@ async function controlStart(
     };
   }
 
-  writeControlState(projectRoot, {
+  const state: ControlState = {
     schemaVersion: 1,
     pid,
     port,
@@ -397,7 +406,18 @@ async function controlStart(
     startedAt: new Date(deps.now()).toISOString(),
     version: deps.version,
     ...(options.allow && options.allow.length > 0 ? { allow: options.allow } : {}),
-  });
+  };
+  if (options.watchdog) {
+    try {
+      state.watchdogPid = deps.spawnServe(
+        [deps.mainJs, 'control', 'watch', '--project', projectRoot, '--port', String(port)],
+        logPath,
+      );
+    } catch {
+      // Best-effort: the plane itself is already healthy without a watchdog.
+    }
+  }
+  writeControlState(projectRoot, state);
 
   const url = `http://127.0.0.1:${port}/app`;
   if (options.open ?? deps.stdoutIsTty) deps.openUrl(url);
@@ -405,7 +425,10 @@ async function controlStart(
     output:
       `Mission Control plane started (pid ${pid}, project ${projectRoot}).\n` +
       `${url}\n` +
-      `Logs: ${logPath}\n`,
+      `Logs: ${logPath}\n` +
+      (state.watchdogPid
+        ? `Watchdog: pid ${state.watchdogPid} — restarts the plane automatically if it stops answering.\n`
+        : ''),
     exitCode: 0,
   };
 }
@@ -421,6 +444,15 @@ async function controlStop(
       output: 'No Mission Control plane state found; nothing to stop.\n',
       exitCode: 0,
     };
+  }
+  // Kill the watchdog FIRST, before the plane: otherwise it observes the
+  // plane going down and restarts it mid-stop.
+  if (existing.watchdogPid && deps.pidAlive(existing.watchdogPid)) {
+    try {
+      deps.terminate(existing.watchdogPid);
+    } catch {
+      // Best-effort; the plane stop below still proceeds.
+    }
   }
   if (!deps.pidAlive(existing.pid)) {
     removeControlState(projectRoot);
@@ -446,6 +478,66 @@ async function controlStop(
       `Control plane (pid ${existing.pid}) did not exit within ${STOP_TIMEOUT_MS}ms after SIGTERM. ` +
       'Kill it manually, then run `folderforge control stop` again to clear state.\n',
     exitCode: 1,
+  };
+}
+
+const WATCH_INTERVAL_MS = 15_000;
+const WATCH_MAX_FAILURES = 3;
+
+/**
+ * Detached watchdog loop (spawned by `control start --watchdog`). Probes the
+ * plane's /status endpoint; after WATCH_MAX_FAILURES consecutive failures it
+ * restarts the serve child with the same args recorded in control.json. Exits
+ * when the state file disappears (a deliberate `control stop`).
+ */
+async function controlWatch(
+  options: ControlOptions,
+  deps: ControlDeps,
+): Promise<ControlCliResult> {
+  const { projectRoot } = options;
+  let failures = 0;
+  let restarts = 0;
+  for (;;) {
+    await deps.sleep(WATCH_INTERVAL_MS);
+    const state = readControlState(projectRoot);
+    if (!state) break;
+    const ok = await deps.probe(state.port, '/status', 4_000);
+    if (ok) {
+      failures = 0;
+      continue;
+    }
+    failures += 1;
+    if (failures < WATCH_MAX_FAILURES) continue;
+    if (deps.pidAlive(state.pid)) {
+      try {
+        deps.terminate(state.pid);
+      } catch {
+        // The pid may have raced away; the respawn below still happens.
+      }
+    }
+    const serveArgs = [
+      deps.mainJs,
+      'control',
+      'serve',
+      '--project',
+      state.projectRoot,
+      '--port',
+      String(state.port),
+      ...(state.allow ?? []).flatMap((dir) => ['--allow', dir]),
+    ];
+    try {
+      state.pid = deps.spawnServe(serveArgs, controlLogPath(projectRoot));
+      state.startedAt = new Date(deps.now()).toISOString();
+      writeControlState(projectRoot, state);
+      restarts += 1;
+    } catch {
+      // Keep watching; the next cycle retries the respawn.
+    }
+    failures = 0;
+  }
+  return {
+    output: `watchdog stopped (plane state removed); restarts performed: ${restarts}\n`,
+    exitCode: 0,
   };
 }
 
@@ -642,6 +734,8 @@ export async function executeControlCli(
       return controlOpen(options, deps);
     case 'serve':
       return controlServe(options, deps);
+    case 'watch':
+      return controlWatch(options, deps);
     default:
       return {
         output: `Unknown control command: ${options.command}\n\n${controlHelp()}`,
