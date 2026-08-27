@@ -46,4 +46,14 @@ describe('ProcessManager spawn failures', () => {
     expect(after?.exitCode).toBe(0);
     expect(manager.read(session.sessionId).output).toContain('spawn-ok');
   });
+
+  it('peek reads buffered output without consuming the read cursor', async () => {
+    const manager = new ProcessManager();
+    const session = manager.start('echo peek-me', tmpdir(), '/bin/sh');
+    await waitForExit(manager, session.sessionId);
+    const peeked = manager.peek(session.sessionId);
+    expect(peeked.output).toContain('peek-me');
+    expect(peeked.status).toBe('exited');
+    expect(manager.read(session.sessionId).output).toContain('peek-me');
+  });
 });

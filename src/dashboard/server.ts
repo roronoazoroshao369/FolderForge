@@ -81,6 +81,7 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fleet/:id/policy         -> change policy mode (body: { policyMode }); applies on next start
  *   POST /fleet/:id/rotate-token   -> rotate the instance bearer token (HIGH; returned once)
  *   POST /fleet/:id/tunnel         -> expose the running instance publicly; body { hostname } upgrades to a named Cloudflare tunnel + DNS (HIGH)
+ *   GET  /fleet/:id/logs           -> non-consuming tail of the instance process log
  *   GET  /tools                    -> tool catalog with groups, risk, and preset coverage
  *   GET  /plugins                  -> installed plugins (via plugin_list)
  *   GET  /marketplace              -> marketplace index entries (via marketplace_list)
@@ -1291,6 +1292,29 @@ async function handle(
       targetPort: instance.port,
     });
     return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetLogsMatch = /^\/fleet\/([^/]+)\/logs$/.exec(path);
+  if (method === "GET" && fleetLogsMatch) {
+    const id = decodeURIComponent(fleetLogsMatch[1]!);
+    let instance;
+    try {
+      instance = container.fleet.get(id);
+    } catch {
+      instance = undefined;
+    }
+    if (!instance) {
+      return sendJson(res, 404, { error: "unknown_instance", message: "Unknown instance: " + id });
+    }
+    const sessionId = instance.sessionId;
+    if (!sessionId || !container.processes.isManaged(sessionId)) {
+      return sendJson(res, 409, {
+        error: "no_logs",
+        message: "No live process session for this instance (start it first; sessions reset when the plane restarts).",
+      });
+    }
+    const peeked = container.processes.peek(sessionId);
+    return sendJson(res, 200, { id, status: peeked.status, output: peeked.output });
   }
 
   if (method === "GET" && path === "/approvals") {

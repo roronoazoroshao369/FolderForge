@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Boxes, Copy, FolderSearch, KeyRound, Settings2, Share2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Boxes, Copy, FolderSearch, KeyRound, ScrollText, Settings2, Share2 } from 'lucide-react';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
 import { FolderPicker } from '../FolderPicker';
@@ -38,6 +38,7 @@ export function FleetScreen() {
   const [configFor, setConfigFor] = useState<FleetInstance | null>(null);
   const [rotated, setRotated] = useState<{ id: string; token: string } | null>(null);
   const [tunnelFor, setTunnelFor] = useState<FleetInstance | null>(null);
+  const [logsFor, setLogsFor] = useState<FleetInstance | null>(null);
   const cf = useApi<CloudflareStatus>('/cloudflare/status');
 
   const tunnelByPort = useMemo(() => {
@@ -292,6 +293,9 @@ export function FleetScreen() {
                     <Button size="sm" variant="ghost" disabled={action.busy} onClick={() => void rotate(i.id)}>
                       <KeyRound size={13} aria-hidden /> Rotate token
                     </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setLogsFor(i)}>
+                      <ScrollText size={13} aria-hidden /> Logs
+                    </Button>
                     {i.state === 'running' && !tunnel ? (
                       <Button
                         size="sm"
@@ -375,6 +379,7 @@ export function FleetScreen() {
           }}
         />
       ) : null}
+      {logsFor ? <LogsModal instance={logsFor} onClose={() => setLogsFor(null)} /> : null}
     </div>
   );
 }
@@ -514,6 +519,47 @@ function TunnelModal(props: {
             onClick={() => props.onStart(hostname)}
           >
             <Share2 size={13} aria-hidden /> Start tunnel
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function LogsModal(props: { instance: FleetInstance; onClose: () => void }) {
+  const [logs, setLogs] = useState<{ status?: string; output?: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const data = await api<{ status?: string; output?: string }>(
+        `/fleet/${encodeURIComponent(props.instance.id)}/logs`,
+      );
+      setLogs(data);
+      setError(null);
+    } catch (e) {
+      setLogs(null);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [props.instance.id]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  return (
+    <Modal open title={`Logs — ${props.instance.id}`} onClose={props.onClose}>
+      <div className="grid gap-3">
+        {error ? <ErrorNote message={error} /> : null}
+        {logs ? (
+          <div className="text-xs text-muted">process state: {logs.status}</div>
+        ) : null}
+        <pre className="max-h-72 overflow-auto rounded-lg border border-border-soft bg-[#0b1119] p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all">
+          {logs && logs.output && logs.output.trim() ? logs.output : 'No output captured yet.'}
+        </pre>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => void load()}>
+            Refresh
+          </Button>
+          <Button variant="primary" onClick={props.onClose}>
+            Close
           </Button>
         </div>
       </div>

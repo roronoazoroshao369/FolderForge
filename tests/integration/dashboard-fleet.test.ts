@@ -188,4 +188,24 @@ describe('dashboard fleet endpoints', () => {
     const badName = await postJson(`${harness.baseUrl}/fs/mkdir`, { path: harness.root, name: 'a/b' });
     expect(badName.status).toBe(400);
   });
+
+  it('GET /fleet/:id/logs: 404 for unknown ids, 409 no_logs before the instance is started', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+
+    const provisioned = await postJson(`${harness.baseUrl}/fleet`, {
+      projectPath: harness.root,
+      toolsPreset: 'vibe',
+      policyMode: 'safe',
+    });
+    expect(provisioned.status).toBe(201);
+    const id = (provisioned.json.data as { id: string }).id;
+
+    const logs = await fetch(`${harness.baseUrl}/fleet/${encodeURIComponent(id)}/logs`);
+    expect(logs.status).toBe(409);
+    expect(((await logs.json()) as { error: string }).error).toBe('no_logs');
+
+    const missing = await fetch(`${harness.baseUrl}/fleet/flt_missing/logs`);
+    expect(missing.status).toBe(404);
+  });
 });

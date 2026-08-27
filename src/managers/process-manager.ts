@@ -123,6 +123,12 @@ export class ProcessManager {
     return { output: out, status: s.status, cursor: s.cursor };
   }
 
+  /** Read buffered output WITHOUT advancing the read cursor (for UI viewers). */
+  peek(sessionId: string, maxBytes = 16_000): { output: string; status: string } {
+    const s = this.require(sessionId);
+    return { output: s.output.slice(-maxBytes), status: s.status };
+  }
+
   /**
    * Long-poll read: resolve as soon as new output is available or the process
    * exits, or after `timeoutMs` with whatever (possibly empty) output arrived.
