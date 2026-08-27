@@ -470,11 +470,24 @@ try {
   dashboardChild.stdout.on('data', collectDashboardLog);
   dashboardChild.stderr.on('data', collectDashboardLog);
   await waitForHealth(`http://127.0.0.1:${httpPort}/healthz`, dashboardChild, () => dashboardLogs);
-  const dashboardResponse = await fetch(`http://127.0.0.1:${dashboardPort}/`);
+  const dashboardResponse = await fetch(`http://127.0.0.1:${dashboardPort}/app/`);
   const dashboardHtml = await dashboardResponse.text();
-  if (!dashboardResponse.ok || !dashboardHtml.includes('id="approvals"')) {
+  if (!dashboardResponse.ok || !dashboardHtml.includes('id="root"')) {
     throw new Error(
-      `Packed dashboard asset was not served: ${dashboardResponse.status}\n${dashboardHtml.slice(0, 500)}\n${dashboardLogs}`
+      `Packed dashboard SPA was not served: ${dashboardResponse.status}\n${dashboardHtml.slice(0, 500)}\n${dashboardLogs}`
+    );
+  }
+  const assetMatch = dashboardHtml.match(/(?:src|href)="\.\/(assets\/[^"]+)"/);
+  if (!assetMatch) {
+    throw new Error(
+      `Packed dashboard HTML did not reference a hashed asset\n${dashboardHtml.slice(0, 500)}`
+    );
+  }
+  const assetResponse = await fetch(`http://127.0.0.1:${dashboardPort}/app/${assetMatch[1]}`);
+  const assetBody = await assetResponse.text();
+  if (!assetResponse.ok || assetBody.includes('<!doctype html>')) {
+    throw new Error(
+      `Packed dashboard asset was not served: ${assetResponse.status} for ${assetMatch[1]}`
     );
   }
   await stopChild(dashboardChild);
