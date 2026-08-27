@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Boxes, Copy, FolderSearch, KeyRound, ScrollText, Settings2, Share2 } from 'lucide-react';
+import { Boxes, Copy, FolderSearch, KeyRound, Plug, ScrollText, Settings2, Share2 } from 'lucide-react';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
 import { FolderPicker } from '../FolderPicker';
@@ -39,6 +39,7 @@ export function FleetScreen() {
   const [rotated, setRotated] = useState<{ id: string; token: string } | null>(null);
   const [tunnelFor, setTunnelFor] = useState<FleetInstance | null>(null);
   const [logsFor, setLogsFor] = useState<FleetInstance | null>(null);
+  const [connectFor, setConnectFor] = useState<FleetInstance | null>(null);
   const cf = useApi<CloudflareStatus>('/cloudflare/status');
 
   const tunnelByPort = useMemo(() => {
@@ -296,6 +297,9 @@ export function FleetScreen() {
                     <Button size="sm" variant="ghost" onClick={() => setLogsFor(i)}>
                       <ScrollText size={13} aria-hidden /> Logs
                     </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConnectFor(i)}>
+                      <Plug size={13} aria-hidden /> Connect
+                    </Button>
                     {i.state === 'running' && !tunnel ? (
                       <Button
                         size="sm"
@@ -380,6 +384,13 @@ export function FleetScreen() {
         />
       ) : null}
       {logsFor ? <LogsModal instance={logsFor} onClose={() => setLogsFor(null)} /> : null}
+      {connectFor ? (
+        <ConnectModal
+          instance={connectFor}
+          publicUrl={tunnelByPort.get(connectFor.port)?.publicUrl}
+          onClose={() => setConnectFor(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -560,6 +571,62 @@ function LogsModal(props: { instance: FleetInstance; onClose: () => void }) {
           </Button>
           <Button variant="primary" onClick={props.onClose}>
             Close
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ConnectModal(props: { instance: FleetInstance; publicUrl?: string; onClose: () => void }) {
+  const toast = useToast();
+  const localEndpoint = `http://127.0.0.1:${props.instance.port}/mcp`;
+  const endpoint = props.publicUrl ? `${props.publicUrl}/mcp` : localEndpoint;
+  const name = `folderforge-${props.instance.id}`;
+  const snippet =
+    '{\n' +
+    '  "mcpServers": {\n' +
+    '    "' + name + '": {\n' +
+    '      "url": "' + endpoint + '",\n' +
+    '      "headers": { "Authorization": "Bearer <paste the instance token here>" }\n' +
+    '    }\n' +
+    '  }\n' +
+    '}';
+  return (
+    <Modal open title={`Connect a client to ${props.instance.id}`} onClose={props.onClose}>
+      <div className="grid gap-3">
+        {props.publicUrl ? (
+          <Banner tone="info">
+            A public tunnel is live for this instance — the snippet uses it, so the config works from
+            any machine. Local-only variant: <Code>{localEndpoint}</Code>
+          </Banner>
+        ) : (
+          <Banner tone="info">
+            Loopback endpoint — works for MCP clients on this machine. Start a tunnel to connect from
+            anywhere else.
+          </Banner>
+        )}
+        <p className="m-0 text-xs text-muted">
+          Paste this into your MCP client config (Cursor, Claude Desktop, …). The instance token is
+          shown once at provision/rotate — rotate anytime to issue a fresh one.
+        </p>
+        <pre className="overflow-auto rounded-lg border border-border-soft bg-[#0b1119] p-3 font-mono text-[11px] leading-relaxed">
+          {snippet}
+        </pre>
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            onClick={() => {
+              navigator.clipboard
+                .writeText(snippet)
+                .then(() => toast('success', 'Client config copied'))
+                .catch(() => undefined);
+            }}
+          >
+            <Copy size={13} aria-hidden /> Copy config
+          </Button>
+          <Button size="sm" variant="ghost" onClick={props.onClose}>
+            Done
           </Button>
         </div>
       </div>
