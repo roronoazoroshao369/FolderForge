@@ -19,7 +19,7 @@ import {
   StatePill,
   useToast,
 } from '../ui';
-import type { FleetInstance, TunnelRecord } from '../types';
+import type { CloudflareStatus, FleetInstance, TunnelRecord } from '../types';
 
 const PRESETS = ['vibe', 'vibe-lite', 'readonly', 'full', 'godot'];
 const POLICIES = ['readonly', 'safe', 'dev', 'danger'];
@@ -37,6 +37,8 @@ export function FleetScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [configFor, setConfigFor] = useState<FleetInstance | null>(null);
   const [rotated, setRotated] = useState<{ id: string; token: string } | null>(null);
+  const [tunnelFor, setTunnelFor] = useState<FleetInstance | null>(null);
+  const cf = useApi<CloudflareStatus>('/cloudflare/status');
 
   const tunnelByPort = useMemo(() => {
     const map = new Map<number, TunnelRecord>();
@@ -288,13 +290,7 @@ export function FleetScreen() {
                         size="sm"
                         variant="ghost"
                         disabled={action.busy}
-                        onClick={() =>
-                          void call(
-                            `/fleet/${encodeURIComponent(i.id)}/tunnel`,
-                            undefined,
-                            `Tunnel starting for ${i.id} — public URL appears shortly`,
-                          )
-                        }
+                        onClick={() => setTunnelFor(i)}
                       >
                         <Share2 size={13} aria-hidden /> Start tunnel
                       </Button>
@@ -351,6 +347,27 @@ export function FleetScreen() {
           </div>
         </Modal>
       ) : null}
+
+      {tunnelFor ? (
+        <TunnelModal
+          instance={tunnelFor}
+          cf={cf.data}
+          busy={action.busy}
+          error={action.error}
+          onClose={() => setTunnelFor(null)}
+          onStart={(hostname) => {
+            void call(
+              `/fleet/${encodeURIComponent(tunnelFor.id)}/tunnel`,
+              hostname ? { hostname } : undefined,
+              hostname
+                ? `Named tunnel ${hostname} starting — DNS + tunnel created on your domain`
+                : `Tunnel starting for ${tunnelFor.id} — public URL appears shortly`,
+            ).then((ok) => {
+              if (ok) setTunnelFor(null);
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -400,6 +417,96 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
           </Button>
           <Button variant="primary" busy={action.busy} onClick={() => void save()}>
             Save changes
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function TunnelModal(props: {
+  instance: FleetInstance;
+  cf: CloudflareStatus | null;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onStart: (hostname?: string) => void;
+}) {
+  const [mode, setMode] = useState<'quick' | 'named'>('quick');
+  const [sub, setSub] = useState('');
+  const domain = props.cf && props.cf.configured ? props.cf.domain : undefined;
+  const subClean = sub.trim().toLowerCase();
+  const subValid = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(subClean);
+  const hostname = mode === 'named' && domain && subValid ? `${subClean}.${domain}` : undefined;
+
+  return (
+    <Modal open title={`Start tunnel for ${props.instance.id}`} onClose={props.onClose}>
+      <div className="grid gap-3">
+        <label className="flex items-start gap-2 rounded-lg border border-border-soft px-3 py-2 text-sm">
+          <input
+            type="radio"
+            name="tunnel-mode"
+            checked={mode === 'quick'}
+            onChange={() => setMode('quick')}
+            aria-label="Quick tunnel"
+          />
+          <span>
+            <strong>Quick tunnel</strong>
+            <span className="block text-xs text-muted">
+              Random <Code>*.trycloudflare.com</Code> URL — instant, but changes every time.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 rounded-lg border border-border-soft px-3 py-2 text-sm">
+          <input
+            type="radio"
+            name="tunnel-mode"
+            checked={mode === 'named'}
+            onChange={() => setMode('named')}
+            disabled={!domain}
+            aria-label="Named tunnel"
+          />
+          <span>
+            <strong>Named tunnel + DNS</strong>
+            <span className="block text-xs text-muted">
+              {domain
+                ? `Stable subdomain on ${domain} — Cloudflare tunnel, DNS CNAME and cloudflared are set up for you.`
+                : 'Link a Cloudflare account on the Tunnels screen to unlock stable subdomains.'}
+            </span>
+          </span>
+        </label>
+        {mode === 'named' && domain ? (
+          <Field label="Subdomain">
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={sub}
+                onChange={(e) => setSub(e.target.value)}
+                placeholder="mcp1"
+                aria-label="Subdomain label"
+                className="w-44"
+              />
+              <span className="text-sm text-muted">.{domain}</span>
+            </div>
+          </Field>
+        ) : null}
+        {hostname ? (
+          <Banner tone="info">
+            Public endpoint will be <Code>https://{hostname}/mcp</Code> — keep requiring the instance
+            token.
+          </Banner>
+        ) : null}
+        <ErrorNote message={props.error} />
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            busy={props.busy}
+            disabled={mode === 'named' && !hostname}
+            onClick={() => props.onStart(hostname)}
+          >
+            <Share2 size={13} aria-hidden /> Start tunnel
           </Button>
         </div>
       </div>

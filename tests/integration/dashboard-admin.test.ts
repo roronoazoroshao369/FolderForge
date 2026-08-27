@@ -70,14 +70,14 @@ describe('dashboard admin authorization plane', () => {
     harnesses.push(harness);
     harness.container.workspaceStartupError = 'simulated activation failure';
 
-    const page = await fetch(`${harness.baseUrl}/`);
-    expect(page.status).toBe(200);
-    const html = await page.text();
-    expect(html).toContain('id="approvals-panel"');
-    expect(html).toContain('Approval queue');
-    expect(html).toContain('id="mission-control-panel"');
+    const page = await fetch(`${harness.baseUrl}/`, { redirect: 'manual' });
+    expect(page.status).toBe(308);
+    expect(page.headers.get('location')).toBe('/app/');
+
+    const app = await fetch(`${harness.baseUrl}/app/`);
+    expect(app.status).toBe(200);
+    const html = await app.text();
     expect(html).toContain('Mission Control');
-    expect(html).toContain('id="policy-mode"');
 
     const status = await fetch(`${harness.baseUrl}/status`);
     expect(status.status).toBe(200);

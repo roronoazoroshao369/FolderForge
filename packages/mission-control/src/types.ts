@@ -14,11 +14,23 @@ export interface FleetInstance {
 
 export interface TunnelRecord {
   id: string;
+  kind?: 'quick' | 'named';
   targetPort: number;
   targetUrl: string;
   publicUrl?: string;
+  hostname?: string;
   state: string;
   lastError?: string;
+}
+
+/** Response shape of GET /cloudflare/status (token is never returned). */
+export interface CloudflareStatus {
+  configured: boolean;
+  accountId?: string;
+  zoneId?: string;
+  domain?: string;
+  tokenPreview?: string;
+  linkedAt?: string;
 }
 
 export interface WorkspaceRecord {

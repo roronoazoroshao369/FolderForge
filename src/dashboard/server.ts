@@ -35,6 +35,8 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";
 import { ApprovalResolutionError } from "../policy/approvals.js";
+import { makeCloudflareClient } from "../cloudflare/api-client.js";
+import { clearCloudflareConfig, maskedCloudflareConfig, saveCloudflareConfig } from "../cloudflare/config-store.js";
 import { logger } from "../core/logger.js";
 import { MISSION_CONTROL_OPERATOR_ROLE } from "../operator/mission-control.js";
 import { GROUP_PRESETS, resolveActiveTools } from "../tools/index.js";
@@ -78,7 +80,7 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fleet/:id/preset         -> change tool preset (body: { toolsPreset }); applies on next start
  *   POST /fleet/:id/policy         -> change policy mode (body: { policyMode }); applies on next start
  *   POST /fleet/:id/rotate-token   -> rotate the instance bearer token (HIGH; returned once)
- *   POST /fleet/:id/tunnel         -> expose the running instance on a public quick tunnel (HIGH)
+ *   POST /fleet/:id/tunnel         -> expose the running instance publicly; body { hostname } upgrades to a named Cloudflare tunnel + DNS (HIGH)
  *   GET  /tools                    -> tool catalog with groups, risk, and preset coverage
  *   GET  /plugins                  -> installed plugins (via plugin_list)
  *   GET  /marketplace              -> marketplace index entries (via marketplace_list)
@@ -90,7 +92,10 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fs/mkdir                 -> create a directory under that same bound (body: { path, name })
  *   GET  /tunnels                  -> quick tunnels (via tunnel_list)
  *   POST /tunnels                  -> expose a port publicly (body: { targetPort }) HIGH risk
- *   POST /tunnels/:id/stop         -> close a tunnel (governed via tunnel_stop)
+ *   POST /tunnels/:id/stop         -> close a tunnel; body { cleanup: true } also deletes the Cloudflare DNS record + tunnel for named ones
+ *   GET  /cloudflare/status        -> linked Cloudflare account (masked; the token is never returned)
+ *   POST /cloudflare/config        -> link an account: { apiToken, accountId, domain } (token verified, zone resolved, stored 0600)
+ *   DELETE /cloudflare/config      -> unlink the account
  */
 export function startDashboard(
   container: Container,
@@ -1045,6 +1050,55 @@ async function handle(
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
+  if (method === "GET" && path === "/cloudflare/status") {
+    return sendJson(res, 200, maskedCloudflareConfig(container.projectRoot()));
+  }
+
+  if (method === "POST" && path === "/cloudflare/config") {
+    const body = await readJsonBody(req);
+    const apiToken = typeof body?.apiToken === "string" ? body.apiToken.trim() : "";
+    const accountId = typeof body?.accountId === "string" ? body.accountId.trim() : "";
+    const domain = typeof body?.domain === "string" ? body.domain.trim().toLowerCase() : "";
+    const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+    if (!apiToken || !accountId || !DOMAIN_RE.test(domain)) {
+      return sendJson(res, 400, {
+        error: "invalid_cloudflare_config",
+        message: "apiToken, accountId and a valid domain (e.g. example.com) are required.",
+      });
+    }
+    const client = makeCloudflareClient(apiToken);
+    try {
+      await client.verifyToken();
+      const zoneId = await client.resolveZoneId(domain);
+      saveCloudflareConfig(container.projectRoot(), {
+        accountId,
+        zoneId,
+        domain,
+        apiToken,
+        linkedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      return sendJson(res, 502, {
+        error: "cloudflare_rejected",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    container.audit.record({
+      type: "dashboard_action",
+      summary: "cloudflare linked domain=" + domain + " account=" + accountId + " (principal " + principal.id + ")",
+    });
+    return sendJson(res, 200, maskedCloudflareConfig(container.projectRoot()));
+  }
+
+  if (method === "DELETE" && path === "/cloudflare/config") {
+    clearCloudflareConfig(container.projectRoot());
+    container.audit.record({
+      type: "dashboard_action",
+      summary: "cloudflare unlinked (principal " + principal.id + ")",
+    });
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (method === "GET" && path === "/tunnels") {
     const result = await runOperatorTool(registry, container, principal, 'tunnel_list', {});
     return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
@@ -1067,6 +1121,22 @@ async function handle(
   const tunnelStopMatch = /^\/tunnels\/([^/]+)\/stop$/.exec(path);
   if (method === "POST" && tunnelStopMatch) {
     const id = decodeURIComponent(tunnelStopMatch[1]!);
+    const body = await readJsonBody(req);
+    if (body?.cleanup === true) {
+      try {
+        const record = await container.tunnels.destroy(id);
+        container.audit.record({
+          type: "dashboard_action",
+          summary: "tunnel " + id + " stopped + cloudflare cleanup (principal " + principal.id + ")",
+        });
+        return sendJson(res, 200, { ok: true, data: record });
+      } catch (error) {
+        return sendJson(res, 409, {
+          error: "unknown_tunnel",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const result = await runOperatorTool(registry, container, principal, 'tunnel_stop', { id });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
@@ -1196,6 +1266,26 @@ async function handle(
         error: "not_running",
         message: `Instance ${id} is not running.`,
       });
+    }
+    const body = await readJsonBody(req);
+    if (body && typeof body.hostname === "string" && body.hostname.trim()) {
+      try {
+        const record = await container.tunnels.startNamed({
+          targetPort: instance.port,
+          hostname: body.hostname,
+          actor: principal.id,
+        });
+        container.audit.record({
+          type: "dashboard_action",
+          summary: "named tunnel " + record.id + " " + (record.hostname ?? "") + " -> :" + instance.port + " (principal " + principal.id + ")",
+        });
+        return sendJson(res, 200, { ok: true, data: record });
+      } catch (error) {
+        return sendJson(res, 409, {
+          error: "named_tunnel_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     const result = await runOperatorTool(registry, container, principal, "tunnel_start", {
       targetPort: instance.port,
