@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
@@ -132,5 +132,80 @@ describe('dashboard fleet endpoints', () => {
 
     const invalid = await postJson(`${harness.baseUrl}/fleet/${id}/auto-restart`, {});
     expect(invalid.status).toBe(400);
+  });
+
+  it('changes policy mode and rotates the token through governed routes', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const created = await postJson(`${harness.baseUrl}/fleet`, { projectPath: harness.root });
+    const id = created.json.data?.id ?? '';
+    const firstToken = String(created.json.data?.token ?? '');
+
+    const badPolicy = await postJson(`${harness.baseUrl}/fleet/${id}/policy`, { policyMode: 'nope' });
+    expect(badPolicy.status).toBe(409);
+
+    const policy = await postJson(`${harness.baseUrl}/fleet/${id}/policy`, { policyMode: 'safe' });
+    expect(policy.status).toBe(200);
+    expect(policy.json.ok).toBe(true);
+
+    const listedResponse = await fetch(`${harness.baseUrl}/fleet`);
+    const listed = (await listedResponse.json()) as {
+      instances: Array<FleetInstanceView & { policyMode?: string }>;
+    };
+    expect(listed.instances[0]?.policyMode).toBe('safe');
+
+    const rotated = await postJson(`${harness.baseUrl}/fleet/${id}/rotate-token`);
+    expect(rotated.status).toBe(200);
+    expect(rotated.json.ok).toBe(true);
+    const newToken = String(rotated.json.data?.token ?? '');
+    expect(newToken.length).toBeGreaterThan(20);
+    expect(newToken).not.toBe(firstToken);
+
+    const listedAfter = (await (await fetch(`${harness.baseUrl}/fleet`)).json()) as unknown;
+    expect(JSON.stringify(listedAfter)).not.toContain(newToken);
+
+    const missing = await postJson(`${harness.baseUrl}/fleet/flt_missing/rotate-token`);
+    expect(missing.status).toBe(409);
+  });
+
+  it('browses and creates directories within the bounded browse point only', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+
+    const browseRoot = await postJson(`${harness.baseUrl}/fs/browse`, {});
+    expect(browseRoot.status).toBe(200);
+    const rootBody = browseRoot.json as unknown as { path?: string };
+    // defaultConfig scopes the workspace to the temp root, so browsing starts there.
+    expect(rootBody.path).toBe(harness.root);
+
+    const outside = await postJson(`${harness.baseUrl}/fs/browse`, { path: '/' });
+    expect(outside.status).toBe(403);
+
+    const made = await postJson(`${harness.baseUrl}/fs/mkdir`, { path: harness.root, name: 'fleet-pick-demo' });
+    expect(made.status).toBe(200);
+    expect(existsSync(join(harness.root, 'fleet-pick-demo'))).toBe(true);
+
+    const badName = await postJson(`${harness.baseUrl}/fs/mkdir`, { path: harness.root, name: 'a/b' });
+    expect(badName.status).toBe(400);
+  });
+
+  it('GET /fleet/:id/logs: 404 for unknown ids, 409 no_logs before the instance is started', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+
+    const provisioned = await postJson(`${harness.baseUrl}/fleet`, {
+      projectPath: harness.root,
+      toolsPreset: 'vibe',
+      policyMode: 'safe',
+    });
+    expect(provisioned.status).toBe(201);
+    const id = (provisioned.json.data as { id: string }).id;
+
+    const logs = await fetch(`${harness.baseUrl}/fleet/${encodeURIComponent(id)}/logs`);
+    expect(logs.status).toBe(409);
+    expect(((await logs.json()) as { error: string }).error).toBe('no_logs');
+
+    const missing = await fetch(`${harness.baseUrl}/fleet/flt_missing/logs`);
+    expect(missing.status).toBe(404);
   });
 });

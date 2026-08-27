@@ -15,7 +15,8 @@ describe('cross-platform shell invocation', () => {
   });
 
   it('uses SHELL or bash on POSIX platforms', () => {
-    expect(defaultShell('linux', { SHELL: '/bin/zsh' })).toBe('/bin/zsh');
+    // $SHELL is trusted only when the binary exists (stale entries fall back).
+    expect(defaultShell('linux', { SHELL: '/bin/sh' })).toBe('/bin/sh');
     expect(defaultShell('darwin', {})).toBe('/bin/bash');
   });
 

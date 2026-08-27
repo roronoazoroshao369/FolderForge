@@ -9,6 +9,8 @@ import { WorkspaceManager } from '../workspace/workspace-manager.js';
 import { ProcessManager } from '../managers/process-manager.js';
 import { FleetManager } from '../provisioner/fleet-manager.js';
 import { TunnelManager } from '../tunnels/tunnel-manager.js';
+import { loadCloudflareConfig } from '../cloudflare/config-store.js';
+import { makeCloudflareClient } from '../cloudflare/api-client.js';
 import { ChildMcpRegistry } from '../adapters/child-mcp/registry.js';
 import { DbManager } from '../managers/db-manager.js';
 import { LspManager } from '../managers/lsp-manager.js';
@@ -108,6 +110,10 @@ export class Container {
       stopSession: (sessionId) => this.processes.stop(sessionId),
       readSession: (sessionId) => this.processes.read(sessionId).output,
       onExit: (sessionId, listener) => this.processes.onExit(sessionId, listener),
+      cloudflare: {
+        loadConfig: () => loadCloudflareConfig(config.workspace.defaultProject),
+        makeClient: (apiToken) => makeCloudflareClient(apiToken),
+      },
     });
     this.plugins = new PluginManager(config.workspace.defaultProject, readFolderForgeVersion());
     this.workflows = new WorkflowManager(config.workspace.defaultProject);

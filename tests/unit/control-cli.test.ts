@@ -235,4 +235,80 @@ describe("folderforge control", () => {
     expect(badPort.exitCode).toBe(2);
     expect(badPort.output).toContain("Invalid --port");
   });
-});
+
+  it("start forwards --allow roots to the serve child and persists them in state", async () => {
+    const root = trackedRoot();
+    const { deps, spawned } = makeDeps();
+    const result = await executeControlCli(
+      ["start", "--project", root, "--allow", "/data/alpha", "--allow", "/data/beta"],
+      deps,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(spawned).toHaveLength(1);
+    const args = spawned[0] ?? [];
+    const forwarded = args.flatMap((a, i) => (a === "--allow" ? [args[i + 1]] : []));
+    expect(forwarded).toEqual(["/data/alpha", "/data/beta"]);
+    const state = JSON.parse(readFileSync(statePath(root), "utf8")) as { allow?: string[] };
+    expect(state.allow).toEqual(["/data/alpha", "/data/beta"]);
+  });
+
+  it("start --watchdog spawns a detached watchdog and records its pid", async () => {
+    const root = trackedRoot();
+    const { deps, spawned } = makeDeps();
+    const result = await executeControlCli(["start", "--project", root, "--watchdog"], deps);
+    expect(result.exitCode).toBe(0);
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1]).toContain("watch");
+    const state = JSON.parse(readFileSync(statePath(root), "utf8")) as { watchdogPid?: number };
+    expect(state.watchdogPid).toBe(4202);
+  });
+
+  it("watch restarts a hung plane after 3 failed probes, then exits when state is removed", async () => {
+    const root = trackedRoot();
+    mkdirSync(join(root, ".folderforge"), { recursive: true });
+    writeFileSync(
+      statePath(root),
+      JSON.stringify({
+        schemaVersion: 1,
+        pid: 4201,
+        port: 7332,
+        projectRoot: root,
+        startedAt: "2026-08-27T00:00:00.000Z",
+        version: "0.0.0-test",
+        allow: ["/data/x"],
+      }),
+    );
+    let respawned = false;
+    const respawnedArgs: string[][] = [];
+    const harness = makeDeps({
+      probe: async () => {
+        // After the respawn, simulate a deliberate `control stop` (state removed).
+        if (respawned) rmSync(statePath(root), { force: true });
+        return false;
+      },
+      spawnServe: (args) => {
+        respawned = true;
+        respawnedArgs.push(args);
+        harness.alive.add(4299);
+        return 4299;
+      },
+    });
+    harness.alive.add(4201);
+    const result = await executeControlCli(["watch", "--project", root], harness.deps);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("restarts performed: 1");
+    expect(harness.terminated).toEqual([4201]);
+    expect(respawnedArgs).toHaveLength(1);
+    expect(respawnedArgs[0]).toEqual(
+      expect.arrayContaining(["control", "serve", "--port", "7332", "--allow", "/data/x"]),
+    );
+  });
+
+  it("stop terminates the watchdog before the plane", async () => {
+    const root = trackedRoot();
+    const harness = makeDeps();
+    await executeControlCli(["start", "--project", root, "--watchdog"], harness.deps);
+    const result = await executeControlCli(["stop", "--project", root], harness.deps);
+    expect(result.exitCode).toBe(0);
+    expect(harness.terminated).toEqual([4202, 4201]);
+  });});

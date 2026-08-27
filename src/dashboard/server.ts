@@ -7,12 +7,16 @@ import {
 import {
   closeSync,
   existsSync,
+  lstatSync,
+  mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   readSync,
   statSync,
 } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, sep } from "node:path";
 import {
@@ -31,9 +35,12 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";
 import { ApprovalResolutionError } from "../policy/approvals.js";
+import { makeCloudflareClient } from "../cloudflare/api-client.js";
+import { clearCloudflareConfig, maskedCloudflareConfig, saveCloudflareConfig } from "../cloudflare/config-store.js";
 import { logger } from "../core/logger.js";
 import { MISSION_CONTROL_OPERATOR_ROLE } from "../operator/mission-control.js";
 import { GROUP_PRESETS, resolveActiveTools } from "../tools/index.js";
+import { readFolderForgeVersion } from "../core/version.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -57,7 +64,7 @@ export function isLoopbackHost(host: string): boolean {
  * Local control-plane dashboard. Read-only views plus approval actions.
  *
  * Endpoints:
- *   GET  /            -> static dashboard (dashboard/static/index.html)
+ *   GET  /            -> 308 redirect to /app/ (Mission Control SPA)
  *   GET  /app         -> Mission Control SPA (packages/mission-control build, when present)
  *   GET  /status      -> server + workspace + policy snapshot
  *   GET  /audit       -> recent audit events
@@ -71,6 +78,10 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fleet/:id/start|stop|restart -> instance lifecycle (governed via provision_* tools)
  *   POST /fleet/:id/auto-restart   -> toggle auto-restart (body: { enabled: boolean })
  *   POST /fleet/:id/preset         -> change tool preset (body: { toolsPreset }); applies on next start
+ *   POST /fleet/:id/policy         -> change policy mode (body: { policyMode }); applies on next start
+ *   POST /fleet/:id/rotate-token   -> rotate the instance bearer token (HIGH; returned once)
+ *   POST /fleet/:id/tunnel         -> expose the running instance publicly; body { hostname } upgrades to a named Cloudflare tunnel + DNS (HIGH)
+ *   GET  /fleet/:id/logs           -> non-consuming tail of the instance process log
  *   GET  /tools                    -> tool catalog with groups, risk, and preset coverage
  *   GET  /plugins                  -> installed plugins (via plugin_list)
  *   GET  /marketplace              -> marketplace index entries (via marketplace_list)
@@ -78,9 +89,14 @@ export function isLoopbackHost(host: string): boolean {
  *   GET  /workspaces               -> activated workspaces (via workspace_list)
  *   POST /workspaces/switch        -> switch current workspace (body: { path })
  *   POST /workspaces/activate      -> activate a folder as a workspace (body: { path })
+ *   POST /fs/browse                -> list subdirectories under the widest governable dir (body: { path? })
+ *   POST /fs/mkdir                 -> create a directory under that same bound (body: { path, name })
  *   GET  /tunnels                  -> quick tunnels (via tunnel_list)
  *   POST /tunnels                  -> expose a port publicly (body: { targetPort }) HIGH risk
- *   POST /tunnels/:id/stop         -> close a tunnel (governed via tunnel_stop)
+ *   POST /tunnels/:id/stop         -> close a tunnel; body { cleanup: true } also deletes the Cloudflare DNS record + tunnel for named ones
+ *   GET  /cloudflare/status        -> linked Cloudflare account (masked; the token is never returned)
+ *   POST /cloudflare/config        -> link an account: { apiToken, accountId, domain } (token verified, zone resolved, stored 0600)
+ *   DELETE /cloudflare/config      -> unlink the account
  */
 export function startDashboard(
   container: Container,
@@ -146,6 +162,35 @@ function extractDashboardCredential(req: IncomingMessage): string | undefined {
   return url.searchParams.get("token") ?? undefined;
 }
 
+/** All directories the operator lets this control plane govern (resolved). */
+function fsAllowedRoots(container: Container): string[] {
+  const dirs = container.config.workspace.allowedDirectories ?? [];
+  if (dirs.length > 0) return dirs.map((d) => resolve(d));
+  try {
+    return [defaultBrowsePoint()];
+  } catch {
+    return [container.projectRoot()];
+  }
+}
+
+/** Display root for the SPA picker: the primary governable directory. */
+function fsBrowsePoint(container: Container): string {
+  return fsAllowedRoots(container)[0] ?? container.projectRoot();
+}
+
+/** Best-effort default: ~/Desktop when it exists, else the home directory. */
+function defaultBrowsePoint(): string {
+  const desktop = join(homedir(), "Desktop");
+  return existsSync(desktop) && statSync(desktop).isDirectory() ? desktop : homedir();
+}
+
+/** True when `target` equals or sits inside `root`. */
+function isWithinDir(root: string, target: string): boolean {
+  const from = resolve(root);
+  const to = resolve(target);
+  return to === from || to.startsWith(from + sep);
+}
+
 /**
  * Serve the Mission Control SPA (built from packages/mission-control) under
  * /app. Prefers the packaged build output (dist/dashboard/app) and falls back
@@ -178,6 +223,17 @@ function serveMissionControlApp(res: ServerResponse, path: string): void {
       res.writeHead(200, { "content-type": type });
       res.end(readFileSync(file));
       return;
+    }
+  }
+  // Client-side routes (e.g. /app/fleet) have no asset file: fall back to the SPA shell.
+  if (!/\.[a-z0-9]+$/i.test(relative)) {
+    for (const rootDir of roots) {
+      const file = join(rootDir, "index.html");
+      if (existsSync(file) && statSync(file).isFile()) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(readFileSync(file));
+        return;
+      }
     }
   }
   res.writeHead(404, { "content-type": "text/plain" });
@@ -628,12 +684,93 @@ async function handle(
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
 
-  if (method === "GET" && (path === "/app" || path === "/app/" || path.startsWith("/app/"))) {
+  if (method === "GET" && path === "/app") {
+    // The canonical mount has a trailing slash so the SPA's relative assets
+    // resolve under /app/. Preserve the query string (?token= flows through).
+    res.writeHead(308, { location: `/app/${url.search}` });
+    res.end();
+    return;
+  }
+
+  if (method === "GET" && (path === "/app/" || path.startsWith("/app/"))) {
     return serveMissionControlApp(res, path);
   }
 
+  // Directory browsing for the SPA folder picker, restricted to the widest
+  // directory the operator lets this control plane govern.
+  if (method === "POST" && path === "/fs/browse") {
+    const body = await readJsonBody(req);
+    const roots = fsAllowedRoots(container);
+    const target = resolve(
+      typeof body?.path === "string" && body.path.length > 0 ? body.path : roots[0]!,
+    );
+    if (!roots.some((r) => isWithinDir(r, target))) {
+      return sendJson(res, 403, {
+        error: "forbidden",
+        message: `Browsing is restricted to the allowed roots: ${roots.join(", ")}`,
+      });
+    }
+    let entries;
+    try {
+      entries = readdirSync(target, { withFileTypes: true });
+    } catch {
+      return sendJson(res, 404, { error: "not_found", message: "Not a readable directory." });
+    }
+    const directories = entries
+      .filter((e) => {
+        if (!e.isDirectory()) return false;
+        if (e.name === "node_modules" || e.name.startsWith(".")) return false;
+        try {
+          return !lstatSync(join(target, e.name)).isSymbolicLink();
+        } catch {
+          return false;
+        }
+      })
+      .map((e) => ({ name: e.name, path: join(target, e.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 200);
+    return sendJson(res, 200, {
+      path: target,
+      parent: dirname(target),
+      canGoUp: roots.some((r) => isWithinDir(r, dirname(target))),
+      home: homedir(),
+      root: roots.find((r) => isWithinDir(r, target)) ?? roots[0],
+      directories,
+    });
+  }
+
+  if (method === "POST" && path === "/fs/mkdir") {
+    const body = await readJsonBody(req);
+    const roots = fsAllowedRoots(container);
+    const parent = resolve(String(body?.path ?? ""));
+    const name = String(body?.name ?? "").trim();
+    if (!name || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
+      return sendJson(res, 400, { error: "invalid_request", message: "Invalid folder name." });
+    }
+    const target = join(parent, name);
+    if (!roots.some((r) => isWithinDir(r, target))) {
+      return sendJson(res, 403, {
+        error: "forbidden",
+        message: `Creating folders is restricted to the allowed roots: ${roots.join(", ")}`,
+      });
+    }
+    try {
+      mkdirSync(target, { recursive: true });
+    } catch (err) {
+      return sendJson(res, 409, { error: "mkdir_failed", message: String(err) });
+    }
+    container.audit.record({
+      type: "dashboard_action",
+      summary: `mkdir ${target} (principal ${principal.id})`,
+    });
+    return sendJson(res, 200, { ok: true, path: target });
+  }
+
   if (method === "GET" && (path === "/" || path === "/index.html")) {
-    return sendStatic(res);
+    // The Mission Control SPA is the primary UI: root goes straight to it.
+    res.writeHead(308, { location: `/app/${url.search}` });
+    res.end();
+    return;
   }
 
   if (method === "GET" && path === "/status") {
@@ -642,6 +779,7 @@ async function handle(
       server: {
         name: container.config.server.name,
         transport: container.config.server.transport,
+        version: readFolderForgeVersion(),
       },
       workspace: {
         active: Boolean(active),
@@ -650,6 +788,7 @@ async function handle(
         languageHints: active?.languageHints ?? [],
         startupError: container.workspaceStartupError,
         allowedDirectories: container.config.workspace.allowedDirectories,
+        browsePoint: fsBrowsePoint(container),
       },
       policy: container.policy.describe(),
       capsules: container.capsules.describe(),
@@ -912,6 +1051,55 @@ async function handle(
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
+  if (method === "GET" && path === "/cloudflare/status") {
+    return sendJson(res, 200, maskedCloudflareConfig(container.projectRoot()));
+  }
+
+  if (method === "POST" && path === "/cloudflare/config") {
+    const body = await readJsonBody(req);
+    const apiToken = typeof body?.apiToken === "string" ? body.apiToken.trim() : "";
+    const accountId = typeof body?.accountId === "string" ? body.accountId.trim() : "";
+    const domain = typeof body?.domain === "string" ? body.domain.trim().toLowerCase() : "";
+    const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+    if (!apiToken || !accountId || !DOMAIN_RE.test(domain)) {
+      return sendJson(res, 400, {
+        error: "invalid_cloudflare_config",
+        message: "apiToken, accountId and a valid domain (e.g. example.com) are required.",
+      });
+    }
+    const client = makeCloudflareClient(apiToken);
+    try {
+      await client.verifyToken();
+      const zoneId = await client.resolveZoneId(domain);
+      saveCloudflareConfig(container.projectRoot(), {
+        accountId,
+        zoneId,
+        domain,
+        apiToken,
+        linkedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      return sendJson(res, 502, {
+        error: "cloudflare_rejected",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    container.audit.record({
+      type: "dashboard_action",
+      summary: "cloudflare linked domain=" + domain + " account=" + accountId + " (principal " + principal.id + ")",
+    });
+    return sendJson(res, 200, maskedCloudflareConfig(container.projectRoot()));
+  }
+
+  if (method === "DELETE" && path === "/cloudflare/config") {
+    clearCloudflareConfig(container.projectRoot());
+    container.audit.record({
+      type: "dashboard_action",
+      summary: "cloudflare unlinked (principal " + principal.id + ")",
+    });
+    return sendJson(res, 200, { ok: true });
+  }
+
   if (method === "GET" && path === "/tunnels") {
     const result = await runOperatorTool(registry, container, principal, 'tunnel_list', {});
     return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
@@ -934,6 +1122,22 @@ async function handle(
   const tunnelStopMatch = /^\/tunnels\/([^/]+)\/stop$/.exec(path);
   if (method === "POST" && tunnelStopMatch) {
     const id = decodeURIComponent(tunnelStopMatch[1]!);
+    const body = await readJsonBody(req);
+    if (body?.cleanup === true) {
+      try {
+        const record = await container.tunnels.destroy(id);
+        container.audit.record({
+          type: "dashboard_action",
+          summary: "tunnel " + id + " stopped + cloudflare cleanup (principal " + principal.id + ")",
+        });
+        return sendJson(res, 200, { ok: true, data: record });
+      } catch (error) {
+        return sendJson(res, 409, {
+          error: "unknown_tunnel",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const result = await runOperatorTool(registry, container, principal, 'tunnel_stop', { id });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
@@ -1028,6 +1232,89 @@ async function handle(
         : 'isolation_discard';
     const result = await runOperatorTool(registry, container, principal, tool, { id });
     return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetPolicyMatch = /^\/fleet\/([^/]+)\/policy$/.exec(path);
+  if (method === "POST" && fleetPolicyMatch) {
+    const id = decodeURIComponent(fleetPolicyMatch[1]!);
+    const body = await readJsonBody(req);
+    const result = await runOperatorTool(registry, container, principal, "provision_update", {
+      id,
+      policyMode: String(body?.policyMode ?? ""),
+    });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetRotateMatch = /^\/fleet\/([^/]+)\/rotate-token$/.exec(path);
+  if (method === "POST" && fleetRotateMatch) {
+    const id = decodeURIComponent(fleetRotateMatch[1]!);
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "provision_rotate_token",
+      { id },
+    );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetTunnelMatch = /^\/fleet\/([^/]+)\/tunnel$/.exec(path);
+  if (method === "POST" && fleetTunnelMatch) {
+    const id = decodeURIComponent(fleetTunnelMatch[1]!);
+    const instance = container.fleet.get(id);
+    if (!instance || instance.state !== "running") {
+      return sendJson(res, 409, {
+        error: "not_running",
+        message: `Instance ${id} is not running.`,
+      });
+    }
+    const body = await readJsonBody(req);
+    if (body && typeof body.hostname === "string" && body.hostname.trim()) {
+      try {
+        const record = await container.tunnels.startNamed({
+          targetPort: instance.port,
+          hostname: body.hostname,
+          actor: principal.id,
+        });
+        container.audit.record({
+          type: "dashboard_action",
+          summary: "named tunnel " + record.id + " " + (record.hostname ?? "") + " -> :" + instance.port + " (principal " + principal.id + ")",
+        });
+        return sendJson(res, 200, { ok: true, data: record });
+      } catch (error) {
+        return sendJson(res, 409, {
+          error: "named_tunnel_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    const result = await runOperatorTool(registry, container, principal, "tunnel_start", {
+      targetPort: instance.port,
+    });
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetLogsMatch = /^\/fleet\/([^/]+)\/logs$/.exec(path);
+  if (method === "GET" && fleetLogsMatch) {
+    const id = decodeURIComponent(fleetLogsMatch[1]!);
+    let instance;
+    try {
+      instance = container.fleet.get(id);
+    } catch {
+      instance = undefined;
+    }
+    if (!instance) {
+      return sendJson(res, 404, { error: "unknown_instance", message: "Unknown instance: " + id });
+    }
+    const sessionId = instance.sessionId;
+    if (!sessionId || !container.processes.isManaged(sessionId)) {
+      return sendJson(res, 409, {
+        error: "no_logs",
+        message: "No live process session for this instance (start it first; sessions reset when the plane restarts).",
+      });
+    }
+    const peeked = container.processes.peek(sessionId);
+    return sendJson(res, 200, { id, status: peeked.status, output: peeked.output });
   }
 
   if (method === "GET" && path === "/approvals") {
@@ -1169,22 +1456,6 @@ async function handle(
   sendJson(res, 404, { error: "not_found", path });
 }
 
-function sendStatic(res: ServerResponse): void {
-  const candidates = [
-    join(__dirname, "static", "index.html"),
-    join(process.cwd(), "src", "dashboard", "static", "index.html"),
-  ];
-  for (const file of candidates) {
-    if (existsSync(file)) {
-      const html = readFileSync(file, "utf8");
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(html);
-      return;
-    }
-  }
-  res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-  res.end("Dashboard static asset not found");
-}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });

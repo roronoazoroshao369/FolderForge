@@ -1,10 +1,31 @@
+import { existsSync } from 'node:fs';
+
 /** Return the platform default shell without assuming a Unix filesystem. */
 export function defaultShell(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env
 ): string {
   if (platform === 'win32') return env.ComSpec ?? env.COMSPEC ?? 'cmd.exe';
-  return env.SHELL ?? '/bin/bash';
+  // Trust $SHELL only when the binary actually exists: a stale entry (e.g. a
+  // shell that was uninstalled later) makes every spawn fail with ENOENT.
+  if (env.SHELL && existsSync(env.SHELL)) return env.SHELL;
+  if (existsSync('/bin/bash')) return '/bin/bash';
+  return '/bin/sh';
+}
+
+/**
+ * Resolve a configured shell to one that exists on this machine. A pinned but
+ * uninstalled shell (e.g. `terminal.shell: /bin/zsh` without zsh) would
+ * otherwise crash every command spawn with ENOENT.
+ */
+export function resolveExistingShell(
+  shell: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env
+): { shell: string; fellBack: boolean } {
+  if (platform === 'win32') return { shell, fellBack: false };
+  if (existsSync(shell)) return { shell, fellBack: false };
+  return { shell: defaultShell(platform, env), fellBack: true };
 }
 
 function shellName(shell: string): string {

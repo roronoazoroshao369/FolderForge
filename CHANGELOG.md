@@ -6,6 +6,17 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `folderforge control start|stop|status|open`: a background Mission Control plane serving the web UI at `http://127.0.0.1:7332/app`, with repeatable `--allow <dir>` flags that widen the governable folder roots and persist in `.folderforge/control.json`.
+- Mission Control SPA rebuilt on Tailwind CSS v4 with a design system, a `react-router` shell, and nine screens (Overview, Fleet, Tools, Tunnels, Workspaces, Plugins, Approvals, Audit, Settings).
+- Fleet Command: provision one governed MCP server per folder entirely from the UI — folder picker with in-UI folder creation, per-instance tool preset + policy mode configuration, one-click token rotation (shown once), auto-restart toggle, and per-instance Cloudflare quick tunnels.
+- New governed routes `POST /fleet/:id/policy`, `POST /fleet/:id/rotate-token`, `POST /fleet/:id/tunnel`, `POST /fs/browse`, `POST /fs/mkdir`, plus the `provision_rotate_token` tool; dashboard actions are recorded under the new `dashboard_action` audit event type.
+
+### Changed
+
+- The legacy static dashboard at `/` is retired; the root path now 308-redirects to `/app/`.
+
 ## [2.7.9] - 2026-08-06
 
 ### Added

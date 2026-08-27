@@ -174,15 +174,12 @@ describe("ChatGPT dashboard lifecycle", () => {
     expect(status).toMatchObject({ configured: false, state: "UNCONFIGURED" });
     expect(status.actions[0]?.command).toContain("folderforge connect chatgpt");
 
-    const html = await (await fetch(`${harness.baseUrl}/`)).text();
-    expect(html).toContain("Overall status");
-    expect(html).toContain("Connection timeline");
-    expect(html).toContain("Diagnostics");
-    expect(html).toContain("Project and runtime configuration");
-    expect(html).toContain("Redacted logs");
-    expect(html).toContain("lifecycle checks complete");
-    expect(html).not.toContain("No additional evidence recorded.");
-    expect(html).toContain("/chatgpt/actions/");
+    const root = await fetch(`${harness.baseUrl}/`, { redirect: "manual" });
+    expect(root.status).toBe(308);
+    expect(root.headers.get("location")).toBe("/app/");
+
+    const html = await (await fetch(`${harness.baseUrl}/app/`)).text();
+    expect(html).toContain("Mission Control");
   });
 
   it("uses the same lifecycle evaluator for CLI and dashboard and marks connected only for the exact verified OAuth client", async () => {
