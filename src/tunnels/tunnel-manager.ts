@@ -290,7 +290,6 @@ export class TunnelManager {
    * tunnel) for named tunnels. For quick tunnels this is just `stop`.
    */
   async destroy(id: string): Promise<TunnelRecord> {
-    const record = this.mutable(id);
     const snapshot = this.stop(id);
     if (snapshot.kind === 'named' && snapshot.cfTunnelId && this.cloudflare) {
       const config = this.cloudflare.loadConfig();
