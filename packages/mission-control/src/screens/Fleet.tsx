@@ -264,6 +264,13 @@ export function FleetScreen() {
                     </Button>
                   </div>
 
+                  {i.state === 'failed' && i.lastError ? (
+                    <div className="rounded-lg border border-[#6b3535] bg-[#2b1414]/60 px-2.5 py-2 text-xs text-[#f09a9a]">
+                      <span className="font-medium">Last error: </span>
+                      {i.lastError}
+                    </div>
+                  ) : null}
+
                   {tunnel?.publicUrl ? (
                     <div className="rounded-lg border border-[#26476b] bg-[#0d1b2c]/60 px-2.5 py-2 text-xs">
                       <span className="text-muted">Public tunnel: </span>

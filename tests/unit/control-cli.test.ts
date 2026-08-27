@@ -235,4 +235,20 @@ describe("folderforge control", () => {
     expect(badPort.exitCode).toBe(2);
     expect(badPort.output).toContain("Invalid --port");
   });
+
+  it("start forwards --allow roots to the serve child and persists them in state", async () => {
+    const root = trackedRoot();
+    const { deps, spawned } = makeDeps();
+    const result = await executeControlCli(
+      ["start", "--project", root, "--allow", "/data/alpha", "--allow", "/data/beta"],
+      deps,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(spawned).toHaveLength(1);
+    const args = spawned[0] ?? [];
+    const forwarded = args.flatMap((a, i) => (a === "--allow" ? [args[i + 1]] : []));
+    expect(forwarded).toEqual(["/data/alpha", "/data/beta"]);
+    const state = JSON.parse(readFileSync(statePath(root), "utf8")) as { allow?: string[] };
+    expect(state.allow).toEqual(["/data/alpha", "/data/beta"]);
+  });
 });

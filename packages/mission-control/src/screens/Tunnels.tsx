@@ -17,12 +17,13 @@ import {
   StatePill,
   useToast,
 } from '../ui';
-import type { CloudflareStatus, TunnelRecord } from '../types';
+import type { CloudflareStatus, FleetInstance, TunnelRecord } from '../types';
 
 export function TunnelsScreen() {
   const toast = useToast();
   const tunnels = useApi<{ tunnels: TunnelRecord[] }>('/tunnels');
   const cf = useApi<CloudflareStatus>('/cloudflare/status');
+  const fleet = useApi<{ instances: FleetInstance[] }>('/fleet');
   const action = useAction();
   const [port, setPort] = useState('');
   const [cfToken, setCfToken] = useState('');
@@ -76,6 +77,9 @@ export function TunnelsScreen() {
 
   const records = (tunnels.data && tunnels.data.tunnels) || [];
   const cfData = cf.data;
+  const runningPorts = ((fleet.data && fleet.data.instances) || [])
+    .filter((i) => i.state === 'running')
+    .map((i) => i.port);
   return (
     <div className="grid gap-6">
       <PageHeader
@@ -172,6 +176,21 @@ export function TunnelsScreen() {
             Start tunnel
           </Button>
         </div>
+        {runningPorts.length > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+            <span>Running instances:</span>
+            {runningPorts.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPort(String(p))}
+                className="rounded-md border border-border px-2 py-0.5 font-mono text-[11px] text-fg hover:bg-white/5 transition-colors"
+              >
+                :{p}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <ErrorNote message={action.error ?? tunnels.error} />
       </Card>
 
