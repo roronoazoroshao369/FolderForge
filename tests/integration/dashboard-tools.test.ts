@@ -123,6 +123,10 @@ describe('dashboard tools endpoints', () => {
     const harness = await startHarness();
     harnesses.push(harness);
 
+    const legacyRoot = await fetch(`${harness.baseUrl}/`, { redirect: 'manual' });
+    expect(legacyRoot.status).toBe(308);
+    expect(legacyRoot.headers.get('location')).toBe('/app/');
+
     const bare = await fetch(`${harness.baseUrl}/app`, { redirect: 'manual' });
     expect(bare.status).toBe(308);
     expect(bare.headers.get('location')).toBe('/app/');

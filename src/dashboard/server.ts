@@ -62,7 +62,7 @@ export function isLoopbackHost(host: string): boolean {
  * Local control-plane dashboard. Read-only views plus approval actions.
  *
  * Endpoints:
- *   GET  /            -> static dashboard (dashboard/static/index.html)
+ *   GET  /            -> 308 redirect to /app/ (Mission Control SPA)
  *   GET  /app         -> Mission Control SPA (packages/mission-control build, when present)
  *   GET  /status      -> server + workspace + policy snapshot
  *   GET  /audit       -> recent audit events
@@ -761,7 +761,10 @@ async function handle(
   }
 
   if (method === "GET" && (path === "/" || path === "/index.html")) {
-    return sendStatic(res);
+    // The Mission Control SPA is the primary UI: root goes straight to it.
+    res.writeHead(308, { location: `/app/${url.search}` });
+    res.end();
+    return;
   }
 
   if (method === "GET" && path === "/status") {
@@ -1339,22 +1342,6 @@ async function handle(
   sendJson(res, 404, { error: "not_found", path });
 }
 
-function sendStatic(res: ServerResponse): void {
-  const candidates = [
-    join(__dirname, "static", "index.html"),
-    join(process.cwd(), "src", "dashboard", "static", "index.html"),
-  ];
-  for (const file of candidates) {
-    if (existsSync(file)) {
-      const html = readFileSync(file, "utf8");
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(html);
-      return;
-    }
-  }
-  res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-  res.end("Dashboard static asset not found");
-}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
