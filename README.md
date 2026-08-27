@@ -43,6 +43,48 @@ Your MCP client then starts FolderForge over stdio. To run the server manually:
 npx -y @musashishao/folderforge --project . --stdio
 ```
 
+## Mission Control (web UI)
+
+FolderForge ships a built-in web control plane so the whole machine can be run
+from one dashboard instead of a terminal:
+
+```bash
+folderforge control start            # serves http://127.0.0.1:7332/app
+folderforge control start --allow /home/you --allow /tmp
+folderforge control status           # health + URL
+folderforge control open             # start (if needed) and open the browser
+folderforge control stop
+```
+
+Opening `http://127.0.0.1:7332/` redirects to the Mission Control SPA at
+`/app/`. The plane is loopback-only; for remote access set a token in
+**Settings** or start a one-off public tunnel from the **Tunnels** screen.
+
+**Fleet — one governed MCP per folder, as many as you need:**
+
+1. **Fleet → Browse** to pick any folder inside the allowed roots (or create a
+   new one with **New folder**).
+2. Choose a **tool preset** (`vibe`, `vibe-lite`, `readonly`, `full`, `godot`)
+   and a **policy mode** (`readonly`, `safe`, `dev`, `danger`), then
+   **Provision**. The bearer token is shown exactly once — copy it then.
+3. **Start** the instance; its MCP endpoint is `http://127.0.0.1:<port>/mcp`
+   (answers 401 without the token).
+4. Per instance you can then **Configure** (change preset/policy), **Rotate
+   token**, toggle **auto-restart**, and **Start tunnel** to expose it through
+   a temporary public `*.trycloudflare.com` URL.
+
+The folder picker is restricted to the workspace plus every `--allow <dir>`
+passed at `control start` (repeatable, persisted in `.folderforge/control.json`
+and forwarded to the serving process). The same capabilities exist as MCP tools
+(`provision_folder`, `provision_update`, `provision_rotate_token`, …) and as
+governed dashboard routes (`POST /fleet/:id/policy`, `POST /fleet/:id/rotate-token`,
+`POST /fleet/:id/tunnel`, `POST /fs/browse`, `POST /fs/mkdir`), all
+policy-enforced and audit-logged.
+
+See [docs/adr-0012-mission-control-control-plane.md](docs/adr-0012-mission-control-control-plane.md)
+for the design and [docs/agent-council.md](docs/agent-council.md) for the review
+process.
+
 ### ChatGPT through OpenAI Secure MCP Tunnel
 
 For a private workstation or local project, provision an OpenAI tunnel and runtime API key once, then run:
