@@ -4,7 +4,7 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
-## [Unreleased]
+## [2.7.11] - 2026-08-27
 
 ### Added
 
