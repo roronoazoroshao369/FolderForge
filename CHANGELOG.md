@@ -30,6 +30,10 @@ semantic versioning.
   - `FleetManager` reconciles persisted state against reality at load: dead pids are cleared with an explicit `lastError`, live pids are fingerprinted via `/proc`/`ps` command lines — verified orphans (same instance config + project path, or same `--openai-tunnel` + tunnel id) keep their pid for automatic reaping on the next start or shutdown, while foreign/unverifiable processes are never killed and produce an actionable error instead of EADDRINUSE.
   - Every fleet/tunnel start mints a fresh `leaseId` (exposed to the child as the `FOLDERFORGE_LEASE_ID` env var, never in argv); exit callbacks are fenced by session + lease so a stale generation cannot fail the current one, and EADDRINUSE exits now report an actionable "port already in use" error without flapping auto-restart.
 
+### Security
+
+- Update the exact `fast-uri` transitive override to `4.1.4` and add an exact `qs@6.16.0` override (express/body-parser chain), removing GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp (fast-uri) and GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g (qs); production `npm audit --omit=dev` reports zero vulnerabilities.
+
 ## [2.7.11] - 2026-08-27
 
 ### Added
