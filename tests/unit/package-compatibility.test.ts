@@ -52,7 +52,8 @@ describe('package and CI compatibility contract', () => {
       overrides?: Record<string, string>;
     };
     expect(pkg.overrides?.['@hono/node-server']).toBe('2.0.11');
-    expect(pkg.overrides?.['fast-uri']).toBe('3.1.5');
+    expect(pkg.overrides?.['fast-uri']).toBe('4.1.4');
+    expect(pkg.overrides?.['qs']).toBe('6.16.0');
   });
 
   it('refreshes and re-verifies the release ref around all publish gates', () => {
