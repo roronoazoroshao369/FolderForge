@@ -1,5 +1,16 @@
 /* Shared data shapes mirroring the governed dashboard API. */
 
+export type FleetAuthMode = 'none' | 'token' | 'api-key' | 'oauth';
+
+export interface FleetOAuthConfig {
+  resource: string;
+  issuer: string;
+  scopes: string[];
+  readScope: string;
+  writeScope: string;
+  clientRegistration?: 'cimd' | 'dcr' | 'predefined';
+}
+
 export interface FleetInstance {
   id: string;
   name: string;
@@ -7,6 +18,15 @@ export interface FleetInstance {
   port: number;
   toolsPreset: string;
   policyMode: string;
+  authMode: FleetAuthMode;
+  oauth?: FleetOAuthConfig;
+  openAiTunnel?: {
+    tunnelId: string;
+    apiKeyEnv: string;
+    oauth: boolean;
+    state: string;
+    lastError?: string;
+  };
   state: string;
   autoRestart?: boolean;
   lastError?: string;
@@ -21,6 +41,21 @@ export interface TunnelRecord {
   hostname?: string;
   state: string;
   lastError?: string;
+}
+
+/** Response shape of GET /openai-tunnel/status (no secret values, env-var NAME only). */
+export interface OpenAiTunnelStatus {
+  configured: boolean;
+  tunnelId?: string;
+  apiKeyEnv?: string;
+  linkedAt?: string;
+  running?: boolean;
+  supervisorPid?: number;
+  apiKeyPresent?: boolean;
+  /** True when the operator pasted the key itself (stored 0600). */
+  apiKeyStored?: boolean;
+  /** Last-4 preview of a stored key, e.g. "…cret". */
+  keyPreview?: string;
 }
 
 /** Response shape of GET /cloudflare/status (token is never returned). */
@@ -85,7 +120,7 @@ export interface ToolRecord {
 
 export interface ToolsCatalog {
   tools?: ToolRecord[];
-  presets?: Record<string, { groups: string[]; toolCount: number }>;
+  presets?: Record<string, { groups: string[]; toolCount: number; note?: string }>;
 }
 
 export interface StatusSnapshot {

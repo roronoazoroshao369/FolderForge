@@ -29,6 +29,7 @@ import { resolveAdapterLaunch, resolvePlaywrightMcpRuntime } from '../adapters/c
 import { applySandboxLaunch, sandboxSummary } from '../sandbox/launcher.js';
 import { verifyAuditChain } from '../evidence/audit-chain.js';
 import { verifyLegacyAuditLog } from '../evidence/migration.js';
+import { loadOpenAiTunnelConfig } from '../control/openai-tunnel-store.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 export type DoctorSeverity = 'info' | 'warning' | 'error' | 'blocker';
@@ -80,6 +81,8 @@ export interface DoctorOptions {
     env: NodeJS.ProcessEnv,
     projectRoot: string
   ) => Promise<AdapterReadinessProbeResult>;
+  /** Injectable binary probe (defaults to a spawnSync PATH lookup) for share/tunnel checks. */
+  binaryProbe?: (name: string) => boolean;
 }
 
 export interface DoctorCliResult {
@@ -1353,6 +1356,102 @@ function checkDistributedAndMarketplaceState(projectRoot: string, findings: Doct
   }
 }
 
+/** Default binary probe: resolvable on PATH (same approach as share's cloudflared check). */
+function defaultBinaryProbe(name: string): boolean {
+  const probe = spawnSync(name, ['--version'], { stdio: 'ignore', windowsHide: true });
+  return probe.error === undefined;
+}
+
+/**
+ * Optional `folderforge share` / tunnel prerequisites. Informational only: a
+ * missing cloudflared or OpenAI key never blocks doctor — it only means the
+ * corresponding share mode needs setup first.
+ */
+function checkSharePrerequisites(
+  projectRoot: string,
+  env: NodeJS.ProcessEnv,
+  findings: DoctorFinding[],
+  binaryProbe: (name: string) => boolean
+): void {
+  if (binaryProbe('cloudflared')) {
+    findings.push(
+      finding(
+        'share.cloudflared',
+        'pass',
+        'info',
+        'cloudflared is available for Cloudflare tunnels.',
+        'cloudflared resolved on PATH (`cloudflared --version`).'
+      )
+    );
+  } else {
+    findings.push(
+      finding(
+        'share.cloudflared',
+        'warn',
+        'info',
+        'cloudflared is not installed (optional).',
+        '`cloudflared` is not resolvable on PATH.',
+        'Only needed for `folderforge share --tunnel cloudflare` or dashboard quick tunnels: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/'
+      )
+    );
+  }
+
+  const stored = loadOpenAiTunnelConfig(projectRoot);
+  const keyEnv = stored?.apiKeyEnv ?? 'CONTROL_PLANE_API_KEY';
+  if (env[keyEnv]) {
+    findings.push(
+      finding(
+        'share.openai-key',
+        'pass',
+        'info',
+        'OpenAI control-plane API key is available via the environment.',
+        `${keyEnv} is set.`
+      )
+    );
+    return;
+  }
+  if (stored?.apiKey) {
+    const storeFile = join(projectRoot, '.folderforge', 'openai-tunnel-config.json');
+    const tooOpen = process.platform !== 'win32' && (statSync(storeFile).mode & 0o777) !== 0o600;
+    findings.push(
+      finding(
+        'share.openai-key',
+        tooOpen ? 'warn' : 'pass',
+        tooOpen ? 'warning' : 'info',
+        'OpenAI API key is saved in the local tunnel store.',
+        tooOpen
+          ? `${storeFile} permissions are wider than 0600.`
+          : `${storeFile} holds the key (env ${keyEnv} unset).`,
+        tooOpen ? `chmod 600 ${storeFile}` : ''
+      )
+    );
+    return;
+  }
+  if (stored) {
+    findings.push(
+      finding(
+        'share.openai-key',
+        'warn',
+        'info',
+        'A ChatGPT tunnel id is saved but no API key source was found.',
+        `${keyEnv} is unset and the saved tunnel config holds no key value.`,
+        `Export ${keyEnv} or paste the key in Mission Control → Tunnels → ChatGPT tunnel (only needed for --tunnel openai).`
+      )
+    );
+    return;
+  }
+  findings.push(
+    finding(
+      'share.openai-key',
+      'pass',
+      'info',
+      'OpenAI tunnel key not configured (optional).',
+      `${keyEnv} is unset and no saved tunnel config exists.`,
+      'Only needed for `folderforge share --tunnel openai` or `connect chatgpt --openai-tunnel`.'
+    )
+  );
+}
+
 export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorReport> {
   const projectRoot = resolve(options.projectRoot ?? process.cwd());
   const env = options.env ?? process.env;
@@ -1398,6 +1497,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorRepo
   checkAdapters(configResult.config, env, findings);
   checkPlaywright(configResult.config, findings, options.playwrightProbe);
   await checkAdapterReadiness(configResult.config, env, projectRoot, findings, options.adapterProbe);
+  checkSharePrerequisites(projectRoot, env, findings, options.binaryProbe ?? defaultBinaryProbe);
   checkPlugins(projectRoot, env, findings);
   checkState(projectRoot, now, findings);
   checkDistributedAndMarketplaceState(projectRoot, findings);

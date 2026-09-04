@@ -189,6 +189,10 @@ const DEFAULT_DENIED_GLOBS = [
   '**/.folderforge/fleet.json',
   '**/.folderforge/fleet.json.*.tmp',
   '**/.folderforge/fleet/**',
+  '**/.folderforge/control-auth.json',
+  '**/.folderforge/control-auth.json.*.tmp',
+  '**/.folderforge/openai-tunnel-config.json',
+  '**/.folderforge/openai-tunnel-config.json.*.tmp',
 ];
 
 export function defaultConfig(projectRoot: string): FolderForgeConfig {

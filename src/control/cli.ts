@@ -13,8 +13,12 @@
  * boots config + container + registry exactly like the MCP server but serves ONLY
  * the dashboard, so no stdio transport is left waiting on a detached stdin.
  *
- * State lives in <projectRoot>/.folderforge/control.json (no secrets; the
- * dashboard binds loopback and therefore needs no token).
+ * State lives in <projectRoot>/.folderforge/control.json (no secrets). Optional
+ * dashboard auth (`--auth token|api-key`, changeable via `control auth`) keeps
+ * its credential separately in control-auth.json (0600); the printed/opened SPA
+ * link then carries `?token=` so the browser session is signed in immediately.
+ * `--openai-tunnel` additionally supervises the OpenAI Secure MCP Tunnel for
+ * ChatGPT (tunnel id + API-key env var name) as an alternative to Cloudflare.
  */
 
 import { spawn } from 'node:child_process';
@@ -32,16 +36,33 @@ import { get as httpGet } from 'node:http';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { ENV_NAME_PATTERN, TUNNEL_ID_PATTERN } from '../chatgpt/openai-tunnel.js';
 import { startDashboard } from '../dashboard/server.js';
 import { logger } from '../core/logger.js';
 import { readFolderForgeVersion } from '../core/version.js';
 import { Container } from '../runtime/container.js';
+import { stopManagedProcessTrees } from '../runtime/shutdown.js';
 import {
   applyHttpAuthDefaults,
   loadConfig,
   validateConfig,
 } from '../runtime/config.js';
 import { buildRegistry } from '../tools/index.js';
+import {
+  CONTROL_AUTH_MODES,
+  clearControlAuth,
+  controlAuthPath,
+  generateControlCredential,
+  loadControlAuth,
+  maskedControlAuth,
+  saveControlAuth,
+  type ControlAuthMode,
+} from './auth-store.js';
+import {
+  loadOpenAiTunnelConfig,
+  setOpenAiTunnelSupervisorPid,
+  upsertOpenAiTunnelConfig,
+} from './openai-tunnel-store.js';
 
 export interface ControlCliResult {
   output: string;
@@ -59,6 +80,10 @@ interface ControlState {
   allow?: string[];
   /** Detached watchdog pid (from --watchdog); killed before the plane on stop. */
   watchdogPid?: number;
+  /** Dashboard auth mode; the credential itself lives in control-auth.json (0600). */
+  auth?: { mode: ControlAuthMode };
+  /** Detached OpenAI Secure MCP Tunnel supervisor (from --openai-tunnel). */
+  openaiTunnel?: { pid: number; tunnelId: string; apiKeyEnv: string };
 }
 
 export interface ControlDeps {
@@ -71,17 +96,20 @@ export interface ControlDeps {
   pidAlive: (pid: number) => boolean;
   /** Probe a loopback endpoint; resolves true when any HTTP response arrives. */
   probe: (port: number, path: string, timeoutMs: number) => Promise<boolean>;
-  /** Spawn the detached `control serve` child; returns its pid. */
-  spawnServe: (args: string[], logPath: string) => number;
+  /** Spawn a detached child; returns its pid. env is merged over process.env. */
+  spawnServe: (args: string[], logPath: string, env?: Record<string, string>) => number;
   /** Send SIGTERM to a child process. */
   terminate: (pid: number) => void;
   /** Open a URL in the default browser (best-effort). */
   openUrl: (url: string) => void;
+  /** Read an environment variable (e.g. the OpenAI API key for --openai-tunnel). */
+  getEnv?: (name: string) => string | undefined;
   stdoutIsTty: boolean;
   platform: NodeJS.Platform;
 }
 
 const DEFAULT_CONTROL_PORT = 7332;
+const DEFAULT_OPENAI_API_KEY_ENV = 'CONTROL_PLANE_API_KEY';
 const READY_TIMEOUT_MS = 10_000;
 const READY_INTERVAL_MS = 250;
 const STOP_TIMEOUT_MS = 5_000;
@@ -119,12 +147,13 @@ function defaultProbe(
   });
 }
 
-function defaultSpawnServe(args: string[], logPath: string): number {
+function defaultSpawnServe(args: string[], logPath: string, env?: Record<string, string>): number {
   const out = openSync(logPath, 'a');
   try {
     const child = spawn(process.execPath, args, {
       detached: true,
       stdio: ['ignore', out, out],
+      ...(env ? { env: { ...process.env, ...env } } : {}),
     });
     child.unref();
     if (child.pid === undefined) {
@@ -162,6 +191,16 @@ function controlStatePath(projectRoot: string): string {
 
 function controlLogPath(projectRoot: string): string {
   return join(projectRoot, '.folderforge', 'control.log');
+}
+
+function controlTunnelLogPath(projectRoot: string): string {
+  return join(projectRoot, '.folderforge', 'control-openai-tunnel.log');
+}
+
+/** SPA link that carries the credential, signing the browser session in at once. */
+function dynamicAppUrl(port: number, credential?: string): string {
+  const base = `http://127.0.0.1:${port}/app`;
+  return credential ? `${base}?token=${encodeURIComponent(credential)}` : base;
 }
 
 function readControlState(projectRoot: string): ControlState | null {
@@ -213,22 +252,32 @@ function tailFile(path: string, maxChars: number): string {
 
 interface ControlOptions {
   command: string | null;
+  /** Second positional, e.g. the mode in `control auth <mode>`. */
+  commandArg: string | null;
   projectRoot: string;
   port?: number;
   open?: boolean;
   allow?: string[];
   watchdog?: boolean;
+  auth?: ControlAuthMode;
+  openaiTunnel?: boolean;
+  tunnelId?: string;
+  apiKeyEnv?: string;
   json: boolean;
   help: boolean;
 }
 
 function parseControlArgs(argv: string[]): ControlOptions {
-  let command: string | null = null;
+  const positionals: string[] = [];
   let projectRoot: string | undefined;
   let port: number | undefined;
   let open: boolean | undefined;
   let allow: string[] | undefined;
   let watchdog = false;
+  let auth: ControlAuthMode | undefined;
+  let openaiTunnel = false;
+  let tunnelId: string | undefined;
+  let apiKeyEnv: string | undefined;
   let json = false;
   let help = false;
   for (let i = 0; i < argv.length; i++) {
@@ -264,6 +313,33 @@ function parseControlArgs(argv: string[]): ControlOptions {
       case '--watchdog':
         watchdog = true;
         break;
+      case '--auth': {
+        const v = argv[++i];
+        if (v === undefined || !(CONTROL_AUTH_MODES as readonly string[]).includes(v)) {
+          throw new Error(`--auth must be one of: ${CONTROL_AUTH_MODES.join(', ')}`);
+        }
+        auth = v as ControlAuthMode;
+        break;
+      }
+      case '--openai-tunnel':
+        openaiTunnel = true;
+        break;
+      case '--tunnel-id': {
+        const v = argv[++i];
+        if (v === undefined) throw new Error('--tunnel-id requires a value');
+        if (!TUNNEL_ID_PATTERN.test(v)) {
+          throw new Error('--tunnel-id must match tunnel_<32 lowercase hex>');
+        }
+        tunnelId = v;
+        break;
+      }
+      case '--api-key-env': {
+        const v = argv[++i];
+        if (v === undefined) throw new Error('--api-key-env requires a variable name');
+        if (!ENV_NAME_PATTERN.test(v)) throw new Error(`Invalid --api-key-env name: ${v}`);
+        apiKeyEnv = v;
+        break;
+      }
       case '--no-open':
         open = false;
         break;
@@ -276,12 +352,22 @@ function parseControlArgs(argv: string[]): ControlOptions {
         break;
       default:
         if (a.startsWith('-')) throw new Error(`Unknown control option: ${a}`);
-        if (command !== null) throw new Error(`Unexpected argument: ${a}`);
-        command = a;
+        positionals.push(a);
     }
+  }
+  const [command = null, commandArg = null, ...extraPositionals] = positionals;
+  if (extraPositionals.length > 0) {
+    throw new Error(`Unexpected argument: ${extraPositionals[0]}`);
+  }
+  if (commandArg !== null && command !== 'auth') {
+    throw new Error(`Unexpected argument: ${commandArg}`);
+  }
+  if (!openaiTunnel && (tunnelId !== undefined || apiKeyEnv !== undefined)) {
+    throw new Error('--tunnel-id and --api-key-env require --openai-tunnel');
   }
   const result: ControlOptions = {
     command,
+    commandArg,
     projectRoot: resolve(projectRoot ?? process.cwd()),
     json,
     help,
@@ -290,6 +376,10 @@ function parseControlArgs(argv: string[]): ControlOptions {
   if (open !== undefined) result.open = open;
   if (allow !== undefined) result.allow = allow;
   if (watchdog) result.watchdog = true;
+  if (auth !== undefined) result.auth = auth;
+  if (openaiTunnel) result.openaiTunnel = true;
+  if (tunnelId !== undefined) result.tunnelId = tunnelId;
+  if (apiKeyEnv !== undefined) result.apiKeyEnv = apiKeyEnv;
   return result;
 }
 
@@ -297,22 +387,37 @@ export function controlHelp(): string {
   return [
     'FolderForge Mission Control plane',
     '',
-    'Usage: folderforge control <start|stop|status|open> [options]',
+    'Usage: folderforge control <start|stop|status|open|auth> [options]',
     '',
     'Commands:',
-    '  start     Start the local control plane in the background and open the SPA',
-    '  stop      Stop the background control plane gracefully',
-    '  status    Show control plane state and probe its endpoint',
-    '  open      Open the Mission Control SPA in the default browser',
+    '  start      Start the local control plane in the background and open the SPA',
+    '  stop       Stop the background control plane (and the ChatGPT tunnel) gracefully',
+    '  status     Show control plane state and probe its endpoint',
+    '  open       Open the Mission Control SPA in the default browser',
+    '  auth       Show or change dashboard auth: control auth [none|token|api-key]',
     '',
     'Options:',
     '  -p, --project <dir>  Project the control plane governs (default: cwd)',
     '      --port <n>       Dashboard port (default 7332)',
-    '      --allow <dir>      Extra directory the plane may govern (repeatable)',
-    '    --watchdog          auto-restart the plane if it stops answering',
+    '      --allow <dir>    Extra directory the plane may govern (repeatable)',
+    '      --watchdog       Auto-restart the plane if it stops answering',
+    '      --auth <mode>    Dashboard auth: none|token|api-key (default none; persisted).',
+    '                       token/api-key mint a credential (0600 file) and print a',
+    '                       signed dynamic link (…/app?token=…)',
+    '      --openai-tunnel  Also supervise the OpenAI Secure MCP Tunnel for ChatGPT',
+    '                       (tunnel id + API-key env var; no Cloudflare involved)',
+    '      --tunnel-id <id> OpenAI tunnel id (tunnel_<32 hex>) for --openai-tunnel',
+    '      --api-key-env <n> Env var holding the OpenAI control-plane API key',
+    '                       (default CONTROL_PLANE_API_KEY; only the name is persisted)',
     '      --open/--no-open Open the SPA after start (default: open on a TTY)',
     '      --json           Machine-readable output for status',
     '  -h, --help           Show this help',
+    '',
+    'Examples:',
+    '  folderforge control start --auth token',
+    '  folderforge control auth api-key            # change later; restarts the plane',
+    "  export CONTROL_PLANE_API_KEY='sk-...'",
+    '  folderforge control start --openai-tunnel --tunnel-id tunnel_<32 hex>',
     '',
   ].join('\n');
 }
@@ -326,10 +431,14 @@ async function controlStart(
   const existing = readControlState(projectRoot);
   if (existing && deps.pidAlive(existing.pid)) {
     if (await deps.probe(existing.port, '/status', 1_000)) {
+      const auth = loadControlAuth(projectRoot);
       return {
         output:
           `Mission Control is already running (pid ${existing.pid}).\n` +
-          `http://127.0.0.1:${existing.port}/app\n`,
+          `${dynamicAppUrl(existing.port, auth?.credential)}\n` +
+          (options.auth !== undefined || options.openaiTunnel
+            ? 'To change auth use `folderforge control auth <mode>`; to reconfigure the tunnel run `control stop` then `control start` with the new flags.\n'
+            : ''),
         exitCode: 0,
       };
     }
@@ -350,6 +459,62 @@ async function controlStart(
         'Pick another port with --port.\n',
       exitCode: 1,
     };
+  }
+
+  // Auth config: apply --auth, otherwise keep the stored credential (default
+  // none). The credential never enters argv or control.json — the serve child
+  // reads the 0600 file itself at boot.
+  const storedAuth = loadControlAuth(projectRoot);
+  const authMode: ControlAuthMode = options.auth ?? storedAuth?.mode ?? 'none';
+  let credential: string | undefined;
+  if (authMode === 'none') {
+    clearControlAuth(projectRoot);
+  } else if (storedAuth && storedAuth.mode === authMode) {
+    credential = storedAuth.credential; // stable across restarts
+  } else {
+    credential = generateControlCredential();
+    saveControlAuth(projectRoot, {
+      mode: authMode,
+      credential,
+      createdAt: new Date(deps.now()).toISOString(),
+    });
+  }
+
+  // ChatGPT tunnel config: validate before spawning anything so a bad config
+  // fails fast and leaves nothing running. Falls back to the config saved in
+  // Mission Control (Tunnels → ChatGPT tunnel card).
+  const getEnv = deps.getEnv ?? ((name: string) => process.env[name]);
+  let tunnelId: string | undefined;
+  let apiKeyEnv: string | undefined;
+  let tunnelApiKey: string | undefined;
+  if (options.openaiTunnel) {
+    const storedTunnel = loadOpenAiTunnelConfig(projectRoot);
+    tunnelId = options.tunnelId ?? existing?.openaiTunnel?.tunnelId ?? storedTunnel?.tunnelId;
+    if (!tunnelId) {
+      return {
+        output:
+          '--openai-tunnel requires --tunnel-id tunnel_<32 hex> on the first run ' +
+          '(or save it in Mission Control → Tunnels → ChatGPT tunnel).\n',
+        exitCode: 1,
+      };
+    }
+    apiKeyEnv =
+      options.apiKeyEnv ??
+      existing?.openaiTunnel?.apiKeyEnv ??
+      storedTunnel?.apiKeyEnv ??
+      DEFAULT_OPENAI_API_KEY_ENV;
+    // A key pasted in Mission Control (0600 store) satisfies the check when
+    // the env var itself was not exported.
+    tunnelApiKey = storedTunnel?.apiKey;
+    if (!getEnv(apiKeyEnv) && !tunnelApiKey) {
+      return {
+        output:
+          `Environment variable ${apiKeyEnv} is not set and no key is saved. Export the ` +
+          `OpenAI control-plane API key first:\n  export ${apiKeyEnv}='sk-...'\n` +
+          'or paste the key in Mission Control → Tunnels → ChatGPT tunnel (stored 0600).\n',
+        exitCode: 1,
+      };
+    }
   }
 
   mkdirSync(join(projectRoot, '.folderforge'), { recursive: true });
@@ -406,6 +571,7 @@ async function controlStart(
     startedAt: new Date(deps.now()).toISOString(),
     version: deps.version,
     ...(options.allow && options.allow.length > 0 ? { allow: options.allow } : {}),
+    ...(authMode !== 'none' ? { auth: { mode: authMode } } : {}),
   };
   if (options.watchdog) {
     try {
@@ -417,17 +583,57 @@ async function controlStart(
       // Best-effort: the plane itself is already healthy without a watchdog.
     }
   }
+  let tunnelSpawnFailed = false;
+  if (options.openaiTunnel && tunnelId && apiKeyEnv) {
+    try {
+      // The supervisor boots its own loopback MCP server + OpenAI tunnel
+      // client; --no-dashboard avoids clashing with this plane's dashboard port.
+      const tunnelPid = deps.spawnServe(
+        [
+          deps.mainJs,
+          'connect',
+          'chatgpt',
+          '--openai-tunnel',
+          '--project',
+          projectRoot,
+          '--no-dashboard',
+          '--tunnel-id',
+          tunnelId,
+          '--api-key-env',
+          apiKeyEnv,
+        ],
+        controlTunnelLogPath(projectRoot),
+        // Inject the app-saved key only when the env var itself is absent.
+        tunnelApiKey && !getEnv(apiKeyEnv) ? { [apiKeyEnv]: tunnelApiKey } : undefined,
+      );
+      state.openaiTunnel = { pid: tunnelPid, tunnelId, apiKeyEnv };
+      // Share with Mission Control: config + running pid visible in the app.
+      upsertOpenAiTunnelConfig(projectRoot, { tunnelId, apiKeyEnv });
+      setOpenAiTunnelSupervisorPid(projectRoot, tunnelPid);
+    } catch {
+      tunnelSpawnFailed = true; // The plane itself is healthy; reported below.
+    }
+  }
   writeControlState(projectRoot, state);
 
-  const url = `http://127.0.0.1:${port}/app`;
+  const url = dynamicAppUrl(port, credential);
   if (options.open ?? deps.stdoutIsTty) deps.openUrl(url);
   return {
     output:
       `Mission Control plane started (pid ${pid}, project ${projectRoot}).\n` +
       `${url}\n` +
+      (authMode !== 'none'
+        ? `Auth: ${authMode} — credential stored in ${controlAuthPath(projectRoot)} (0600); the signed link is printed here and by \`control open\`.\n`
+        : '') +
       `Logs: ${logPath}\n` +
       (state.watchdogPid
         ? `Watchdog: pid ${state.watchdogPid} — restarts the plane automatically if it stops answering.\n`
+        : '') +
+      (state.openaiTunnel
+        ? `ChatGPT tunnel: ${state.openaiTunnel.tunnelId} supervised (pid ${state.openaiTunnel.pid}, key from $${state.openaiTunnel.apiKeyEnv}) — no Cloudflare. Logs: ${controlTunnelLogPath(projectRoot)}\n`
+        : '') +
+      (tunnelSpawnFailed
+        ? 'ChatGPT tunnel failed to spawn; the plane is running without it.\n'
         : ''),
     exitCode: 0,
   };
@@ -454,6 +660,29 @@ async function controlStop(
       // Best-effort; the plane stop below still proceeds.
     }
   }
+  // Stop the ChatGPT tunnel supervisor too; it owns its own MCP child process.
+  if (existing.openaiTunnel && deps.pidAlive(existing.openaiTunnel.pid)) {
+    try {
+      deps.terminate(existing.openaiTunnel.pid);
+    } catch {
+      // Best-effort; the plane stop below still proceeds.
+    }
+  }
+  // Also stop an app-started tunnel supervisor recorded in the shared store
+  // (Mission Control → Tunnels → ChatGPT tunnel).
+  const storedTunnel = loadOpenAiTunnelConfig(projectRoot);
+  if (
+    storedTunnel?.supervisorPid &&
+    storedTunnel.supervisorPid !== existing.openaiTunnel?.pid &&
+    deps.pidAlive(storedTunnel.supervisorPid)
+  ) {
+    try {
+      deps.terminate(storedTunnel.supervisorPid);
+    } catch {
+      // Best-effort; the plane stop below still proceeds.
+    }
+  }
+  if (storedTunnel?.supervisorPid) setOpenAiTunnelSupervisorPid(projectRoot, undefined);
   if (!deps.pidAlive(existing.pid)) {
     removeControlState(projectRoot);
     return {
@@ -560,7 +789,8 @@ async function controlStatus(
     ? await deps.probe(existing.port, '/status', 1_000)
     : false;
   if (!pidAlive) removeControlState(projectRoot);
-  const url = `http://127.0.0.1:${existing.port}/app`;
+  const auth = loadControlAuth(projectRoot);
+  const url = dynamicAppUrl(existing.port, auth?.credential);
   if (options.json) {
     return {
       output: `${JSON.stringify({
@@ -572,7 +802,16 @@ async function controlStatus(
         version: existing.version,
         pidAlive,
         endpointOk,
-        url,
+        url: `http://127.0.0.1:${existing.port}/app`,
+        auth: { mode: existing.auth?.mode ?? 'none', ...maskedControlAuth(projectRoot) },
+        ...(existing.openaiTunnel
+          ? {
+              openaiTunnel: {
+                ...existing.openaiTunnel,
+                alive: deps.pidAlive(existing.openaiTunnel.pid),
+              },
+            }
+          : {}),
       })}\n`,
       exitCode: 0,
     };
@@ -589,7 +828,13 @@ async function controlStatus(
         endpointOk ? 'running' : 'alive but NOT answering'
       }.\n` +
       `${url}\n` +
-      `Started: ${existing.startedAt} (version ${existing.version})\n`,
+      `Started: ${existing.startedAt} (version ${existing.version})\n` +
+      `Auth: ${existing.auth?.mode ?? 'none'}\n` +
+      (existing.openaiTunnel
+        ? `ChatGPT tunnel: ${existing.openaiTunnel.tunnelId} — ${
+            deps.pidAlive(existing.openaiTunnel.pid) ? 'running' : 'NOT running'
+          } (pid ${existing.openaiTunnel.pid}, key from $${existing.openaiTunnel.apiKeyEnv})\n`
+        : ''),
     exitCode: 0,
   };
 }
@@ -605,7 +850,10 @@ async function controlOpen(
     deps.pidAlive(existing.pid) &&
     (await deps.probe(existing.port, '/status', 1_000))
   ) {
-    const url = `http://127.0.0.1:${existing.port}/app`;
+    const url = dynamicAppUrl(
+      existing.port,
+      loadControlAuth(projectRoot)?.credential,
+    );
     deps.openUrl(url);
     return { output: `${url}\n`, exitCode: 0 };
   }
@@ -613,6 +861,159 @@ async function controlOpen(
     output:
       'Mission Control plane is not running. Start it with `folderforge control start`.\n',
     exitCode: 1,
+  };
+}
+
+/**
+ * `control auth [none|token|api-key]` — show or change the dashboard auth mode.
+ * Auth is applied by the serve child at boot, so a running plane is restarted
+ * in place (watchdog first, mirroring `control stop`) to pick up the change.
+ * The credential is stable when the mode is unchanged, freshly minted on a mode
+ * switch, and removed entirely for `none`.
+ */
+async function controlAuthMode(
+  options: ControlOptions,
+  deps: ControlDeps,
+): Promise<ControlCliResult> {
+  const { projectRoot } = options;
+  const modeArg = options.commandArg;
+  const state = readControlState(projectRoot);
+  const stored = loadControlAuth(projectRoot);
+
+  if (modeArg === null) {
+    const masked = maskedControlAuth(projectRoot);
+    return {
+      output:
+        `Dashboard auth: ${stored?.mode ?? state?.auth?.mode ?? 'none'}\n` +
+        (masked.configured && masked.credentialPreview
+          ? `Credential: ${masked.credentialPreview} (created ${masked.createdAt})\n`
+          : '') +
+        'Change with: folderforge control auth <none|token|api-key>\n',
+      exitCode: 0,
+    };
+  }
+  if (!(CONTROL_AUTH_MODES as readonly string[]).includes(modeArg)) {
+    return {
+      output: `Unknown auth mode: ${modeArg}. Use one of: ${CONTROL_AUTH_MODES.join(', ')}.\n`,
+      exitCode: 2,
+    };
+  }
+  const mode = modeArg as ControlAuthMode;
+
+  let credential: string | undefined;
+  if (mode === 'none') {
+    clearControlAuth(projectRoot);
+  } else if (stored && stored.mode === mode) {
+    credential = stored.credential;
+  } else {
+    credential = generateControlCredential();
+    saveControlAuth(projectRoot, {
+      mode,
+      credential,
+      createdAt: new Date(deps.now()).toISOString(),
+    });
+  }
+
+  if (!state || !deps.pidAlive(state.pid)) {
+    return {
+      output:
+        `Dashboard auth set to ${mode}; no plane is running, so it applies on the next \`control start\`.\n` +
+        (credential
+          ? `Signed link after start: ${dynamicAppUrl(state?.port ?? DEFAULT_CONTROL_PORT, credential)}\n`
+          : ''),
+      exitCode: 0,
+    };
+  }
+
+  // Kill the watchdog first so it cannot respawn the old plane mid-restart.
+  let watchdogPid = state.watchdogPid;
+  if (watchdogPid && deps.pidAlive(watchdogPid)) {
+    try {
+      deps.terminate(watchdogPid);
+    } catch {
+      // Best-effort; the plane restart below still proceeds.
+    }
+  }
+  try {
+    deps.terminate(state.pid);
+  } catch {
+    // Already exiting; the respawn below still happens.
+  }
+  const stopDeadline = deps.now() + STOP_TIMEOUT_MS;
+  while (deps.now() < stopDeadline && deps.pidAlive(state.pid)) {
+    await deps.sleep(STOP_INTERVAL_MS);
+  }
+  const serveArgs = [
+    deps.mainJs,
+    'control',
+    'serve',
+    '--project',
+    state.projectRoot,
+    '--port',
+    String(state.port),
+    ...(state.allow ?? []).flatMap((dir) => ['--allow', dir]),
+  ];
+  let pid: number;
+  try {
+    pid = deps.spawnServe(serveArgs, controlLogPath(projectRoot));
+  } catch (err) {
+    return {
+      output: `Auth changed to ${mode} but the plane failed to restart: ${String(err)}\n`,
+      exitCode: 1,
+    };
+  }
+  const readyDeadline = deps.now() + READY_TIMEOUT_MS;
+  let ready = false;
+  while (deps.now() < readyDeadline) {
+    if (!deps.pidAlive(pid)) break;
+    if (await deps.probe(state.port, '/status', 1_000)) {
+      ready = true;
+      break;
+    }
+    await deps.sleep(READY_INTERVAL_MS);
+  }
+  if (!ready) {
+    return {
+      output:
+        `Auth changed to ${mode} but the plane did not become ready on port ${state.port}. ` +
+        `Check ${controlLogPath(projectRoot)}\n`,
+      exitCode: 1,
+    };
+  }
+  if (watchdogPid) {
+    try {
+      watchdogPid = deps.spawnServe(
+        [
+          deps.mainJs,
+          'control',
+          'watch',
+          '--project',
+          state.projectRoot,
+          '--port',
+          String(state.port),
+        ],
+        controlLogPath(projectRoot),
+      );
+    } catch {
+      watchdogPid = undefined;
+    }
+  }
+  const next: ControlState = {
+    ...state,
+    pid,
+    startedAt: new Date(deps.now()).toISOString(),
+    version: deps.version,
+  };
+  if (mode === 'none') delete next.auth;
+  else next.auth = { mode };
+  if (watchdogPid) next.watchdogPid = watchdogPid;
+  else delete next.watchdogPid;
+  writeControlState(projectRoot, next);
+  return {
+    output:
+      `Dashboard auth changed to ${mode}; plane restarted (pid ${pid}).\n` +
+      `${dynamicAppUrl(state.port, credential)}\n`,
+    exitCode: 0,
   };
 }
 
@@ -641,17 +1042,27 @@ async function controlServe(
   applyHttpAuthDefaults(config);
   validateConfig(config);
 
+  // Optional dashboard auth: a credential file means the operator configured
+  // token/api-key auth (`--auth` or `control auth`). It is read here, inside
+  // the child, so the secret never appears in process argv.
+  const dashboardAuth = loadControlAuth(options.projectRoot);
+
   const container = new Container(config);
   const registry = buildRegistry(container);
   container.audit.record({
     type: 'server_start',
     summary: 'transport=control-plane dashboard-only',
-    detail: { version: deps.version, projectRoot: container.projectRoot() },
+    detail: {
+      version: deps.version,
+      projectRoot: container.projectRoot(),
+      ...(dashboardAuth ? { authMode: dashboardAuth.mode } : {}),
+    },
   });
 
   const server = startDashboard(container, registry, {
     host: config.server.dashboard.host,
     port: config.server.dashboard.port,
+    ...(dashboardAuth ? { token: dashboardAuth.credential, requireAuth: true } : {}),
   });
   if (!server.listening) {
     await new Promise<void>((resolvePromise, reject) => {
@@ -678,6 +1089,7 @@ async function controlServe(
       logger.info({ signal }, 'Shutting down Mission Control plane');
       server.close(() => {
         void Promise.allSettled([
+          stopManagedProcessTrees(container, 1_500),
           container.adapters.stopAllAndWait(1_500),
           container.browserEmulation.close(),
         ]).then(() => resolvePromise());
@@ -732,6 +1144,8 @@ export async function executeControlCli(
       return controlStatus(options, deps);
     case 'open':
       return controlOpen(options, deps);
+    case 'auth':
+      return controlAuthMode(options, deps);
     case 'serve':
       return controlServe(options, deps);
     case 'watch':

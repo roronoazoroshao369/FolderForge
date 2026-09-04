@@ -147,7 +147,7 @@ export function workspaceTools(): ToolDefinition[] {
     defineTool({
       name: 'workspace_route',
       description:
-        'Switch the visible tool set to a task preset (explore, run_ui, fix_tests) ' +
+        'Switch the visible tool set to a task preset (explore, run_ui, implement, fix_tests, adaptive) ' +
         'or pass reset=true / preset="all" to expose every tool again.',
       group: 'workspace',
       mutates: false,
@@ -156,7 +156,7 @@ export function workspaceTools(): ToolDefinition[] {
         properties: {
           preset: {
             type: 'string',
-            description: 'Preset name: explore | run_ui | fix_tests | all',
+            description: 'Preset name: explore | run_ui | implement | fix_tests | adaptive | all',
             enum: [...Object.keys(TASK_PRESETS), 'all'],
           },
           reset: { type: 'boolean', description: 'Expose every tool again (same as preset=all).' },

@@ -50,8 +50,8 @@ const DEFAULT_DASHBOARD_PORT = 7332;
 const DEFAULT_TUNNEL_BASE_URL = "https://api.openai.com";
 const DEFAULT_GATEWAY_HEADER = "X-FolderForge-Tunnel-Guard";
 const MAX_RELEASE_ARCHIVE_BYTES = 100 * 1024 * 1024;
-const TUNNEL_ID_PATTERN = /^tunnel_[0-9a-f]{32}$/;
-const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+export const TUNNEL_ID_PATTERN = /^tunnel_[0-9a-f]{32}$/;
+export const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const REQUIRED_TUNNEL_CLIENT_FLAGS = [
   "--control-plane.tunnel-id",
   "--control-plane.api-key",

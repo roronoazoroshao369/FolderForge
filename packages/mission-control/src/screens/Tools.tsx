@@ -29,14 +29,14 @@ export function ToolsScreen() {
     <div className="grid gap-6">
       <PageHeader title="Tools" subtitle="Every governed tool in the registry, grouped by capability." />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {presets.map(([name, p]) => (
           <div key={name} className="rounded-xl border border-border bg-[#0c1220] p-4">
             <div className="flex items-center justify-between gap-2">
               <Code>{name}</Code>
               <span className="font-mono text-lg font-bold">{p.toolCount}</span>
             </div>
-            <div className="mt-1 text-xs text-muted">{p.groups.length} groups · preset</div>
+            <div className="mt-1 text-xs text-muted">{p.note ?? `${p.groups.length} groups · preset`}</div>
           </div>
         ))}
       </div>

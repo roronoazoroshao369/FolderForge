@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 import { terminateChildProcessTree } from '../core/process-tree.js';
 
@@ -27,19 +28,33 @@ function wakeWaiters(session: InternalSession): void {
   for (const wake of waiters) wake();
 }
 
+function hasExited(session: InternalSession): boolean {
+  return session.child.exitCode !== null || session.child.signalCode !== null;
+}
+
 /**
  * Manages long-running child processes (dev servers, watchers, compose).
+ *
+ * POSIX sessions are spawned detached, making each child its own process-group
+ * leader: termination signals the whole group, so a shell-wrapped command that
+ * forked grandchildren (e.g. `npm run dev` spawning node) no longer leaves
+ * orphans holding ports after a stop or a control-plane shutdown.
  */
 export class ProcessManager {
   private sessions = new Map<string, InternalSession>();
   private maxBuffer = 1_000_000;
   private exitListeners = new Map<string, Set<() => void>>();
 
-  start(command: string, cwd: string, shell: string): ProcessSession {
+  start(command: string, cwd: string, shell: string, env?: Record<string, string>): ProcessSession {
     const sessionId = `proc_${randomUUID().slice(0, 8)}`;
     const child = spawn(shell, shellCommandArgs(shell, command), {
       cwd,
-      env: process.env,
+      // Optional per-session env overlay (e.g. a pasted OpenAI tunnel key):
+      // merged over the process env, never placed in the command string.
+      env: env ? { ...process.env, ...env } : process.env,
+      // POSIX: one process group per session so tree-kill can target -pid.
+      // Windows keeps its own console semantics; taskkill /T covers the tree.
+      detached: process.platform !== 'win32',
       ...shellSpawnOptions(shell),
     }) as ChildProcessWithoutNullStreams;
 
@@ -149,7 +164,7 @@ export class ProcessManager {
     };
 
     // Immediate return if there is already new output, the process is finished,
-    // or the caller has already cancelled (P6).
+    // or the caller has already cancelled (the request).
     if (s.output.length > s.cursor || s.status !== 'running' || signal?.aborted) {
       return Promise.resolve(drain());
     }
@@ -195,6 +210,44 @@ export class ProcessManager {
       wakeWaiters(s);
     }
     return this.publicView(s);
+  }
+
+  /**
+   * Stop EVERY running session (control-plane shutdown path): SIGTERM all
+   * process trees, wait up to graceMs for exits, then escalate the survivors
+   * to SIGKILL. Resolves once every session exited or escalation was sent.
+   */
+  async stopAllAndWait(graceMs = 1_500): Promise<void> {
+    const running = [...this.sessions.values()].filter((s) => s.status === 'running');
+    if (running.length === 0) return;
+    for (const session of running) {
+      session.status = 'killed';
+      terminateChildProcessTree(session.child);
+      wakeWaiters(session);
+    }
+    const deadline = Date.now() + Math.max(0, graceMs);
+    while (running.some((s) => !hasExited(s))) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await Promise.race([
+        Promise.allSettled(
+          running.filter((s) => !hasExited(s)).map((s) => once(s.child, 'exit')),
+        ),
+        new Promise((resolve) => setTimeout(resolve, Math.min(50, remaining))),
+      ]);
+    }
+    const stubborn = running.filter((s) => !hasExited(s));
+    for (const session of stubborn) {
+      terminateChildProcessTree(session.child, true);
+    }
+    if (stubborn.length > 0) {
+      // Give the OS a short, bounded beat to reap SIGKILLed processes before
+      // the caller proceeds with shutdown.
+      await Promise.race([
+        Promise.allSettled(stubborn.map((s) => once(s.child, 'exit'))),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+    }
   }
 
   list(): ProcessSession[] {

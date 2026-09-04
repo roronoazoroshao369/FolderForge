@@ -22,6 +22,7 @@ import type { ToolRegistry } from '../tools/registry.js';
 import type {
   ToolResult,
   ToolCallControl,
+  ToolDefinition,
   ElicitRequestParams,
   ElicitResult,
   ToolPrincipal,
@@ -31,6 +32,8 @@ import type { Container } from '../runtime/container.js';
 import { buildBearerChallenge } from './auth/oauth.js';
 import { McpPromptCatalog } from './mcp-prompts.js';
 import { McpResourceCatalog, McpResourceSubscriptions } from './mcp-resources.js';
+import { GATEWAY_CALL_TOOL } from '../tools/adaptive-surface.js';
+import { TASK_PRESETS } from '../tools/task-presets.js';
 
 const MAX_MUTATION_REPLAY_ENTRIES = 256;
 
@@ -89,6 +92,13 @@ export interface McpServerInfo {
   roots?: string[];
   /** Authenticated identity for this agent-facing MCP connection. */
   principal?: ToolPrincipal;
+  /**
+   * Adaptive-surface option: for OAuth principals, hide tools whose required
+   * scopes are absent from `tools/list` (mirrors webcodex scope-filtered
+   * listing). The call path remains the authoritative gate; the listing is a
+   * routing hint. Default false: other presets keep their existing surface.
+   */
+  hideScopeInsufficientTools?: boolean;
   /** Shared runtime state for resources, prompts, and durable MCP tasks. */
   container?: Container;
 }
@@ -121,6 +131,7 @@ export function createMcpServer(registry: ToolRegistry, info: McpServerInfo): Se
     ? `\n\nWorkspace roots (allowed directories): ${roots.join(', ')}.`
     : '';
   const principal: ToolPrincipal = info.principal ?? { id: 'agent:mcp', role: 'agent' };
+  const hideScopeInsufficient = info.hideScopeInsufficientTools === true;
   const advancedProtocol = info.container !== undefined;
   const mutationReplay = new Map<string, MutationReplayEntry>();
   const pruneMutationReplay = (): void => {
@@ -238,7 +249,26 @@ export function createMcpServer(registry: ToolRegistry, info: McpServerInfo): Se
   }
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools: Tool[] = registry.listAgentActive().map((t) => {
+    // Adaptive surface: for OAuth principals, hide tools whose required scopes
+    // are absent (webcodex-style scope-filtered listing). The call path stays
+    // the authoritative gate; the listing is a routing hint. Scope-hiding also
+    // follows the ACTIVE surface: routing to `adaptive` at runtime via
+    // workspace_route enables it even when the server started on another
+    // preset (the gateway pair only ever appears on the adaptive surface).
+    const activeTools = registry.listAgentActive();
+    // The runtime-routed adaptive surface is exactly TASK_PRESETS.adaptive. An
+    // unrouted (reset) listing legitimately contains every registered tool —
+    // including the gateway pair — and must NOT flip scope-hiding on, so the
+    // whole active set must fit the adaptive name list, not just contain it.
+    const adaptiveSurfaceNames = new Set<string>(TASK_PRESETS['adaptive'] ?? []);
+    const adaptiveActive =
+      activeTools.some((t) => t.name === GATEWAY_CALL_TOOL) &&
+      activeTools.every((t) => adaptiveSurfaceNames.has(t.name));
+    const listedTools =
+      (hideScopeInsufficient || adaptiveActive) && principal.authMode === 'oauth'
+        ? activeTools.filter((t) => hasRequiredScopes(t, principal))
+        : activeTools;
+    const tools: Tool[] = listedTools.map((t) => {
       const tool: Tool = {
         name: t.name,
         description: t.description,
@@ -465,6 +495,16 @@ export function createMcpServer(registry: ToolRegistry, info: McpServerInfo): Se
   };
 
   return server;
+}
+
+/** True when the OAuth principal holds every scope the tool requires. */
+function hasRequiredScopes(tool: ToolDefinition, principal: ToolPrincipal): boolean {
+  const required = tool.mutates
+    ? [principal.readScope, principal.writeScope]
+    : [principal.readScope];
+  return required
+    .filter((scope): scope is string => Boolean(scope))
+    .every((scope) => (principal.scopes ?? []).includes(scope));
 }
 
 function assertScope(principal: ToolPrincipal, mutates: boolean): void {

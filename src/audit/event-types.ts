@@ -12,7 +12,8 @@ export type AuditEventType =
   | 'process_event'
   | 'task_event'
   | 'server_start'
-  | 'dashboard_action';
+  | 'dashboard_action'
+  | 'share_session';
 
 export interface AuditEvent {
   ts: string;

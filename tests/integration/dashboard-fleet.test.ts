@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
@@ -20,7 +20,11 @@ interface FleetHarness {
 interface FleetInstanceView {
   id: string;
   state: string;
+  authMode?: string;
   token?: string;
+  apiKey?: string;
+  credential?: string;
+  kind?: 'token' | 'api-key';
   tokenSha256?: string;
 }
 
@@ -166,6 +170,61 @@ describe('dashboard fleet endpoints', () => {
 
     const missing = await postJson(`${harness.baseUrl}/fleet/flt_missing/rotate-token`);
     expect(missing.status).toBe(409);
+  });
+
+  it('provisions and reconfigures Fleet authentication modes through governed routes', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const noAuthProject = join(harness.root, 'no-auth-project');
+    const apiProject = join(harness.root, 'api-project');
+    mkdirSync(noAuthProject);
+    mkdirSync(apiProject);
+
+    const noAuth = await postJson(`${harness.baseUrl}/fleet`, {
+      projectPath: noAuthProject,
+      authMode: 'none',
+    });
+    expect(noAuth.status).toBe(201);
+    expect(noAuth.json.data?.authMode).toBe('none');
+    expect(noAuth.json.data?.token).toBeUndefined();
+    expect(noAuth.json.data?.tokenSha256).toBeUndefined();
+
+    const apiCreated = await postJson(`${harness.baseUrl}/fleet`, {
+      projectPath: apiProject,
+      authMode: 'api-key',
+    });
+    expect(apiCreated.status).toBe(201);
+    expect(apiCreated.json.data?.authMode).toBe('api-key');
+    expect(apiCreated.json.data?.apiKey).toMatch(/^ffk_/);
+    const apiId = apiCreated.json.data?.id ?? '';
+
+    const changed = await postJson(`${harness.baseUrl}/fleet/${apiId}/auth`, { mode: 'token' });
+    expect(changed.status).toBe(200);
+    expect(changed.json.ok).toBe(true);
+    expect(changed.json.data?.authMode).toBe('token');
+    expect(changed.json.data?.token).toBeTruthy();
+
+    const rotated = await postJson(`${harness.baseUrl}/fleet/${apiId}/rotate-credential`);
+    expect(rotated.status).toBe(200);
+    expect(rotated.json.data?.credential).toBeTruthy();
+    expect(rotated.json.data?.kind).toBe('token');
+  });
+
+  it('fails closed on OpenAI tunnel start when the referenced control-plane key is not in Mission Control env', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const created = await postJson(`${harness.baseUrl}/fleet`, { projectPath: harness.root });
+    const id = created.json.data?.id ?? '';
+    delete process.env.FOLDERFORGE_MISSING_DASHBOARD_TEST_KEY;
+
+    const result = await postJson(`${harness.baseUrl}/fleet/${id}/openai-tunnel/start`, {
+      tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
+      apiKeyEnv: 'FOLDERFORGE_MISSING_DASHBOARD_TEST_KEY',
+      oauth: false,
+    });
+    expect(result.status).toBe(409);
+    expect(result.json.ok).toBe(false);
+    expect(result.json.error).toMatch(/not set in the Mission Control process/);
   });
 
   it('browses and creates directories within the bounded browse point only', async () => {

@@ -247,7 +247,19 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'provision_health', mutates: false, risk: 'LOW' },
   { name: 'provision_restart', mutates: true, risk: 'HIGH' },
   { name: 'provision_update', mutates: true, risk: 'MEDIUM' },
+  { name: 'provision_set_auth', mutates: true, risk: 'HIGH' },
   { name: 'provision_rotate_token', mutates: true, risk: 'HIGH' },
+  { name: 'provision_rotate_credential', mutates: true, risk: 'HIGH' },
+  { name: 'provision_openai_tunnel_start', mutates: true, risk: 'HIGH' },
+  { name: 'provision_openai_tunnel_stop', mutates: true, risk: 'MEDIUM' },
+  { name: 'provision_openai_tunnel_logs', mutates: false, risk: 'LOW' },
+
+  // --- adaptive gateway (single-pipeline dispatch; classifyCall re-keys to the target) ---
+  // NOTE: call_runtime_tool is frozen at its LISTING envelope (read-only) so
+  // scope-filtered tools/list keeps the gateway visible; every concrete call is
+  // re-classified to the target's mutates/risk contract before governance.
+  { name: 'call_runtime_tool', mutates: false, risk: 'MEDIUM' },
+  { name: 'tool_manifest', mutates: false, risk: 'LOW' },
 
   // --- tunnels (ADR-0012 Phase 3: quick-tunnel public exposure) ---
   { name: 'tunnel_start', mutates: true, risk: 'HIGH' },

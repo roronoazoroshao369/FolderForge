@@ -5,6 +5,7 @@ import {
   validateConfig,
 } from "./runtime/config.js";
 import { Container } from "./runtime/container.js";
+import { stopManagedProcessTrees } from "./runtime/shutdown.js";
 import {
   buildRegistry,
   registerAdapterTools,
@@ -29,6 +30,7 @@ import {
   executeInitCli,
 } from './onboarding/cli.js';
 import { executeControlCli } from './control/cli.js';
+import { executeShareCli } from './share/cli.js';
 
 const VERSION = readFolderForgeVersion();
 
@@ -291,6 +293,7 @@ function printHelp(): void {
       "  worker init|run        Create a worker identity or run an allowlisted remote worker",
       "  plugin <command>       init|validate|test|pack|keygen|sign plugin SDK workflow",
       "  control <command>      start|stop|status|open the local Mission Control plane",
+      "  share                  Temporary trial env: share [--tunnel openai|cloudflare|none] [--auth token|oauth]",
       "",
       "Options:",
       "  -p, --project <dir>      Project root to activate (default: cwd)",
@@ -318,7 +321,7 @@ function printHelp(): void {
       "      --oauth-algorithms <csv> Accepted asymmetric JWT algorithms",
       "      --oauth-resource-documentation <url> Public OAuth resource documentation URL",
       "      --unsafe-oauth-http Development only: allow loopback HTTP issuer/resource",
-      "      --tools-preset <id>  Limit advertised tools to a preset (vibe|vibe-lite|readonly|full)",
+      "      --tools-preset <id>  Limit advertised tools: vibe|vibe-lite|readonly|full|godot|adaptive (small typed core + governed call_runtime_tool gateway)",
       "      --tools-groups <csv> Limit advertised tools to these groups (e.g. file,search,git)",
       "      --tools-enable <csv> Always-keep tool names (added back on top of the filter)",
       "      --tools-disable <csv> Drop these tool names from the advertised list",
@@ -425,6 +428,13 @@ async function main(): Promise<void> {
   if (argv[0] === "control") {
     const result = await executeControlCli(argv.slice(1));
     process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === "share") {
+    // share streams its own output live (long-running foreground command);
+    // result.output mirrors the full transcript for tests and embedders.
+    const result = await executeShareCli(argv.slice(1));
     process.exitCode = result.exitCode;
     return;
   }
@@ -606,6 +616,8 @@ async function main(): Promise<void> {
       version: VERSION,
       roots: config.workspace.allowedDirectories,
       principal: withExecutionContext(principal, container.projectRoot()),
+      // Adaptive surface: OAuth tools/list hides scope-insufficient tools.
+      hideScopeInsufficientTools: effectivePreset === "adaptive",
       container,
     });
   // A primary server instance for stdio + lifecycle (shutdown). The HTTP
@@ -693,6 +705,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     logger.info({ signal }, "Shutting down FolderForge");
     await Promise.allSettled([
+      stopManagedProcessTrees(container, 1_500),
       server.close(),
       container.adapters.stopAllAndWait(1_500),
       container.browserEmulation.close(),

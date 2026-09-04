@@ -43,6 +43,30 @@ Your MCP client then starts FolderForge over stdio. To run the server manually:
 npx -y @musashishao/folderforge --project . --stdio
 ```
 
+## Share a temporary trial (one command)
+
+`folderforge share` stands up a temporary single-project environment for the
+current folder and prints ready-to-paste connection values — without touching
+long-lived configuration:
+
+```bash
+cd /path/to/your/repo
+folderforge share                          # auto tunnel (cloudflare when available)
+folderforge share --tunnel none            # loopback only
+folderforge share --tunnel openai          # OpenAI Secure MCP Tunnel (ChatGPT)
+folderforge share --auth token             # default; oauth reuses project OAuth config
+folderforge share --ttl 30                 # auto-teardown after 30 minutes (default 120; 0 disables)
+folderforge share --json                   # machine-readable share.ready/ended/error lines
+```
+
+The command prints the MCP URL, a temporary bearer credential (in-memory only —
+never written to disk, argv, or logs), and the tunnel id when `--tunnel openai`
+is used (it delegates to the proven OpenAI supervisor, reusing the tunnel id and
+key from `.folderforge/openai-tunnel-config.json` (0600) or
+`CONTROL_PLANE_API_KEY`, with clear guidance when neither exists). Ctrl+C tears
+everything down: the tunnel closes, the server stops, and the temporary
+credential dies with the process.
+
 ## Mission Control (web UI)
 
 FolderForge ships a built-in web control plane so the whole machine can be run
@@ -54,7 +78,27 @@ folderforge control start --allow /home/you --allow /tmp
 folderforge control status           # health + URL
 folderforge control open             # start (if needed) and open the browser
 folderforge control stop
+
+# Optional dashboard auth (loopback no-auth stays the default). token/api-key
+# mint a credential stored 0600 in .folderforge/control-auth.json (never in
+# argv or control.json) and print a signed dynamic link (…/app?token=…):
+folderforge control start --auth token        # or: api-key
+folderforge control auth                      # show current mode (masked)
+folderforge control auth api-key              # change later; restarts the plane
+folderforge control auth none                 # back to open loopback
+
+# ChatGPT without Cloudflare: supervise the OpenAI Secure MCP Tunnel alongside
+# the plane — only the tunnel id and the API-key env-var NAME are persisted:
+export CONTROL_PLANE_API_KEY='sk-...'
+folderforge control start --openai-tunnel --tunnel-id tunnel_<32 hex>
 ```
+
+The same ChatGPT tunnel can be configured from the app itself: **Tunnels →
+ChatGPT tunnel (OpenAI)** saves the tunnel id + API-key env-var name (0600).
+You can also paste the key itself (stored 0600 like the Cloudflare token,
+shown only as a last-4 preview) instead of exporting the env var, and the
+**Verify key** button probes the OpenAI API before anything is saved — an
+in-app alternative to linking Cloudflare.
 
 Opening `http://127.0.0.1:7332/` redirects to the Mission Control SPA at
 `/app/`. The plane is loopback-only; for remote access set a token in
@@ -64,14 +108,20 @@ Opening `http://127.0.0.1:7332/` redirects to the Mission Control SPA at
 
 1. **Fleet → Browse** to pick any folder inside the allowed roots (or create a
    new one with **New folder**).
-2. Choose a **tool preset** (`vibe`, `vibe-lite`, `readonly`, `full`, `godot`)
-   and a **policy mode** (`readonly`, `safe`, `dev`, `danger`), then
-   **Provision**. The bearer token is shown exactly once — copy it then.
-3. **Start** the instance; its MCP endpoint is `http://127.0.0.1:<port>/mcp`
-   (answers 401 without the token).
-4. Per instance you can then **Configure** (change preset/policy), **Rotate
-   token**, toggle **auto-restart**, and **Start tunnel** to expose it through
-   a temporary public `*.trycloudflare.com` URL.
+2. Choose a **tool preset** (`vibe`, `vibe-lite`, `readonly`, `full`, `godot`),
+   a **policy mode** (`readonly`, `safe`, `dev`, `danger`), and an
+   **authentication mode**: bearer token, API key, OAuth, or loopback-only no
+   auth. Generated static credentials are shown exactly once.
+3. **Start local** to serve `http://127.0.0.1:<port>/mcp`. Token/API-key modes
+   require the issued credential, OAuth uses protected-resource discovery, and
+   no-auth stays loopback-only.
+4. Per instance you can **Configure** preset/policy, change **Auth**, rotate
+   static credentials, toggle **auto-restart**, expose an authenticated instance
+   with Cloudflare, or start the existing **OpenAI Secure MCP Tunnel** supervisor.
+   The OpenAI control-plane API key is referenced by environment-variable name
+   or pasted directly in the tunnel dialog (stored in the 0600 fleet state,
+   injected into the supervisor's environment, never returned by the API), and
+   a **Verify key** button probes the OpenAI API before starting.
 
 The folder picker is restricted to the workspace plus every `--allow <dir>`
 passed at `control start` (repeatable, persisted in `.folderforge/control.json`
@@ -80,6 +130,14 @@ and forwarded to the serving process). The same capabilities exist as MCP tools
 governed dashboard routes (`POST /fleet/:id/policy`, `POST /fleet/:id/rotate-token`,
 `POST /fleet/:id/tunnel`, `POST /fs/browse`, `POST /fs/mkdir`), all
 policy-enforced and audit-logged.
+
+**Reconnect recovery (lease fencing + orphan reaping):** every fleet/tunnel
+start mints a fresh lease id, plane shutdown (SIGTERM/SIGINT or `control stop`)
+stops the whole managed process tree (fleet instances, OpenAI tunnel
+supervisors, tunnels, and spawned sessions), and a restarted plane reconciles
+persisted pids against reality: verified orphans from a previous run are
+reaped automatically on the next start, while a port held by a foreign
+process yields an actionable error instead of a bare EADDRINUSE.
 
 See [docs/adr-0012-mission-control-control-plane.md](docs/adr-0012-mission-control-control-plane.md)
 for the design and [docs/agent-council.md](docs/agent-council.md) for the review
@@ -289,7 +347,7 @@ to `X-API-Key`. For ChatGPT/Auth0 and external authorization-server setup, use:
 
 | Flag | Alias | Description | Default |
 |---|---|---|---|
-| `--tools-preset <id>` | | Filter advertised tools: `vibe` (84 tools), `vibe-lite`, `readonly`, `full` (337) | `vibe` |
+| `--tools-preset <id>` | | Filter advertised tools: `vibe` (84 tools), `vibe-lite`, `readonly`, `full` (337), `godot`, `adaptive` (small core + governed `call_runtime_tool` gateway) | `vibe` |
 | `--http` | | Enable HTTP transport (in addition to stdio) | off |
 | `--stdio` | | Enable stdio transport | on |
 | `--port <n>` | | HTTP listen port | `7331` |
@@ -317,6 +375,7 @@ folderforge --project . --stdio --tools-preset vibe
 folderforge --project . --stdio --tools-preset vibe-lite
 folderforge --project . --stdio --tools-preset readonly
 folderforge --project . --stdio --tools-preset full
+folderforge --project . --stdio --tools-preset adaptive   # ~25-tool core + call_runtime_tool gateway
 ```
 
 You can also enable groups or individual tools. Run `folderforge --help` and see

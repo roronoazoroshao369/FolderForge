@@ -1,3 +1,5 @@
+import { ADAPTIVE_SURFACE_TOOLS } from './adaptive-surface.js';
+
 /**
  * Tools that must remain visible after every routing decision so an agent can
  * inspect health and recover the full catalog without reconnecting.
@@ -10,6 +12,7 @@ export const ROUTING_RECOVERY_TOOLS = [
 ] as const;
 
 export const TASK_PRESETS: Readonly<Record<string, readonly string[]>> = {
+  adaptive: [...new Set<string>([...ROUTING_RECOVERY_TOOLS, ...ADAPTIVE_SURFACE_TOOLS])],
   explore: [
     ...ROUTING_RECOVERY_TOOLS,
     'search_text',

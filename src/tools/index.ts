@@ -29,6 +29,11 @@ import { isolationTools } from './isolation-tools.js';
 import { proofPackTools } from './proof-pack-tools.js';
 import { provisionTools } from './provision-tools.js';
 import { tunnelTools } from './tunnel-tools.js';
+import {
+  ADAPTIVE_PRESET,
+  ADAPTIVE_SURFACE_TOOLS,
+  buildGatewayTools,
+} from './adaptive-surface.js';
 
 /**
  * Build the full tool registry with every group registered.
@@ -64,6 +69,9 @@ export function buildRegistry(container: Container): ToolRegistry {
     ...tunnelTools(),
     ...gameTools(),
   ]);
+  // The adaptive gateway pair is always registered but advertised only under
+  // the `adaptive` preset: its group appears in no GROUP_PRESETS list.
+  registry.registerAll(buildGatewayTools(registry));
   // Expose the registry on the container so routing tools (workspace_route)
   // can switch the active tool subset at runtime.
   container.registry = registry;
@@ -279,6 +287,15 @@ export function resolveActiveTools(
   opts: ToolFilterOptions
 ): string[] | null {
   const all = registry.listAll();
+  if (opts.preset === ADAPTIVE_PRESET) {
+    // Small typed core + the gateway pair; every other registered agent tool
+    // stays reachable (and governed) through call_runtime_tool.
+    const wanted = new Set<string>(ADAPTIVE_SURFACE_TOOLS);
+    const keep = new Set(all.filter((t) => wanted.has(t.name)).map((t) => t.name));
+    for (const name of opts.enabled ?? []) keep.add(name);
+    for (const name of opts.disabled ?? []) keep.delete(name);
+    return [...keep];
+  }
   const groups = opts.enabledGroups?.length
     ? opts.enabledGroups
     : opts.preset

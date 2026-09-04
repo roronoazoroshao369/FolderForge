@@ -323,6 +323,20 @@ export class TunnelManager {
   }
 
   /**
+   * Control-plane shutdown path: stop every non-stopped tunnel. Best-effort
+   * per record so one failing stop never blocks the rest.
+   */
+  stopAll(): void {
+    for (const record of this.tunnels) {
+      try {
+        this.stop(record.id);
+      } catch {
+        // Converge: the remaining tunnels still get their stop.
+      }
+    }
+  }
+
+  /**
    * Handle an unexpected tunnel process exit. Deliberate stops pass through
    * `stopping`/`stopped` first, so an active state here means a crash.
    */

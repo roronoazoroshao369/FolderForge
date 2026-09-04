@@ -91,4 +91,28 @@ describe('TunnelManager', () => {
     expect(manager.stop(tunnel.id).state).toBe('stopped');
     expect(stopped).toHaveLength(1);
   });
+
+  it('stopAll stops every non-stopped tunnel, best-effort per record', async () => {
+    const stopped: string[] = [];
+    const manager = new TunnelManager({
+      spawn: stubSpawner([]),
+      stopSession: (sessionId) => {
+        if (sessionId === 'proc_tun_1') throw new Error('stop blew up');
+        stopped.push(sessionId);
+      },
+      readSession: () => READY_LOG,
+      urlPollMs: 5,
+    });
+    const first = await manager.start({ targetPort: 7410 });
+    const second = await manager.start({ targetPort: 7411 });
+
+    manager.stopAll();
+
+    // A failing stop converges to stopped and never blocks the other tunnels.
+    expect(stopped).toEqual(['proc_tun_2']);
+    expect(manager.get(first.id).state).toBe('stopped');
+    expect(manager.get(second.id).state).toBe('stopped');
+    manager.stopAll(); // idempotent: nothing left running
+    expect(stopped).toHaveLength(1);
+  });
 });

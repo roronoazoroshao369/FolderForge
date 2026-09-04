@@ -393,3 +393,61 @@ describe('folderforge doctor', () => {
     expect(output).toContain('Result: exit 0');
   });
 });
+
+describe('share/tunnel prerequisite checks', () => {
+  it('warns about missing cloudflared and passes the openai key check when unconfigured', async () => {
+    const root = tempProject();
+    const env = { ...process.env };
+    delete env.CONTROL_PLANE_API_KEY;
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      binaryProbe: () => false,
+      env,
+    });
+    const cloudflared = byId(report, 'share.cloudflared');
+    expect(cloudflared?.status).toBe('warn');
+    expect(cloudflared?.remediation).toContain('cloudflare');
+    const key = byId(report, 'share.openai-key');
+    expect(key?.status).toBe('pass');
+    expect(key?.summary).toContain('optional');
+  });
+
+  it('passes both checks when the binary and the env key exist', async () => {
+    const root = tempProject();
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      binaryProbe: () => true,
+      env: { ...process.env, CONTROL_PLANE_API_KEY: 'sk-test' },
+    });
+    expect(byId(report, 'share.cloudflared')?.status).toBe('pass');
+    const key = byId(report, 'share.openai-key');
+    expect(key?.status).toBe('pass');
+    expect(key?.evidence).toContain('CONTROL_PLANE_API_KEY');
+  });
+
+  it('warns when a saved tunnel config has no key source', async () => {
+    const root = tempProject();
+    mkdirSync(join(root, '.folderforge'), { recursive: true });
+    writeFileSync(
+      join(root, '.folderforge', 'openai-tunnel-config.json'),
+      JSON.stringify({
+        tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
+        apiKeyEnv: 'CONTROL_PLANE_API_KEY',
+        linkedAt: '',
+      }),
+    );
+    const env = { ...process.env };
+    delete env.CONTROL_PLANE_API_KEY;
+    const report = await runDoctor({
+      projectRoot: root,
+      portProbe: passingPortProbe,
+      binaryProbe: () => true,
+      env,
+    });
+    const key = byId(report, 'share.openai-key');
+    expect(key?.status).toBe('warn');
+    expect(key?.remediation).toContain('CONTROL_PLANE_API_KEY');
+  });
+});

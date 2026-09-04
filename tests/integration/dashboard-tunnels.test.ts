@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
@@ -71,5 +71,23 @@ describe('dashboard tunnel endpoints', () => {
       method: 'POST',
     });
     expect(stopUnknown.status).toBe(409);
+  });
+
+  it('refuses generic public tunnel exposure for a no-auth Fleet port', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const project = join(harness.root, 'no-auth-project');
+    mkdirSync(project);
+    const created = harness.container.fleet.create({ projectPath: project, authMode: 'none' });
+
+    const response = await fetch(`${harness.baseUrl}/tunnels`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ targetPort: created.instance.port }),
+    });
+    expect(response.status).toBe(409);
+    const body = await response.json() as { error?: string; message?: string };
+    expect(body.error).toBe('authentication_required');
+    expect(body.message).toContain(created.instance.id);
   });
 });

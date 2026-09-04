@@ -33,13 +33,18 @@
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /fleet` | List provisioned instances (no secret values, `secretRef` only). |
-| `POST /fleet` | Create an instance: `{ projectPath, toolsPreset?, policyMode?, port? }` -> `{ id, port, tokenPreview }`. `tokenPreview` is shown once at creation only. |
-| `GET /fleet/:id` | Instance detail: state, uptime, port, tunnel binding, last health check. |
-| `POST /fleet/:id/start` / `stop` | Lifecycle transitions (approval-gated). |
-| `POST /fleet/:id/rotate-token` | Rotate the instance credential; old value invalidated immediately. |
-| `GET /fleet/:id/logs?cursor=` | Bounded, redacted log tail with cursor pagination. |
-| `DELETE /fleet/:id` | Destroy after stop; removes state file; audit-recorded (CRITICAL). |
+| `GET /fleet` | List provisioned instances and non-secret auth/exposure metadata. Plaintext static credentials are never returned. |
+| `POST /fleet` | Create an instance: `{ projectPath, toolsPreset?, policyMode?, port?, authMode?, apiKey?, oauth? }`. `authMode` is `none|token|api-key|oauth`; generated token/API-key values are returned only on this issuing response. |
+| `GET /fleet/:id` | Instance detail: state, port, auth mode, tunnel binding, and last health information. |
+| `POST /fleet/:id/start` / `stop` / `restart` | Local Fleet lifecycle transitions (approval-gated). |
+| `POST /fleet/:id/auth` | Change auth mode. Switching to token/API-key issues a fresh credential exactly once; OAuth stores non-secret resource-server metadata. |
+| `POST /fleet/:id/rotate-token` | Backward-compatible bearer-token rotation. |
+| `POST /fleet/:id/rotate-credential` | Rotate the active token or API key and return the new credential exactly once. |
+| `POST /fleet/:id/tunnel` | Expose a running authenticated Fleet instance through Cloudflare. `authMode=none` is rejected. |
+| `POST /fleet/:id/openai-tunnel/start` | Start the existing `connect chatgpt --openai-tunnel` supervisor with `{ tunnelId, apiKeyEnv?, oauth? }`. Only the environment-variable name is accepted; the OpenAI API-key value never crosses this API. |
+| `POST /fleet/:id/openai-tunnel/stop` | Stop the supervised OpenAI Secure MCP Tunnel lifecycle. |
+| `GET /fleet/:id/openai-tunnel/logs` | Redacted OpenAI tunnel supervisor output. |
+| `GET /fleet/:id/logs` | Bounded, redacted local Fleet process output. |
 
 Instance state machine: `stopped -> starting -> running -> stopping -> stopped`,
 plus `failed` with `lastError`. Every transition is an audit event.
