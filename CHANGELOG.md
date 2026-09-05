@@ -25,6 +25,15 @@ semantic versioning.
   leave orphaned grandchildren holding stdio pipes open. Sync behavior, the run
   persistence schema, per-action classification (plan/status/list read-only;
   run/cancel MEDIUM mutating), and the tool schema lock are unchanged.
+- Fleet instances gain an opt-in `allowCriticalInDanger` escape hatch
+  (proposal 005): `provision_create`/`provision_update` accept the flag and the
+  spawned child receives `--dangerously-allow-critical` only when the instance
+  runs with `policyMode "danger"`, letting it execute CRITICAL tools without
+  per-call approval. The flag is rejected on any other policy mode and is
+  dropped automatically when an instance leaves `danger`; the dashboard policy
+  route applies both fields in one call, and the Mission Control SPA shows a
+  warning toggle (danger only) plus a persistent card badge. Default off;
+  schema lock, risk classes, and the policy engine are unchanged.
 
 ### Fixed
 

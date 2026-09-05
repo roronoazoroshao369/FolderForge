@@ -79,6 +79,12 @@ export interface FleetInstance {
   port: number;
   toolsPreset: string;
   policyMode: string;
+  /**
+   * Opt-in escape hatch: only valid with policyMode "danger". When set, the
+   * spawned instance runs CRITICAL tools without per-call approval. Absent =
+   * off; dropped automatically when the policy mode leaves danger.
+   */
+  allowCriticalInDanger?: boolean;
   /** Operator-facing auth mode. `api-key` maps to core static-token auth + apiKeys. */
   authMode: FleetAuthMode;
   /** Non-secret OAuth resource-server configuration. */
@@ -420,6 +426,8 @@ export class FleetManager {
     port?: number;
     toolsPreset?: string;
     policyMode?: string;
+    /** Opt-in: allow CRITICAL tools without approval on the instance. Requires policyMode "danger". */
+    allowCriticalInDanger?: boolean;
     authMode?: FleetAuthMode;
     apiKey?: string;
     oauth?: Partial<FleetOAuthConfig>;
@@ -444,6 +452,9 @@ export class FleetManager {
     const policyMode = input.policyMode ?? 'dev';
     if (!(FLEET_POLICY_MODES as readonly string[]).includes(policyMode)) {
       throw new Error(`Unknown policy mode: ${policyMode} (allowed: ${FLEET_POLICY_MODES.join(', ')})`);
+    }
+    if (input.allowCriticalInDanger === true && policyMode !== 'danger') {
+      throw new Error('allowCriticalInDanger requires policyMode "danger".');
     }
     const authMode = input.authMode ?? 'token';
     if (!(FLEET_AUTH_MODES as readonly string[]).includes(authMode)) {
@@ -473,6 +484,7 @@ export class FleetManager {
       port,
       toolsPreset,
       policyMode,
+      ...(input.allowCriticalInDanger === true ? { allowCriticalInDanger: true } : {}),
       authMode,
       ...(oauth ? { oauth } : {}),
       ...(credential ? { tokenSha256: sha256(credential) } : {}),
@@ -826,6 +838,30 @@ export class FleetManager {
     }
     const record = this.mutable(id);
     record.policyMode = mode;
+    if (mode !== 'danger') {
+      // The escape hatch is only meaningful for danger mode: never let a
+      // stale flag survive a mode switch.
+      delete record.allowCriticalInDanger;
+    }
+    this.touch(record);
+    this.persist();
+    return cloneInstance(record);
+  }
+
+  /**
+   * Opt-in escape hatch toggle: allow CRITICAL tools without per-call
+   * approval on this instance. Only valid while policyMode is "danger".
+   */
+  setAllowCriticalInDanger(id: string, allow: boolean): FleetInstance {
+    const record = this.mutable(id);
+    if (allow && record.policyMode !== 'danger') {
+      throw new Error('allowCriticalInDanger requires policyMode "danger".');
+    }
+    if (allow) {
+      record.allowCriticalInDanger = true;
+    } else {
+      delete record.allowCriticalInDanger;
+    }
     this.touch(record);
     this.persist();
     return cloneInstance(record);
@@ -1082,6 +1118,11 @@ export class FleetManager {
       record.policyMode,
       '--tools-preset',
       record.toolsPreset,
+      // Opt-in escape hatch: only ever emitted together with --policy danger,
+      // mirroring the CLI guard in main.ts.
+      ...(record.policyMode === 'danger' && record.allowCriticalInDanger === true
+        ? ['--dangerously-allow-critical']
+        : []),
     ].join(' ');
   }
 
@@ -1106,6 +1147,9 @@ export class FleetManager {
       record.policyMode,
       '--tools-preset',
       record.toolsPreset,
+      ...(record.policyMode === 'danger' && record.allowCriticalInDanger === true
+        ? ['--dangerously-allow-critical']
+        : []),
       tunnel.oauth ? '--oauth' : '--no-oauth',
     ].join(' ');
   }

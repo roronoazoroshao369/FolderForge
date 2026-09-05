@@ -30,6 +30,11 @@ public bind). Read fully before the first exposure.
 
 ## Operating rules
 
+- Never set the fleet `allowCriticalInDanger` escape hatch on a
+  tunnel-exposed or otherwise public instance. It exists for isolated,
+  loopback-only instances whose operator deliberately runs `danger` without
+  per-call CRITICAL approval; combined with exposure it removes the last
+  approval gate.
 - Rotate fleet tokens on suspicion or schedule; rotation restarts the
   instance (`restartRequired`).
 - Keep auto-restart on for long-lived fleet instances, but treat repeated

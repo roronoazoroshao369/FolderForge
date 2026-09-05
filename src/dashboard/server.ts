@@ -95,7 +95,7 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fleet/:id/start|stop|restart -> local instance lifecycle (governed via provision_* tools)
  *   POST /fleet/:id/auto-restart   -> toggle auto-restart (body: { enabled: boolean })
  *   POST /fleet/:id/preset         -> change tool preset (body: { toolsPreset }); applies on next start
- *   POST /fleet/:id/policy         -> change policy mode (body: { policyMode }); applies on next start
+ *   POST /fleet/:id/policy         -> change policy mode (+ optional allowCriticalInDanger escape hatch, danger only); applies on next start
  *   POST /fleet/:id/auth           -> change authentication mode; static credentials returned once
  *   POST /fleet/:id/rotate-token|rotate-credential -> rotate static credentials (HIGH; returned once)
  *   POST /fleet/:id/tunnel         -> expose an authenticated running instance via Cloudflare (HIGH)
@@ -1485,6 +1485,9 @@ async function handle(
     const result = await runOperatorTool(registry, container, principal, "provision_update", {
       id,
       policyMode: String(body?.policyMode ?? ""),
+      ...(typeof body?.allowCriticalInDanger === "boolean"
+        ? { allowCriticalInDanger: body.allowCriticalInDanger }
+        : {}),
     });
     return sendJson(res, result.ok ? 200 : 409, result);
   }

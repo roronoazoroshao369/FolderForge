@@ -351,6 +351,12 @@ export function FleetScreen() {
                     <span className="text-muted">Authentication</span><Code>{authLabel(instance.authMode)}</Code>
                     <span className="text-muted">Tool preset</span><Code>{instance.toolsPreset}</Code>
                     <span className="text-muted">Policy mode</span><Code>{instance.policyMode}</Code>
+                    {instance.allowCriticalInDanger ? (
+                      <>
+                        <span className="text-muted">CRITICAL tools</span>
+                        <span className="text-warn font-medium">allowed without approval</span>
+                      </>
+                    ) : null}
                     <span className="text-muted">Auto-restart</span>
                     <Button
                       size="sm"
@@ -515,10 +521,19 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
   const action = useAction();
   const [preset, setPreset] = useState(props.instance.toolsPreset);
   const [policy, setPolicy] = useState(props.instance.policyMode);
+  const [allowCritical, setAllowCritical] = useState(props.instance.allowCriticalInDanger === true);
   const save = async () => {
     const id = encodeURIComponent(props.instance.id);
     if (preset !== props.instance.toolsPreset && !(await action.run(`/fleet/${id}/preset`, { toolsPreset: preset }))) return;
-    if (policy !== props.instance.policyMode && !(await action.run(`/fleet/${id}/policy`, { policyMode: policy }))) return;
+    const flagChanged = allowCritical !== (props.instance.allowCriticalInDanger === true);
+    if (
+      (policy !== props.instance.policyMode || flagChanged) &&
+      !(await action.run(`/fleet/${id}/policy`, {
+        policyMode: policy,
+        ...(flagChanged ? { allowCriticalInDanger: allowCritical } : {}),
+      }))
+    )
+      return;
     toast('success', `${props.instance.id} updated — restart to apply`);
     props.onSaved();
   };
@@ -527,6 +542,22 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
       <div className="grid gap-3">
         <Field label="Tool preset"><Select value={preset} onChange={(event) => setPreset(event.target.value)}>{PRESETS.map((value) => <option key={value}>{value}</option>)}</Select></Field>
         <Field label="Policy mode"><Select value={policy} onChange={(event) => setPolicy(event.target.value)}>{POLICIES.map((value) => <option key={value}>{value}</option>)}</Select></Field>
+        {policy === 'danger' ? (
+          <Field label="Allow CRITICAL tools">
+            <Button
+              size="sm"
+              variant={allowCritical ? 'primary' : 'ghost'}
+              className="w-fit"
+              aria-label="Allow CRITICAL tools without approval"
+              onClick={() => setAllowCritical(!allowCritical)}
+            >
+              {allowCritical ? 'on' : 'off'}
+            </Button>
+          </Field>
+        ) : null}
+        {policy === 'danger' && allowCritical ? (
+          <Banner tone="warn">CRITICAL actions (e.g. git push, destructive shell) will run WITHOUT approval on this instance. Only enable on isolated, trusted projects.</Banner>
+        ) : null}
         <Banner tone="info">Preset and policy changes apply on the next local start/restart and on future OpenAI Tunnel launches.</Banner>
         <ErrorNote message={action.error} />
         <div className="flex justify-end gap-2"><Button variant="ghost" onClick={props.onClose}>Cancel</Button><Button variant="primary" busy={action.busy} onClick={() => void save()}>Save changes</Button></div>
