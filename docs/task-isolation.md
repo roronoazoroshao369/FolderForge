@@ -32,6 +32,62 @@ rollback, and discard calls are routed through the shared registry. In safe/dev 
 explicit dashboard action resolves the exact operator-action approval before the
 retry executes.
 
+## Reading status: task delta is not working-tree dirtiness
+
+`isolation_status` preserves its legacy `clean`, `changed`, `untracked` and
+`conflicts` fields. `changed` compares tracked files with the recorded task
+base, not the current HEAD. Legacy `clean` means that this base-relative change
+set, untracked paths and conflicts are empty. A committed task can therefore
+have `clean: false` while its Git working tree is clean.
+
+Use the additive fields to avoid ambiguity:
+
+- `comparison.target`: `worktree` for `isolation_status`; `source` for the
+  status returned by operator apply/rollback.
+- `comparison.baseCommit`: the reference used for legacy `changed`/`clean`;
+  task `baseCommit` for worktree, recorded `sourceHead` for source.
+- `workingTree.headCommit`: the HEAD observed for that target.
+- `workingTree.clean`: true only when staged, unstaged, untracked and conflict
+  path inventories are all empty.
+- `workingTree.staged`: index versus the observed HEAD.
+- `workingTree.unstaged`: working files versus index.
+- `workingTree.untracked` and `workingTree.conflicts`: current Git inventories.
+
+For example, after committing `file.txt` on a task branch:
+
+```json
+{
+  "clean": false,
+  "changed": ["file.txt"],
+  "untracked": [],
+  "conflicts": [],
+  "comparison": { "target": "worktree", "baseCommit": "<task-base>" },
+  "workingTree": {
+    "headCommit": "<task-head>",
+    "clean": true,
+    "staged": [],
+    "unstaged": [],
+    "untracked": [],
+    "conflicts": []
+  }
+}
+```
+
+Conversely, a staged edit followed by restoring the working file to HEAD can
+produce legacy `clean: true` with `workingTree.clean: false`: the staged and
+unstaged changes cancel in the net diff but both still exist.
+
+`isolation_diff` remains a binary patch against the task base, including
+committed task changes. `isolation.sourceDirty` describes the source **at task
+creation**, not current dirty state. Lifecycle `active` is independent of Git
+cleanliness and does not prove that task commits are unmerged.
+
+Paths are NUL-delimited when read from Git, so spaces and Unicode are retained;
+ignored files are excluded. The response is an observational, multi-command
+snapshot, not an atomic transaction or authorization to apply/discard. Errors
+are reported rather than converted to a clean result. Mutation-time identity,
+source-drift, journal and approval checks remain mandatory and unchanged.
+
 ## Storage and identity
 
 Worktrees are placed below the repository's Git common directory:

@@ -6,6 +6,14 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Isolation status now separates legacy base-relative task delta from current
+  HEAD-relative working-tree dirtiness through additive `comparison` and
+  `workingTree` fields, including staged, unstaged, untracked and conflict paths.
+  Apply/rollback results explicitly identify source snapshots. Existing status
+  fields, tool inputs, risk/authority, lifecycle and persisted state are unchanged.
+
 ## [2.8.1] - 2026-09-05
 
 ### Added

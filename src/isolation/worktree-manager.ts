@@ -47,12 +47,25 @@ export interface WorktreeIsolation {
   discardedAt?: string;
 }
 
+export interface WorkingTreeStatus {
+  headCommit: string;
+  clean: boolean;
+  staged: string[];
+  unstaged: string[];
+  untracked: string[];
+  conflicts: string[];
+}
+
 export interface WorktreeStatus {
   isolation: WorktreeIsolation;
+  /** Legacy task/source delta against comparison.baseCommit, NOT HEAD dirtiness. */
   clean: boolean;
   changed: string[];
   untracked: string[];
   conflicts: string[];
+  comparison: { target: 'worktree' | 'source'; baseCommit: string };
+  /** Observational only; never a replacement for mutation-time revalidation. */
+  workingTree: WorkingTreeStatus;
 }
 
 export interface WorktreeManagerHooks {
@@ -95,6 +108,25 @@ function cloneIsolation(value: WorktreeIsolation): WorktreeIsolation {
 
 function splitNul(value: string): string[] {
   return value.split('\0').filter(Boolean);
+}
+
+/** Read-only diagnostic snapshot; separate index and worktree deltas cannot cancel. */
+function workingTreeStatus(root: string): WorkingTreeStatus {
+  const read = (args: string[]): string => git(root, ['--no-optional-locks', ...args]);
+  const headCommit = read(['rev-parse', 'HEAD']).trim();
+  const diffArgs = ['diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=none'];
+  const staged = splitNul(read([...diffArgs, '--cached', '--name-only', '-z', headCommit, '--']));
+  const unstaged = splitNul(read([...diffArgs, '--name-only', '-z', '--']));
+  const untracked = splitNul(read(['ls-files', '--others', '--exclude-standard', '-z']));
+  const conflicts = splitNul(read([...diffArgs, '--name-only', '--diff-filter=U', '-z', '--']));
+  return {
+    headCommit,
+    clean: staged.length === 0 && unstaged.length === 0 && untracked.length === 0 && conflicts.length === 0,
+    staged,
+    unstaged,
+    untracked,
+    conflicts,
+  };
 }
 
 function isolationDigest(isolations: WorktreeIsolation[]): string {
@@ -296,6 +328,8 @@ export class WorktreeManager {
       changed,
       untracked,
       conflicts,
+      comparison: { target: 'worktree', baseCommit: isolation.baseCommit },
+      workingTree: workingTreeStatus(isolation.worktreeRoot),
     };
   }
 
@@ -518,6 +552,8 @@ export class WorktreeManager {
       changed,
       untracked,
       conflicts: [],
+      comparison: { target: 'source', baseCommit: isolation.sourceHead },
+      workingTree: workingTreeStatus(isolation.sourceRoot),
     };
   }
 

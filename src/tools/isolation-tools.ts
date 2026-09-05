@@ -49,7 +49,7 @@ export function isolationTools(): ToolDefinition[] {
     }),
     defineTool({
       name: 'isolation_status',
-      description: 'Inspect changed, untracked, and conflicted paths in a managed task worktree.',
+      description: 'Compare task changes since baseCommit and report workingTree.clean plus staged/unstaged paths for current HEAD-relative dirtiness. Legacy clean is base-relative, not uncommitted state.',
       group: 'workspace',
       mutates: false,
       risk: 'LOW',
@@ -66,7 +66,7 @@ export function isolationTools(): ToolDefinition[] {
     }),
     defineTool({
       name: 'isolation_diff',
-      description: 'Return the binary-safe tracked diff and untracked path inventory for review.',
+      description: 'Return the binary-safe tracked diff since task baseCommit (including committed task changes) and untracked path inventory for review.',
       group: 'workspace',
       mutates: false,
       risk: 'LOW',
