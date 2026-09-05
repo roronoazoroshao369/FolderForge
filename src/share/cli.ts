@@ -7,6 +7,7 @@
  *   folderforge share                              # auto tunnel (cloudflare when available)
  *   folderforge share --tunnel none                # loopback only
  *   folderforge share --tunnel openai              # OpenAI Secure MCP Tunnel supervisor
+ *   folderforge share --tunnel cloudflare --named trial-mcp.example.com  # stable named tunnel
  *   folderforge share --auth token|oauth           # token is the self-contained default
  *   folderforge share --ttl 30                     # auto-teardown after 30 minutes (default 120)
  *   folderforge share --json                       # machine-readable ready/ended events
@@ -27,6 +28,8 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ENV_NAME_PATTERN, TUNNEL_ID_PATTERN } from '../chatgpt/openai-tunnel.js';
+import { loadCloudflareConfig } from '../cloudflare/config-store.js';
+import { makeCloudflareClient } from '../cloudflare/api-client.js';
 import { terminateChildProcessTree } from '../core/process-tree.js';
 import { readFolderForgeVersion } from '../core/version.js';
 import {
@@ -84,10 +87,12 @@ export interface ShareDeps {
     auth: ShareAuthMode;
     toolsPreset?: string;
   }) => Promise<ShareServerHandle>;
-  /** Start a Cloudflare quick tunnel; resolves with the public URL + stop. */
+  /** Start a Cloudflare tunnel (quick by default, named when `named` is set); resolves with the public URL + stop. */
   startCloudflareTunnel: (input: {
     targetPort: number;
     projectRoot: string;
+    /** Named tunnel hostname — stable across restarts; needs a linked Cloudflare account. */
+    named?: string;
   }) => Promise<{ publicUrl: string; stop: () => Promise<void> }>;
   /** Spawn the OpenAI tunnel supervisor as a managed foreground child. */
   spawnOpenAiSupervisor: (input: ShareOpenAiSupervisorInput) => {
@@ -105,6 +110,8 @@ interface ShareOptions {
   tunnel: ShareTunnelMode | null;
   auth: ShareAuthMode;
   tunnelId?: string;
+  /** Stable named-tunnel hostname for --tunnel cloudflare. */
+  named?: string;
   toolsPreset?: string;
   ttlMinutes: number;
   json: boolean;
@@ -125,6 +132,7 @@ export function shareHelp(): string {
     '',
     'Options:',
     '  --tunnel <mode>    openai | cloudflare | none (default: cloudflare when the binary exists, else none)',
+    '  --named <host>     With --tunnel cloudflare: stable named tunnel on this hostname (linked Cloudflare account)',
     '  --auth <mode>      token | oauth (default: token; oauth reuses the project\'s OAuth configuration)',
     '  --tunnel-id <id>   tunnel_<32 lowercase hex> for --tunnel openai (not persisted)',
     '  --tools-preset <i> Tool preset for the share server (default: vibe; adaptive gives a small core + gateway)',
@@ -145,6 +153,7 @@ function parseShareArgs(argv: string[]): ShareOptions {
   let tunnel: ShareTunnelMode | null = null;
   let auth: ShareAuthMode = 'token';
   let tunnelId: string | undefined;
+  let named: string | undefined;
   let toolsPreset: string | undefined;
   let ttlMinutes = DEFAULT_TTL_MINUTES;
   let json = false;
@@ -185,6 +194,14 @@ function parseShareArgs(argv: string[]): ShareOptions {
         tunnelId = v;
         break;
       }
+      case '--named': {
+        const v = argv[++i];
+        if (v === undefined || !v.trim()) {
+          throw new Error('--named requires a hostname (e.g. trial-mcp.example.com)');
+        }
+        named = v.trim();
+        break;
+      }
       case '--tools-preset': {
         const v = argv[++i];
         if (v === undefined || v.startsWith('-')) {
@@ -217,11 +234,15 @@ function parseShareArgs(argv: string[]): ShareOptions {
   if (tunnelId !== undefined && tunnel !== 'openai') {
     throw new Error('--tunnel-id requires --tunnel openai');
   }
+  if (named !== undefined && tunnel !== null && tunnel !== 'cloudflare') {
+    throw new Error('--named only applies to --tunnel cloudflare');
+  }
   return {
     projectRoot: resolve(projectRoot ?? process.cwd()),
     tunnel,
     auth,
     ...(tunnelId !== undefined ? { tunnelId } : {}),
+    ...(named !== undefined ? { named } : {}),
     ...(toolsPreset !== undefined ? { toolsPreset } : {}),
     ttlMinutes,
     json,
@@ -322,10 +343,17 @@ async function defaultStartServer(
   };
 }
 
-/** Default Cloudflare quick tunnel through the shared Tunnel/Process managers. */
+/**
+ * Default Cloudflare tunnel through the shared Tunnel/Process managers: a
+ * quick tunnel by default, or a stable named tunnel (hostname under the
+ * linked account's zone) when `named` is set. Named-tunnel Cloudflare
+ * resources persist so the hostname survives future sessions; teardown stops
+ * the local cloudflared process.
+ */
 async function defaultStartCloudflareTunnel(input: {
   targetPort: number;
   projectRoot: string;
+  named?: string;
 }): Promise<{ publicUrl: string; stop: () => Promise<void> }> {
   const config = loadConfig({ projectRoot: input.projectRoot });
   const processes = new ProcessManager();
@@ -334,8 +362,23 @@ async function defaultStartCloudflareTunnel(input: {
     stopSession: (sessionId) => processes.stop(sessionId),
     readSession: (sessionId) => processes.read(sessionId).output,
     onExit: (sessionId, listener) => processes.onExit(sessionId, listener),
+    ...(input.named !== undefined
+      ? {
+          cloudflare: {
+            loadConfig: () => loadCloudflareConfig(input.projectRoot),
+            makeClient: (apiToken: string) => makeCloudflareClient(apiToken),
+          },
+        }
+      : {}),
   });
-  const record = await tunnels.start({ targetPort: input.targetPort, actor: 'share' });
+  const record =
+    input.named !== undefined
+      ? await tunnels.startNamed({
+          targetPort: input.targetPort,
+          hostname: input.named,
+          actor: 'share',
+        })
+      : await tunnels.start({ targetPort: input.targetPort, actor: 'share' });
   if (!record.publicUrl) {
     tunnels.stopAll();
     await processes.stopAllAndWait(1_500);
@@ -550,6 +593,13 @@ export async function executeShareCli(
   }
 
   const tunnelMode = options.tunnel ?? (deps.hasCloudflared() ? 'cloudflare' : 'none');
+  if (options.named !== undefined && tunnelMode !== 'cloudflare') {
+    return fail(
+      '--named needs a named Cloudflare tunnel, but the tunnel mode resolved to ' +
+        `"${tunnelMode}". Install cloudflared and link a Cloudflare account ` +
+        '(Mission Control → Settings → Cloudflare), or drop --named for a quick tunnel.\n',
+    );
+  }
   const token = randomBytes(32).toString('base64url');
 
   let server: ShareServerHandle;
@@ -579,7 +629,11 @@ export async function executeShareCli(
       );
     }
     try {
-      const tunnel = await deps.startCloudflareTunnel({ targetPort: server.port, projectRoot });
+      const tunnel = await deps.startCloudflareTunnel({
+        targetPort: server.port,
+        projectRoot,
+        ...(options.named !== undefined ? { named: options.named } : {}),
+      });
       tunnelUrl = tunnel.publicUrl;
       stopTunnel = tunnel.stop;
     } catch (error) {

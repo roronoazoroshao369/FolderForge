@@ -6,10 +6,19 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-09-05
+
+### Added
+
+- `examples/content-mcp/`: a folder-first content-studio MCP example — an AI agent manages markdown drafts in a folder and publishes approved posts to Facebook Pages and YouTube (status-gated, credentials via environment only) — the reference pattern for an AI-managed content pipeline under FolderForge governance.
+- `folderforge share --tunnel cloudflare --named <hostname>`: run the trial on a stable named tunnel (hostname under the linked Cloudflare account's zone) instead of an ephemeral quick tunnel, so the same URL survives across sessions; Cloudflare-side resources persist while teardown stops the local cloudflared process.
+- `tool_manifest` accepts `names: string[]` (max 50) to describe several tools in one batch call.
+
 ### Fixed
 
 - Mission Control no longer hangs on large audit stores: `FileAuditStore.append` previously re-read and re-verified the entire hash chain on every write — O(chain size) per event, so a ~64 MB chain cost seconds of synchronous CPU per append while holding the writer lock (whose waiters sleep synchronously on the event loop), starving the dashboard HTTP server (Workspaces screen stuck skeleton-loading, control plane pegged at ~100% CPU). Appends now cache the chain tail and re-parse only when the file changed externally (size/mtime), keeping steady-state appends O(1) while preserving append-time integrity checks after external writes.
 - Fleet early-exit surfacing: when an instance child dies during startup, Mission Control now shows the child's fatal startup reason (e.g. the unauthenticated-tunnel refusal while a cloudflared client is running on the host) instead of a bare "Process exited unexpectedly.".
+- Audit chains now rotate by size: once the live `audit.v2.jsonl` exceeds 32 MB (configurable via the FileAuditStore `maxFileBytes` option), it is renamed aside under the writer lock and the next append starts a fresh chain, so a long-lived control plane never accumulates a chain too large to append to or verify; rotated archives are kept (never deleted) and remain verifiable standalone.
 
 ## [2.8.0] - 2026-09-04
 

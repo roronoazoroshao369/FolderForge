@@ -412,4 +412,36 @@ describe('folderforge share', () => {
     expect(bad.exitCode).toBe(2);
     expect(bad.output).toContain('--ttl requires a non-negative number');
   });
+
+  it('--tunnel cloudflare --named runs a stable named tunnel on the hostname', async () => {
+    const root = project();
+    const namedInputs: Array<{ targetPort: number; named?: string }> = [];
+    const harness = makeDeps({
+      startCloudflareTunnel: async (input) => {
+        namedInputs.push(input);
+        return { publicUrl: 'https://trial-mcp.example.com', stop: async () => undefined };
+      },
+    });
+    const result = await runUntilStop(harness, [
+      '--tunnel',
+      'cloudflare',
+      '--named',
+      'trial-mcp.example.com',
+      '--project',
+      root,
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(namedInputs[0]).toMatchObject({ named: 'trial-mcp.example.com' });
+    expect(harness.written.join('')).toContain('MCP URL: https://trial-mcp.example.com/mcp');
+  });
+
+  it('--named conflicts with non-cloudflare tunnel modes at parse time', async () => {
+    const harness = makeDeps();
+    const bad = await executeShareCli(
+      ['--tunnel', 'none', '--named', 'trial-mcp.example.com', '--project', project()],
+      harness.deps,
+    );
+    expect(bad.exitCode).toBe(2);
+    expect(bad.output).toContain('--named only applies to --tunnel cloudflare');
+  });
 });

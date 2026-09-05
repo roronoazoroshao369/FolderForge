@@ -2,6 +2,7 @@ import {
   appendFileSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -99,6 +100,40 @@ describe('FileAuditStore append tail cache', () => {
 
     const next = store.append(event(2), { required: false });
     expect(next.sequence).toBe(1);
+    expect(store.verify().ok).toBe(true);
+  });
+});
+
+describe('FileAuditStore size-based rotation', () => {
+  it('rotates the live chain aside once it exceeds the size budget and starts fresh', () => {
+    const dir = root();
+    let tick = 1_700_000_000_000;
+    const store = new FileAuditStore(dir, { maxFileBytes: 200, now: () => (tick += 1_000) });
+
+    store.append(event(1), { required: false }); // live chain now exceeds 200 bytes
+    const second = store.append(event(2), { required: false }); // rotates first, then appends
+    expect(second.sequence).toBe(1);
+
+    const third = store.append(event(3), { required: false }); // exceeds budget again -> second archive
+    expect(third.sequence).toBe(1);
+
+    const files = readdirSync(join(dir, '.folderforge', 'audit')).sort();
+    const archives = files.filter((name) => /^audit\.v2\.\d{4}-/.test(name));
+    expect(archives.length).toBeGreaterThanOrEqual(2);
+    expect(files).toContain('audit.v2.jsonl');
+    expect(store.verify().ok).toBe(true);
+  });
+
+  it('never rotates while the live chain is within budget', () => {
+    const dir = root();
+    const store = new FileAuditStore(dir, { maxFileBytes: 1_000_000 });
+    store.append(event(1), { required: false });
+    store.append(event(2), { required: false });
+    const third = store.append(event(3), { required: false });
+
+    expect(third.sequence).toBe(3);
+    const files = readdirSync(join(dir, '.folderforge', 'audit'));
+    expect(files.filter((name) => /^audit\.v2\.\d{4}-/.test(name))).toHaveLength(0);
     expect(store.verify().ok).toBe(true);
   });
 });

@@ -124,6 +124,15 @@ describe('FleetManager', () => {
     expect(calls).toContain('stop proc_stub_1');
   });
 
+  it('spawns instance children with cwd pinned to the instance project path', () => {
+    const { root, project } = fixture();
+    const calls: string[] = [];
+    const fleet = new FleetManager(root, { mainJs: HERE, spawn: stubSpawner(calls) });
+    const { instance } = fleet.create({ projectPath: project });
+    fleet.start(instance.id);
+    expect(calls[0]).toContain(`@ ${project}`);
+  });
+
   it('marks the instance failed when spawning fails', () => {
     const { root, project } = fixture();
     const fleet = new FleetManager(root, {

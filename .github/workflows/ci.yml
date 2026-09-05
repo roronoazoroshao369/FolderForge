@@ -52,6 +52,9 @@ jobs:
       - name: Documentation and version checks
         run: npm run docs:check
 
+      - name: Fleet reconnect recovery (orphan reaping, lease fencing)
+        run: npx vitest run tests/unit/provisioner.test.ts
+
       - name: Audit durability failure injection
         if: matrix.os == 'ubuntu-latest' && matrix.node == 22
         run: |

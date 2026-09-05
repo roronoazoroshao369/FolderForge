@@ -56,6 +56,7 @@ folderforge share --tunnel none            # loopback only
 folderforge share --tunnel openai          # OpenAI Secure MCP Tunnel (ChatGPT)
 folderforge share --auth token             # default; oauth reuses project OAuth config
 folderforge share --ttl 30                 # auto-teardown after 30 minutes (default 120; 0 disables)
+folderforge share --tunnel cloudflare --named trial-mcp.example.com  # stable named tunnel (linked Cloudflare account)
 folderforge share --json                   # machine-readable share.ready/ended/error lines
 ```
 

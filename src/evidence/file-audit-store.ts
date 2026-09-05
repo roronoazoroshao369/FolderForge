@@ -7,6 +7,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -29,6 +30,8 @@ import type {
 const LOCK_TIMEOUT_MS = 5_000;
 const LOCK_STALE_MS = 30_000;
 const LOCK_RETRY_MS = 10;
+/** Size budget for the live chain; older segments are rotated aside, never deleted. */
+const DEFAULT_MAX_AUDIT_FILE_BYTES = 32 * 1024 * 1024;
 
 export interface AuditFileSystem {
   appendFileSync: typeof appendFileSync;
@@ -39,6 +42,7 @@ export interface AuditFileSystem {
   mkdirSync: typeof mkdirSync;
   openSync: typeof openSync;
   readFileSync: typeof readFileSync;
+  renameSync: typeof renameSync;
   statSync: typeof statSync;
   unlinkSync: typeof unlinkSync;
   writeFileSync: typeof writeFileSync;
@@ -54,6 +58,7 @@ const NODE_FILE_SYSTEM: AuditFileSystem = {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -65,6 +70,8 @@ export interface FileAuditStoreOptions {
   signer?: AuditSigner;
   now?: () => number;
   lockTimeoutMs?: number;
+  /** Rotate the live chain once it exceeds this size in bytes (default 32 MB). */
+  maxFileBytes?: number;
 }
 
 export class FileAuditStore implements AuditStore {
@@ -74,6 +81,7 @@ export class FileAuditStore implements AuditStore {
   private readonly signer: AuditSigner | undefined;
   private readonly now: () => number;
   private readonly lockTimeoutMs: number;
+  private readonly maxFileBytes: number;
   private tailCache:
     | { sequence: number; recordHash: string | null; size: number; mtimeMs: number }
     | undefined;
@@ -85,6 +93,7 @@ export class FileAuditStore implements AuditStore {
     this.signer = options.signer;
     this.now = options.now ?? Date.now;
     this.lockTimeoutMs = options.lockTimeoutMs ?? LOCK_TIMEOUT_MS;
+    this.maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_AUDIT_FILE_BYTES;
   }
 
   preflight(required: boolean): void {
@@ -116,6 +125,7 @@ export class FileAuditStore implements AuditStore {
   append(event: AuditEvent, options: AuditAppendOptions): AuditEnvelopeV2 {
     const release = this.acquireLock();
     try {
+      this.rotateIfOversized();
       const tail = this.readTailForAppend();
       const envelope = createAuditEnvelope(
         event,
@@ -185,6 +195,27 @@ export class FileAuditStore implements AuditStore {
       mtimeMs: stat.mtimeMs,
     };
     return { sequence: this.tailCache.sequence, recordHash: this.tailCache.recordHash };
+  }
+
+  /**
+   * Rotates the live chain once it exceeds the configured size budget, so a
+   * long-lived plane never accumulates a chain too large to work with. The
+   * current file is renamed aside (never deleted) and the next append starts a
+   * fresh chain; rotated archives remain verifiable standalone. Runs under the
+   * writer lock, so concurrent writers cannot race the rename.
+   */
+  private rotateIfOversized(): void {
+    let stat: ReturnType<AuditFileSystem['statSync']>;
+    try {
+      stat = this.fs.statSync(this.filePath);
+    } catch {
+      return; // No live chain yet — nothing to rotate.
+    }
+    if (stat.size <= this.maxFileBytes) return;
+    const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, '-');
+    const rotated = this.filePath.replace(/audit\.v2\.jsonl$/, `audit.v2.${stamp}.jsonl`);
+    this.fs.renameSync(this.filePath, rotated);
+    this.tailCache = undefined;
   }
 
   verify(): AuditVerificationReport {

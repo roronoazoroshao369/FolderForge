@@ -212,6 +212,28 @@ describe('adaptive surface — tool_manifest (unit)', () => {
     const unnamed = await registry.call('tool_manifest', { name: '' });
     expect(unnamed.ok).toBe(false);
   });
+
+  it('describes several tools in one batch call via names[]', async () => {
+    const registry = new ToolRegistry(fakeContainer() as never);
+    registry.register(stubTool('visible_tool', 'file'));
+    registry.register(stubTool('hidden_tool', 'security'));
+    registry.registerAll(buildGatewayTools(registry));
+    registry.setActive(['visible_tool', 'call_runtime_tool', 'tool_manifest']);
+
+    const batch = await registry.call('tool_manifest', {
+      names: ['visible_tool', 'hidden_tool', 'nope'],
+    });
+    expect(batch.ok).toBe(true);
+    const manifests = (batch.data as { manifests: Array<Record<string, unknown>> }).manifests;
+    expect(manifests).toHaveLength(3);
+    expect(manifests[0]).toMatchObject({ name: 'visible_tool', availability: 'direct' });
+    expect(manifests[1]).toMatchObject({
+      name: 'hidden_tool',
+      availability: 'gateway',
+      gatewayTool: 'call_runtime_tool',
+    });
+    expect(manifests[2]).toMatchObject({ name: 'nope', availability: 'unavailable' });
+  });
 });
 
 // --- Wire-level: real Container + real MCP server over in-memory transport ---

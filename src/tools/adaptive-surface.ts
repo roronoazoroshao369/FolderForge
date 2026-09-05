@@ -186,13 +186,19 @@ export function buildGatewayTools(registry: ToolRegistry): ToolDefinition[] {
       'group, risk/mutates, output-schema presence, and current routing ' +
       "(`availability`: 'direct' when listed, 'gateway' when callable only via " +
       `${GATEWAY_CALL_TOOL}, 'unavailable' otherwise). Describes invocation ` +
-      'routing, not authorization.',
+      'routing, not authorization. Accepts "names" (array, max 50) to describe ' +
+      'several tools in one call.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Tool name to describe.' },
+        names: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Batch mode: describe several tools in one call (max 50).',
+        },
       },
-      required: ['name'],
+      required: [],
       additionalProperties: false,
     },
     outputSchema: {
@@ -207,18 +213,14 @@ export function buildGatewayTools(registry: ToolRegistry): ToolDefinition[] {
     mutates: false,
     risk: 'LOW',
     handler: async (args): Promise<ToolResult> => {
-      const name = typeof args.name === 'string' ? args.name.trim() : '';
-      if (!name) {
-        return { ok: false, error: `${GATEWAY_MANIFEST_TOOL}: "name" is required.` };
-      }
-      const tool = registry.get(name);
-      const availability = toolAvailability(registry, name);
-      if (!tool || availability === 'unavailable') {
-        return { ok: true, data: { name, availability: 'unavailable' as ToolAvailability } };
-      }
-      return {
-        ok: true,
-        data: {
+      const describeOne = (raw: unknown) => {
+        const name = typeof raw === 'string' ? raw.trim() : '';
+        const availability = name ? toolAvailability(registry, name) : 'unavailable';
+        const tool = name ? registry.get(name) : undefined;
+        if (!tool || availability === 'unavailable') {
+          return { name, availability: 'unavailable' as ToolAvailability };
+        }
+        return {
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
@@ -229,8 +231,16 @@ export function buildGatewayTools(registry: ToolRegistry): ToolDefinition[] {
           availability,
           ...(availability === 'gateway' ? { gatewayTool: GATEWAY_CALL_TOOL } : {}),
           hasOutputSchema: tool.outputSchema !== undefined,
-        },
+        };
       };
+      if (Array.isArray(args.names)) {
+        return { ok: true, data: { manifests: args.names.slice(0, 50).map(describeOne) } };
+      }
+      const name = typeof args.name === 'string' ? args.name.trim() : '';
+      if (!name) {
+        return { ok: false, error: `${GATEWAY_MANIFEST_TOOL}: "name" or "names" is required.` };
+      }
+      return { ok: true, data: describeOne(name) };
     },
   });
 

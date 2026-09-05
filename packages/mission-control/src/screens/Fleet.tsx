@@ -320,6 +320,9 @@ export function FleetScreen() {
                         <Code>{instance.id}</Code>
                         <StatePill value={instance.state} />
                         {openAiRunning ? <StatePill value="openai-tunnel" /> : null}
+                        {instance.state === 'running' && instance.leaseId ? (
+                          <StatePill value={`lease ${instance.leaseId.replace(/^lse_/, '').slice(0, 8)}`} />
+                        ) : null}
                       </div>
                       <div className="mt-1 truncate text-xs text-muted" title={instance.projectPath}>{instance.projectPath}</div>
                     </div>

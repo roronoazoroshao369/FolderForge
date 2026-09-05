@@ -30,6 +30,10 @@ export interface FleetInstance {
   state: string;
   autoRestart?: boolean;
   lastError?: string;
+  /** Live child pid while running (never persisted across restarts). */
+  pid?: number;
+  /** Per-start lease identity (fencing) while running. */
+  leaseId?: string;
 }
 
 export interface TunnelRecord {
