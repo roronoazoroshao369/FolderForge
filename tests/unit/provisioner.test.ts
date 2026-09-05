@@ -791,4 +791,71 @@ describe('FleetManager', () => {
     expect(killed).toEqual([4001]);
     expect(fleet.get(instance.id).state).toBe('stopped');
   });
+
+  it('opts into the critical escape hatch only for danger instances and persists it', () => {
+    const { root, project } = fixture();
+    const fleet = new FleetManager(root);
+    const created = fleet.create({
+      projectPath: project,
+      policyMode: 'danger',
+      allowCriticalInDanger: true,
+    });
+    expect(created.instance.allowCriticalInDanger).toBe(true);
+    // The flag survives a manager reload (persisted in fleet state).
+    expect(new FleetManager(root).get(created.instance.id).allowCriticalInDanger).toBe(true);
+
+    // Default stays off, even in danger mode.
+    const other = join(root, 'project-b');
+    mkdirSync(other, { recursive: true });
+    const plain = fleet.create({ projectPath: other, policyMode: 'danger' });
+    expect(plain.instance.allowCriticalInDanger).toBeUndefined();
+  });
+
+  it('rejects the escape hatch without danger and drops it when leaving danger', () => {
+    const { root, project } = fixture();
+    const fleet = new FleetManager(root);
+
+    const third = join(root, 'project-c');
+    mkdirSync(third, { recursive: true });
+    expect(() =>
+      fleet.create({ projectPath: third, policyMode: 'dev', allowCriticalInDanger: true }),
+    ).toThrow(/allowCriticalInDanger requires policyMode "danger"/);
+
+    const { instance } = fleet.create({ projectPath: project, policyMode: 'danger' });
+    expect(() => fleet.setAllowCriticalInDanger(instance.id, true)).not.toThrow();
+    expect(fleet.get(instance.id).allowCriticalInDanger).toBe(true);
+
+    // Leaving danger drops the flag: the invariant (hatch ⇒ danger) never goes stale.
+    const demoted = fleet.setPolicyMode(instance.id, 'safe');
+    expect(demoted.allowCriticalInDanger).toBeUndefined();
+    expect(new FleetManager(root).get(instance.id).allowCriticalInDanger).toBeUndefined();
+
+    expect(() => fleet.setAllowCriticalInDanger(instance.id, true)).toThrow(
+      /allowCriticalInDanger requires policyMode "danger"/,
+    );
+    expect(() => fleet.setAllowCriticalInDanger('flt_missing', true)).toThrow(/Unknown fleet instance/);
+  });
+
+  it('emits --dangerously-allow-critical on start only for opted-in danger instances', () => {
+    const { root, project } = fixture();
+    const other = join(root, 'project-b');
+    mkdirSync(other, { recursive: true });
+    const calls: string[] = [];
+    const fleet = new FleetManager(root, { mainJs: HERE, spawn: stubSpawner(calls) });
+
+    const flagged = fleet.create({
+      projectPath: project,
+      policyMode: 'danger',
+      allowCriticalInDanger: true,
+    });
+    const plain = fleet.create({ projectPath: other, policyMode: 'danger' });
+
+    fleet.start(flagged.instance.id);
+    expect(calls[0]).toContain('--policy danger');
+    expect(calls[0]).toContain('--dangerously-allow-critical');
+
+    fleet.start(plain.instance.id);
+    expect(calls[1]).toContain('--policy danger');
+    expect(calls[1]).not.toContain('--dangerously-allow-critical');
+  });
 });

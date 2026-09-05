@@ -115,6 +115,11 @@ export function provisionTools(): ToolDefinition[] {
           port: { type: 'number' },
           toolsPreset: { type: 'string', enum: [...FLEET_TOOLS_PRESETS] },
           policyMode: { type: 'string', enum: [...FLEET_POLICY_MODES] },
+          allowCriticalInDanger: {
+            type: 'boolean',
+            description:
+              'Opt-in escape hatch: allow CRITICAL tools without per-call approval on this instance. Only valid with policyMode "danger". Default off; applies on next start.',
+          },
           authMode: { type: 'string', enum: [...FLEET_AUTH_MODES] },
           apiKey: { type: 'string', description: 'Optional operator-provided API key; omit to generate one.' },
           oauth: oauthSchema,
@@ -131,6 +136,7 @@ export function provisionTools(): ToolDefinition[] {
             port: args.port !== undefined ? Number(args.port) : undefined,
             toolsPreset: args.toolsPreset !== undefined ? String(args.toolsPreset) : undefined,
             policyMode: args.policyMode !== undefined ? String(args.policyMode) : undefined,
+            allowCriticalInDanger: args.allowCriticalInDanger === true ? true : undefined,
             authMode: args.authMode !== undefined ? (String(args.authMode) as FleetAuthMode) : undefined,
             apiKey: args.apiKey !== undefined ? String(args.apiKey) : undefined,
             oauth: oauthFromArgs(args.oauth),
@@ -138,7 +144,7 @@ export function provisionTools(): ToolDefinition[] {
           });
           ctx.container.audit.record({
             type: 'provision_event',
-            summary: `create ${created.instance.id} (${created.instance.projectPath}:${created.instance.port}, auth=${created.instance.authMode}, preset=${created.instance.toolsPreset}, policy=${created.instance.policyMode})`,
+            summary: `create ${created.instance.id} (${created.instance.projectPath}:${created.instance.port}, auth=${created.instance.authMode}, preset=${created.instance.toolsPreset}, policy=${created.instance.policyMode}${created.instance.allowCriticalInDanger === true ? ', allowCriticalInDanger' : ''})`,
           });
           return {
             ok: true,
@@ -302,7 +308,8 @@ export function provisionTools(): ToolDefinition[] {
 
     defineTool({
       name: 'provision_update',
-      description: 'Update auto-restart, tools preset, and/or policy mode. Preset/policy apply after restart.',
+      description:
+        'Update auto-restart, tools preset, policy mode, and/or the allowCriticalInDanger escape hatch. Preset/policy/hatch apply after restart.',
       group: 'provision',
       mutates: true,
       risk: 'MEDIUM',
@@ -313,6 +320,11 @@ export function provisionTools(): ToolDefinition[] {
           autoRestart: { type: 'boolean' },
           toolsPreset: { type: 'string', enum: [...FLEET_TOOLS_PRESETS] },
           policyMode: { type: 'string', enum: [...FLEET_POLICY_MODES] },
+          allowCriticalInDanger: {
+            type: 'boolean',
+            description:
+              'Opt-in escape hatch: allow CRITICAL tools without per-call approval on this instance. Only valid with policyMode "danger". Applies on next start.',
+          },
         },
         required: ['id'],
         additionalProperties: false,
@@ -323,15 +335,20 @@ export function provisionTools(): ToolDefinition[] {
           if (
             typeof args.autoRestart !== 'boolean' &&
             typeof args.toolsPreset !== 'string' &&
-            typeof args.policyMode !== 'string'
+            typeof args.policyMode !== 'string' &&
+            typeof args.allowCriticalInDanger !== 'boolean'
           ) {
-            throw new Error('Nothing to update: pass autoRestart, toolsPreset, and/or policyMode.');
+            throw new Error('Nothing to update: pass autoRestart, toolsPreset, policyMode, and/or allowCriticalInDanger.');
           }
           if (typeof args.autoRestart === 'boolean') ctx.container.fleet.setAutoRestart(id, args.autoRestart);
           if (typeof args.toolsPreset === 'string') ctx.container.fleet.setToolsPreset(id, args.toolsPreset);
           if (typeof args.policyMode === 'string') ctx.container.fleet.setPolicyMode(id, args.policyMode);
+          if (typeof args.allowCriticalInDanger === 'boolean') ctx.container.fleet.setAllowCriticalInDanger(id, args.allowCriticalInDanger);
           const instance = ctx.container.fleet.get(id);
-          ctx.container.audit.record({ type: 'provision_event', summary: `update ${instance.id}` });
+          ctx.container.audit.record({
+            type: 'provision_event',
+            summary: `update ${instance.id}${typeof args.allowCriticalInDanger === 'boolean' ? ` (allowCriticalInDanger=${args.allowCriticalInDanger})` : ''}`,
+          });
           return { ok: true, data: publicInstance(instance) };
         }),
     }),

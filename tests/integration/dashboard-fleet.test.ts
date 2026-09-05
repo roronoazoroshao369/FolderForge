@@ -138,6 +138,45 @@ describe('dashboard fleet endpoints', () => {
     expect(invalid.status).toBe(400);
   });
 
+  it('applies the critical escape hatch through the governed policy route', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const created = await postJson(`${harness.baseUrl}/fleet`, { projectPath: harness.root });
+    const id = created.json.data?.id ?? '';
+
+    // The hatch requires policyMode "danger": refused on the default dev mode.
+    const refused = await postJson(`${harness.baseUrl}/fleet/${id}/policy`, {
+      policyMode: 'dev',
+      allowCriticalInDanger: true,
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.json.ok).toBe(false);
+    expect(refused.json.error).toMatch(/requires policyMode "danger"/);
+
+    const applied = await postJson(`${harness.baseUrl}/fleet/${id}/policy`, {
+      policyMode: 'danger',
+      allowCriticalInDanger: true,
+    });
+    expect(applied.status).toBe(200);
+    expect(applied.json.ok).toBe(true);
+
+    const listedResponse = await fetch(`${harness.baseUrl}/fleet`);
+    const listed = (await listedResponse.json()) as {
+      instances: Array<FleetInstanceView & { allowCriticalInDanger?: boolean; policyMode?: string }>;
+    };
+    expect(listed.instances[0]?.policyMode).toBe('danger');
+    expect(listed.instances[0]?.allowCriticalInDanger).toBe(true);
+
+    // Leaving danger drops the flag — the invariant never goes stale.
+    const demoted = await postJson(`${harness.baseUrl}/fleet/${id}/policy`, { policyMode: 'safe' });
+    expect(demoted.status).toBe(200);
+    const relistedResponse = await fetch(`${harness.baseUrl}/fleet`);
+    const relisted = (await relistedResponse.json()) as {
+      instances: Array<FleetInstanceView & { allowCriticalInDanger?: boolean }>;
+    };
+    expect(relisted.instances[0]?.allowCriticalInDanger).toBeUndefined();
+  });
+
   it('changes policy mode and rotates the token through governed routes', async () => {
     const harness = await startHarness();
     harnesses.push(harness);
