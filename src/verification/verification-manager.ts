@@ -31,6 +31,12 @@ export type VerificationOverall =
   | 'unavailable'
   | 'incomplete';
 
+/**
+ * How a run is executed: `sync` stays bound to the requesting call,
+ * `async` detaches from the request lifecycle and is polled via status/list.
+ */
+export type VerificationExecutionMode = 'sync' | 'async';
+
 export interface VerificationOwnerBinding {
   principalId: string;
   projectId?: string;
@@ -165,6 +171,61 @@ export class VerificationManager {
     this.root = join(projectRoot, '.folderforge', 'verifications');
     this.runsDir = join(this.root, 'runs');
     this.recoverInterrupted();
+  }
+
+  /**
+   * In-memory, process-local registry of in-flight run executors. Holds no
+   * args or output; used for explicit cancellation and the async
+   * single-flight guard. Never persisted — a process restart is recovered
+   * through executorPid liveness in the constructor instead.
+   */
+  private readonly executors = new Map<
+    string,
+    { controller: AbortController; mode: VerificationExecutionMode }
+  >();
+
+  /**
+   * Register the executor for a run and return its abort controller.
+   * Throws when the run already has an executor or when another async
+   * execution is already active (async runs are single-flight per process).
+   */
+  beginExecution(id: string, mode: VerificationExecutionMode): AbortController {
+    if (this.executors.has(id)) {
+      throw new Error(`Verification run already has an active executor: ${id}`);
+    }
+    if (mode === 'async') {
+      const active = this.activeAsyncExecution();
+      if (active !== null) {
+        throw new Error(`Another async verification is still running: ${active}`);
+      }
+    }
+    const controller = new AbortController();
+    this.executors.set(id, { controller, mode });
+    return controller;
+  }
+
+  /** Unregister a run executor once its loop settles. Idempotent. */
+  endExecution(id: string): void {
+    this.executors.delete(id);
+  }
+
+  /**
+   * Abort a registered run executor. Returns false when no executor is
+   * registered for the run in this process (e.g. after a restart).
+   */
+  cancelExecution(id: string): boolean {
+    const executor = this.executors.get(id);
+    if (!executor) return false;
+    executor.controller.abort(new Error('Verification cancelled by operator.'));
+    return true;
+  }
+
+  /** The currently active async execution's run ID, if any. */
+  activeAsyncExecution(): string | null {
+    for (const [id, executor] of this.executors) {
+      if (executor.mode === 'async') return id;
+    }
+    return null;
   }
 
   create(input: {

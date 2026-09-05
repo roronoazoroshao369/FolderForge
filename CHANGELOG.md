@@ -13,6 +13,25 @@ semantic versioning.
   `workingTree` fields, including staged, unstaged, untracked and conflict paths.
   Apply/rollback results explicitly identify source snapshots. Existing status
   fields, tool inputs, risk/authority, lifecycle and persisted state are unchanged.
+- `project_verify` gains detached background execution and explicit cancellation.
+  `run` accepts `async: true` to execute checks decoupled from the request
+  lifecycle: the call returns the running report immediately, the terminal report
+  is polled via the existing owner-bound `status`/`list` actions, and at most one
+  async run is active per process (a second start fails fast and names the active
+  run ID). A new `cancel` action aborts a running run the caller owns — sync or
+  async — recording skipped evidence and a `cancelled` terminal state. Aborting
+  now terminates the whole spawned process tree (checks spawn in their own POSIX
+  process group), so wrapped commands such as `npm run <check>` can no longer
+  leave orphaned grandchildren holding stdio pipes open. Sync behavior, the run
+  persistence schema, per-action classification (plan/status/list read-only;
+  run/cancel MEDIUM mutating), and the tool schema lock are unchanged.
+
+### Fixed
+
+- `terminateChildProcessTree` no longer mistakes execa's `ResultPromise` — whose
+  `exitCode`/`signalCode` are `undefined` while the child is running — for an
+  already-exited process; the exit guard now uses loose null equality. The
+  misclassification was latent: no previous caller passed execa handles.
 
 ## [2.8.1] - 2026-09-05
 

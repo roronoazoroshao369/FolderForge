@@ -173,4 +173,38 @@ describe('VerificationManager', () => {
       ],
     });
   });
+
+  it('registers, cancels, and unregisters a run executor', () => {
+    const manager = new VerificationManager(root);
+    const controller = manager.beginExecution('verify_0000000000000001', 'sync');
+    expect(controller.signal.aborted).toBe(false);
+    expect(manager.cancelExecution('verify_0000000000000001')).toBe(true);
+    expect(controller.signal.aborted).toBe(true);
+    manager.endExecution('verify_0000000000000001');
+    expect(manager.cancelExecution('verify_0000000000000001')).toBe(false);
+  });
+
+  it('rejects a duplicate executor for the same run', () => {
+    const manager = new VerificationManager(root);
+    manager.beginExecution('verify_0000000000000002', 'sync');
+    expect(() => manager.beginExecution('verify_0000000000000002', 'sync')).toThrow(
+      /already has an active executor/i,
+    );
+    manager.endExecution('verify_0000000000000002');
+    expect(() => manager.beginExecution('verify_0000000000000002', 'sync')).not.toThrow();
+  });
+
+  it('enforces the async single-flight guard and names the active run', () => {
+    const manager = new VerificationManager(root);
+    manager.beginExecution('verify_0000000000000003', 'async');
+    expect(manager.activeAsyncExecution()).toBe('verify_0000000000000003');
+    expect(() => manager.beginExecution('verify_0000000000000004', 'async')).toThrow(
+      /Another async verification is still running: verify_0000000000000003/,
+    );
+    // Synchronous executions are not capped by the async guard.
+    expect(() => manager.beginExecution('verify_0000000000000005', 'sync')).not.toThrow();
+    manager.endExecution('verify_0000000000000003');
+    expect(manager.activeAsyncExecution()).toBeNull();
+    expect(() => manager.beginExecution('verify_0000000000000004', 'async')).not.toThrow();
+  });
 });

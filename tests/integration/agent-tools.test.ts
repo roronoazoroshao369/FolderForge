@@ -52,6 +52,25 @@ function registryFor(root: string, mode: 'readonly' | 'danger' = 'danger') {
   return { container, registry: buildRegistry(container) };
 }
 
+/** Poll project_verify status until the run leaves the running state. */
+async function waitForVerificationTerminal(
+  registry: ReturnType<typeof buildRegistry>,
+  id: string,
+  timeoutMs = 15000,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const status = await registry.call('project_verify', { action: 'status', id });
+    expect(status.ok).toBe(true);
+    const data = status.data as Record<string, unknown>;
+    if (data.state !== 'running') return data;
+    if (Date.now() > deadline) {
+      throw new Error(`Verification ${id} did not reach a terminal state within ${timeoutMs}ms.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 describe('AI coding runtime tools', () => {
   let root: string;
 
@@ -349,5 +368,218 @@ describe('AI coding runtime tools', () => {
     const deniedVerification = await registry.call('project_verify', { action: 'run', checks: ['test'] });
     expect(deniedVerification.ok).toBe(false);
     expect(deniedVerification.error).toMatch(/^Denied:/);
+  });
+
+  it('starts an async verification detached from the request and polls it to a passed terminal state', async () => {
+    const { registry } = registryFor(root);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = `node -e "setTimeout(() => console.log('test-ok'), 2500)"`;
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const startedAt = Date.now();
+    const started = await registry.call('project_verify', { action: 'run', async: true, checks: ['test'] });
+    const startMs = Date.now() - startedAt;
+    expect(started.ok).toBe(true);
+    const startedData = started.data as { id: string; state: string; results: Array<{ status: string }> };
+    expect(startedData.state).toBe('running');
+    expect(startedData.results[0]?.status).toBe('pending');
+    expect(startMs).toBeLessThan(5000);
+
+    const final = await waitForVerificationTerminal(registry, startedData.id);
+    expect(final).toMatchObject({ state: 'completed', overall: 'passed', passed: true });
+
+    // Polling must never create a duplicate execution.
+    const listed = await registry.call('project_verify', { action: 'list' });
+    const matching = (listed.data as { runs: Array<{ id: string }> }).runs.filter(
+      (entry) => entry.id === startedData.id,
+    );
+    expect(matching).toHaveLength(1);
+  });
+
+  it('keeps an async verification running after the requesting call is aborted', async () => {
+    const { registry } = registryFor(root);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = `node -e "setTimeout(() => console.log('test-ok'), 2500)"`;
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const controller = new AbortController();
+    const started = await registry.call(
+      'project_verify',
+      { action: 'run', async: true, checks: ['test'] },
+      { signal: controller.signal },
+    );
+    expect(started.ok).toBe(true);
+    const id = (started.data as { id: string }).id;
+    // The client disconnecting must not cancel a detached run.
+    controller.abort(new Error('client disconnected'));
+    const final = await waitForVerificationTerminal(registry, id);
+    expect(final).toMatchObject({ state: 'completed', overall: 'passed' });
+  });
+
+  it('cancels a detached async verification and records skipped evidence', async () => {
+    const { registry } = registryFor(root);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = `node -e "setTimeout(() => console.log('too-late'), 30000)"`;
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const started = await registry.call('project_verify', { action: 'run', async: true, checks: ['test', 'build'] });
+    expect(started.ok).toBe(true);
+    const id = (started.data as { id: string }).id;
+
+    const cancelled = await registry.call('project_verify', { action: 'cancel', id });
+    expect(cancelled.ok).toBe(true);
+    expect((cancelled.data as { cancellation: string }).cancellation).toBe('requested');
+
+    const final = await waitForVerificationTerminal(registry, id);
+    expect(final).toMatchObject({ state: 'cancelled', overall: 'incomplete' });
+    expect((final as { results: Array<Record<string, unknown>> }).results).toMatchObject([
+      { check: 'test', status: 'skipped', skipped: true },
+      { check: 'build', status: 'skipped', skipped: true },
+    ]);
+
+    // Cancelling a terminal run is an idempotent no-op.
+    const again = await registry.call('project_verify', { action: 'cancel', id });
+    expect(again.ok).toBe(true);
+    expect((again.data as { cancellation: string }).cancellation).toBe('not-required');
+  });
+
+  it('handles cancel edge cases: terminal run, unknown id, and owner boundary', async () => {
+    const { registry } = registryFor(root);
+    const done = await registry.call('project_verify', { action: 'run', checks: ['test'] });
+    expect(done.ok).toBe(true);
+    const doneId = (done.data as { id: string }).id;
+
+    const terminal = await registry.call('project_verify', { action: 'cancel', id: doneId });
+    expect(terminal.ok).toBe(true);
+    expect(terminal.data).toMatchObject({ id: doneId, state: 'completed', cancellation: 'not-required' });
+
+    const unknown = await registry.call('project_verify', { action: 'cancel', id: 'verify_0000000000000000' });
+    expect(unknown.ok).toBe(false);
+    expect(unknown.error).toMatch(/not found/i);
+
+    const owner = {
+      id: 'credential:verify-owner',
+      role: 'agent' as const,
+      projectId: 'project:alpha',
+      oauthClientId: 'client:web',
+      sessionId: 'session:one',
+    };
+    const owned = await registry.call(
+      'project_verify',
+      { action: 'run', checks: ['test'] },
+      { principal: owner },
+    );
+    const ownedId = (owned.data as { id: string }).id;
+    const denied = await registry.call(
+      'project_verify',
+      { action: 'cancel', id: ownedId },
+      { principal: { ...owner, id: 'credential:intruder' } },
+    );
+    expect(denied.ok).toBe(false);
+    expect(denied.error).toMatch(/access denied/i);
+    // Admin principals share the existing read-side bypass for cancellation.
+    const asAdmin = await registry.call(
+      'project_verify',
+      { action: 'cancel', id: ownedId },
+      { principal: { id: 'user:admin', role: 'admin' } },
+    );
+    expect(asAdmin.ok).toBe(true);
+    expect((asAdmin.data as { cancellation: string }).cancellation).toBe('not-required');
+  });
+
+  it('denies async run and cancel in readonly mode while keeping plan/status/list', async () => {
+    const { registry } = registryFor(root, 'readonly');
+    const deniedAsync = await registry.call('project_verify', { action: 'run', async: true, checks: ['test'] });
+    expect(deniedAsync.ok).toBe(false);
+    expect(deniedAsync.error).toMatch(/^Denied:/);
+    const deniedCancel = await registry.call('project_verify', { action: 'cancel', id: 'verify_0000000000000000' });
+    expect(deniedCancel.ok).toBe(false);
+    expect(deniedCancel.error).toMatch(/^Denied:/);
+    const plan = await registry.call('project_verify', { action: 'plan', checks: ['test'] });
+    expect(plan.ok).toBe(true);
+    const listed = await registry.call('project_verify', { action: 'list' });
+    expect(listed.ok).toBe(true);
+  });
+
+  it('refuses a second concurrent async run while allowing synchronous runs', async () => {
+    const { registry } = registryFor(root);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = `node -e "setTimeout(() => console.log('too-late'), 30000)"`;
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const first = await registry.call('project_verify', { action: 'run', async: true, checks: ['test'] });
+    expect(first.ok).toBe(true);
+    const firstId = (first.data as { id: string }).id;
+
+    const second = await registry.call('project_verify', { action: 'run', async: true, checks: ['test'] });
+    expect(second.ok).toBe(false);
+    expect(second.error).toMatch(/Another async verification is still running/);
+    expect(second.error).toContain(firstId);
+
+    // Synchronous executions are not capped by the async single-flight guard.
+    const syncRun = await registry.call('project_verify', { action: 'run', checks: ['build'] });
+    expect(syncRun.ok).toBe(true);
+
+    const cancelled = await registry.call('project_verify', { action: 'cancel', id: firstId });
+    expect(cancelled.ok).toBe(true);
+    const final = await waitForVerificationTerminal(registry, firstId);
+    expect(final).toMatchObject({ state: 'cancelled', overall: 'incomplete' });
+  });
+
+  it('applies stopOnFailure semantics to detached async runs', async () => {
+    const { registry } = registryFor(root);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = `node -e "console.error('boom'); process.exit(2)"`;
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const started = await registry.call('project_verify', { action: 'run', async: true, checks: ['test', 'build'] });
+    expect(started.ok).toBe(true);
+    const id = (started.data as { id: string }).id;
+    const final = await waitForVerificationTerminal(registry, id);
+    expect(final).toMatchObject({ state: 'completed', overall: 'failed', passed: false });
+    expect((final as { results: Array<Record<string, unknown>> }).results).toMatchObject([
+      { check: 'test', status: 'failed', exitCode: 2 },
+      { check: 'build', status: 'skipped', skipped: true },
+    ]);
+  });
+
+  it('cancels an in-flight synchronous run through the cancel action', async () => {
+    const { registry } = registryFor(root);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = `node -e "setTimeout(() => console.log('too-late'), 30000)"`;
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const call = registry.call('project_verify', { checks: ['test', 'build'] });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const listed = await registry.call('project_verify', { action: 'list' });
+    const running = (listed.data as { runs: Array<{ id: string; state: string }> }).runs.find(
+      (entry) => entry.state === 'running',
+    );
+    expect(running).toBeDefined();
+    const cancelled = await registry.call('project_verify', { action: 'cancel', id: running!.id });
+    expect(cancelled.ok).toBe(true);
+    const result = await call;
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/cancelled/i);
+    expect(result.data).toMatchObject({ state: 'cancelled', overall: 'incomplete' });
+  });
+
+  it('rejects async on non-run actions', async () => {
+    const { registry } = registryFor(root);
+    const onPlan = await registry.call('project_verify', { action: 'plan', async: true, checks: ['test'] });
+    expect(onPlan.ok).toBe(false);
+    expect(onPlan.error).toMatch(/async is only supported with action=run/);
   });
 });

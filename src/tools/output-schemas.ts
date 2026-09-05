@@ -173,7 +173,7 @@ export const PATCH_TRANSACTION_OUTPUT_SCHEMA = {
   required: ['id', 'projectRoot', 'createdAt', 'updatedAt', 'state', 'files'],
 } as const;
 
-/** Output of project_verify for plan/run/status/list actions. */
+/** Output of project_verify for plan/run/status/list/cancel actions. */
 export const PROJECT_VERIFY_OUTPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -183,6 +183,7 @@ export const PROJECT_VERIFY_OUTPUT_SCHEMA = {
     state: { type: 'string', enum: ['running', 'completed', 'cancelled', 'interrupted'] },
     overall: { type: 'string', enum: ['passed', 'failed', 'unavailable', 'incomplete'] },
     passed: { type: 'boolean' },
+    cancellation: { type: 'string', enum: ['requested', 'not-required'] },
     packageManager: { type: ['string', 'null'] },
     requested: { type: 'array', items: { type: 'string' } },
     completed: { type: 'integer' },

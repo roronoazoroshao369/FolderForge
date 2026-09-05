@@ -89,6 +89,44 @@ terminated rather than allowed to run until timeout. The active check and all
 remaining checks are persisted as `skipped`, and the run state becomes
 `cancelled`.
 
+## Async execution and explicit cancellation
+
+For tools-only clients whose transport may time out before a long suite
+finishes, `project_verify run` accepts `async: true`:
+
+- The run is created and persisted exactly as for a synchronous call, then
+  executed detached from the request's cancellation signal inside the same
+  governed server process. The call returns immediately with the standard run
+  report (`state: "running"`, checks `pending`).
+- Clients poll the existing owner-bound `status` / `list` actions until the
+  run is terminal. Polling never starts or duplicates an execution.
+- At most one async execution is active per server process; a second
+  `async: true` start fails fast and names the active run ID.
+- The run executes against the workspace, shell, timeout, and output limits
+  captured at start; later workspace switches do not affect it.
+
+`action: "cancel"` with a run `id` stops a running run the caller owns (same
+binding as `status`, admin bypass included):
+
+- Terminal runs are an idempotent no-op (`cancellation: "not-required"`).
+- A running run is signalled (`cancellation: "requested"`); the executor
+  records the active check as `skipped`, marks remaining checks `skipped`, and
+  finishes the run `cancelled`. Observe the terminal state via `status`.
+- Works for both async and in-flight synchronous runs: every run registers an
+  execution controller, and a synchronous run's request signal is linked into
+  it, preserving the historical request-cancellation behavior exactly.
+
+Execution notes:
+
+- Check processes are spawned in their own POSIX process group, and an abort
+  terminates the whole process tree (`npm run <check>` wraps the real command;
+  killing only the direct child would orphan grandchildren holding stdio).
+- The executor registry is in-memory and process-local. A server restart still
+  recovers orphaned `running` records as `interrupted` without replay.
+- `plan`/`status`/`list` stay read-only; `run` (sync or async) and `cancel`
+  remain MEDIUM/mutating, are denied in readonly mode, and require the write
+  scope under OAuth.
+
 ## Evidence failure semantics
 
 The evidence directory is preflighted before command execution:
