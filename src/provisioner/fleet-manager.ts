@@ -155,7 +155,8 @@ export const FLEET_TOOLS_PRESETS = ['vibe', 'vibe-lite', 'readonly', 'full', 'go
 export const FLEET_POLICY_MODES = ['readonly', 'safe', 'dev', 'danger'] as const;
 export const FLEET_AUTH_MODES = ['none', 'token', 'api-key', 'oauth'] as const;
 
-const DEFAULT_MAX_FLEET = 8;
+/** No default fleet cap — operators can still set one via the maxFleet option. */
+const DEFAULT_MAX_FLEET = Number.POSITIVE_INFINITY;
 const DEFAULT_PORT_START = 7410;
 const DEFAULT_PORT_END = 7499;
 const OPENAI_TUNNEL_ID_RE = /^tunnel_[0-9a-f]{32}$/;

@@ -32,18 +32,78 @@ describe('tunnel exposure detection', () => {
     expect(() => detectTunnelExposure()).not.toThrow();
   });
 
-  it('refuses an unauthenticated loopback bind while a tunnel client runs', async () => {
+  it('refuses an unauthenticated loopback bind when a tunnel publishes the bind port', async () => {
     // tests/setup.ts sets the opt-out env var for the rest of the suite, so this
     // test disables it explicitly to exercise the real production default.
+    await expect(
+      startHttpTransport((() => undefined) as never, {
+        host: '127.0.0.1',
+        port: 7490,
+        authMode: 'none',
+        allowUnauthenticatedTunnel: false,
+        detectTunnelExposure: () => ({
+          exposed: true,
+          clients: ['cloudflared'],
+          exposedPorts: [7490],
+          unknownExposure: false,
+        }),
+      })
+    ).rejects.toThrow(/actively publishing port 7490/);
+  });
+
+  it('refuses when a tunnel client runs but its published ports cannot be verified', async () => {
     await expect(
       startHttpTransport((() => undefined) as never, {
         host: '127.0.0.1',
         port: 0,
         authMode: 'none',
         allowUnauthenticatedTunnel: false,
-        detectTunnelExposure: () => ({ exposed: true, clients: ['cloudflared'] }),
+        detectTunnelExposure: () => ({
+          exposed: true,
+          clients: ['cloudflared'],
+          exposedPorts: [],
+          unknownExposure: true,
+        }),
       })
-    ).rejects.toThrow(/tunnel client\(s\) cloudflared/);
+    ).rejects.toThrow(/could not be verified/);
+  });
+
+  it('allows an unauthenticated bind when running tunnels publish only other ports', async () => {
+    // The real-world case: unrelated tunnels on the host must not block a
+    // loopback instance on a port none of them expose.
+    const server = await startHttpTransport((() => undefined) as never, {
+      host: '127.0.0.1',
+      port: 0,
+      authMode: 'none',
+      allowUnauthenticatedTunnel: false,
+      detectTunnelExposure: () => ({
+        exposed: true,
+        clients: ['cloudflared'],
+        exposedPorts: [20128, 3000],
+        unknownExposure: false,
+      }),
+    });
+    expect(server.listening).toBe(true);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('extracts published ports from cloudflared --url/--config and ngrok', () => {
+    const readConfig = (path: string): string | null =>
+      path === '/etc/cf/named.yml'
+        ? 'tunnel: abc\ningress:\n  - hostname: mcp.example.com\n    service: http://127.0.0.1:7410\n  - service: http_status:404\n'
+        : null;
+    const exposure = detectTunnelExposureFrom(
+      [
+        '/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:20128 --no-autoupdate',
+        'cloudflared tunnel --config /etc/cf/named.yml run repo',
+        'ngrok http 8080',
+        'cloudflared tunnel run --token eyJhbGciOiJIUzI1NiJ9', // server-side routing: unverifiable
+      ],
+      readConfig,
+    );
+    expect(exposure.clients).toEqual(['cloudflared', 'ngrok']);
+    expect(exposure.exposedPorts).toEqual([7410, 8080, 20128]);
+    expect(exposure.unknownExposure).toBe(true);
   });
 
   it('allows the operator to override the tunnel refusal explicitly', async () => {
@@ -54,7 +114,12 @@ describe('tunnel exposure detection', () => {
       port: 0,
       authMode: 'none',
       allowUnauthenticatedTunnel: true,
-      detectTunnelExposure: () => ({ exposed: true, clients: ['cloudflared'] }),
+      detectTunnelExposure: () => ({
+        exposed: true,
+        clients: ['cloudflared'],
+        exposedPorts: [7331],
+        unknownExposure: true,
+      }),
     });
     expect(server.listening).toBe(true);
     await new Promise<void>((resolve) => server.close(() => resolve()));

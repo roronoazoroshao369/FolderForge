@@ -331,10 +331,12 @@ curl -sS -X POST http://127.0.0.1:7331/mcp \
 ```
 
 If a tunnel client such as `cloudflared` or `ngrok` is running on the same
-machine, FolderForge refuses to start an *unauthenticated* HTTP server, because
-the loopback port may already be published to the internet. Authenticate the
-server, or pass `--allow-unauthenticated-tunnel` when the tunnel is known to be
-unrelated. See the [tunnel exposure guard](docs/security.md#tunnel-exposure-guard).
+machine and actually publishes the port being bound, FolderForge refuses to
+start an *unauthenticated* HTTP server on that port. Tunnels that only publish
+unrelated ports no longer block the start (a warning names the detected
+clients), while a tunnel whose published ports cannot be determined stays
+conservative. Authenticate the server, or pass `--allow-unauthenticated-tunnel`
+when the exposure is known to be intentional. See the [tunnel exposure guard](docs/security.md#tunnel-exposure-guard).
 
 Static credentials never act as OAuth credentials. OAuth mode never falls back
 to `X-API-Key`. For ChatGPT/Auth0 and external authorization-server setup, use:

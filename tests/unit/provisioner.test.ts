@@ -98,6 +98,16 @@ describe('FleetManager', () => {
     expect(() => fleet.create({ projectPath: extra })).toThrow(/cap/);
   });
 
+  it('has no default fleet cap — operators may still set one', () => {
+    const { root } = fixture();
+    const fleet = new FleetManager(root);
+    for (let index = 0; index < 9; index += 1) {
+      const dir = join(root, `p${index}`);
+      mkdirSync(dir);
+      expect(() => fleet.create({ projectPath: dir, port: 7410 + index })).not.toThrow();
+    }
+  });
+
   it('starts and stops instances through the injected process spawner', () => {
     const { root, project } = fixture();
     const calls: string[] = [];

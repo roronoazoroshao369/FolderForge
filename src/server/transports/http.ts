@@ -223,9 +223,18 @@ export async function startHttpTransport(
       process.env.FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL === '1';
     if (!allowTunnel) {
       const exposure = (opts.detectTunnelExposure ?? detectTunnelExposure)();
-      if (exposure.exposed) {
+      const bindPort = opts.port ?? 7331;
+      if (exposure.exposedPorts.includes(bindPort) || exposure.unknownExposure) {
+        const detail = exposure.exposedPorts.includes(bindPort)
+          ? `tunnel client(s) ${exposure.clients.join(', ')} are actively publishing port ${bindPort} on a public hostname`
+          : `tunnel client(s) ${exposure.clients.join(', ')} are running and the ports they publish could not be verified`;
         throw new Error(
-          `Refusing to start without authentication: tunnel client(s) ${exposure.clients.join(', ')} are running on this host, so the loopback bind may be reachable from the public internet. Supply --api-key or --token, or pass --allow-unauthenticated-tunnel to accept the risk.`
+          `Refusing to start without authentication: ${detail}. Supply --api-key or --token, or pass --allow-unauthenticated-tunnel to accept the risk.`
+        );
+      }
+      if (exposure.clients.length > 0) {
+        process.stderr.write(
+          `[folderforge] tunnel client(s) ${exposure.clients.join(', ')} are running but none publish port ${bindPort}; the unauthenticated loopback bind is allowed.\n`
         );
       }
     }
