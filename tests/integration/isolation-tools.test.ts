@@ -36,6 +36,30 @@ afterEach(() => {
 });
 
 describe('isolation tools', () => {
+  it('exposes committed-only task delta separately from HEAD-relative state through the registry', async () => {
+    const { root, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'status-contract' });
+    expect(created.ok).toBe(true);
+    const isolation = (created.data as { isolation: { id: string; worktreeRoot: string; baseCommit: string } }).isolation;
+    writeFileSync(join(isolation.worktreeRoot, 'file.txt'), 'committed\n');
+    git(isolation.worktreeRoot, 'add', 'file.txt');
+    git(isolation.worktreeRoot, 'commit', '-m', 'committed task');
+    const head = git(isolation.worktreeRoot, 'rev-parse', 'HEAD').trim();
+    const result = await registry.callAgent('isolation_status', { id: isolation.id });
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        clean: false, changed: ['file.txt'], untracked: [], conflicts: [],
+        comparison: { target: 'worktree', baseCommit: isolation.baseCommit },
+        workingTree: { headCommit: head, clean: true, staged: [], unstaged: [], untracked: [], conflicts: [] },
+      },
+    });
+    expect(await registry.callAgent('isolation_apply', { id: isolation.id })).toMatchObject({
+      ok: false, error: expect.stringMatching(/Admin-only/),
+    });
+    expect(readFileSync(join(root, 'file.txt'), 'utf8')).toBe('before\n');
+  });
+
   it('creates and reviews through the agent plane, but applies only through admin authority', async () => {
     const { root, registry } = setup();
     const created = await registry.callAgent('isolation_create', { taskId: 'tool-task' });

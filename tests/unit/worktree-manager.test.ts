@@ -39,6 +39,110 @@ afterEach(() => {
 });
 
 describe('WorktreeManager', () => {
+  it('reports an explicit base comparison and clean HEAD-relative state for a fresh task', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('status-fresh');
+    expect(manager.status(isolation.id)).toMatchObject({
+      clean: true, changed: [], untracked: [], conflicts: [],
+      comparison: { target: 'worktree', baseCommit: isolation.baseCommit },
+      workingTree: {
+        headCommit: isolation.baseCommit, clean: true,
+        staged: [], unstaged: [], untracked: [], conflicts: [],
+      },
+    });
+  });
+
+  it('keeps committed task delta distinct from dirty state even after merge into source', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('status-committed');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'committed task\n');
+    git(isolation.worktreeRoot, 'add', 'tracked.txt');
+    git(isolation.worktreeRoot, 'commit', '-m', 'task change');
+    const head = git(isolation.worktreeRoot, 'rev-parse', 'HEAD').trim();
+    const indexPath = git(isolation.worktreeRoot, 'rev-parse', '--git-path', 'index').trim();
+    const indexBefore = readFileSync(indexPath);
+    const statePath = join(root, '.git', 'folderforge', 'isolations.json');
+    const stateBefore = readFileSync(statePath);
+    const expected = {
+      clean: false, changed: ['tracked.txt'],
+      comparison: { target: 'worktree', baseCommit: isolation.baseCommit },
+      workingTree: { headCommit: head, clean: true, staged: [], unstaged: [], untracked: [], conflicts: [] },
+    };
+    expect(manager.status(isolation.id)).toMatchObject(expected);
+    git(root, 'merge', '--ff-only', isolation.branch);
+    expect(manager.status(isolation.id)).toMatchObject(expected);
+    expect(manager.get(isolation.id)?.state).toBe('active');
+    expect(readFileSync(indexPath)).toEqual(indexBefore);
+    expect(readFileSync(statePath)).toEqual(stateBefore);
+  });
+
+  it('detects cancelling staged and unstaged changes even when the net HEAD diff is empty', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('status-cancelling');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'staged content\n');
+    git(isolation.worktreeRoot, 'add', 'tracked.txt');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'original\n');
+    expect(git(isolation.worktreeRoot, 'diff', 'HEAD', '--')).toBe('');
+    expect(manager.status(isolation.id)).toMatchObject({
+      clean: true, changed: [],
+      workingTree: { clean: false, staged: ['tracked.txt'], unstaged: ['tracked.txt'], untracked: [], conflicts: [] },
+    });
+  });
+
+  it('reports unstaged, untracked, renamed and deleted paths without losing spaces or Unicode', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('status-paths');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'unstaged\n');
+    writeFileSync(join(isolation.worktreeRoot, 'ghi chú.txt'), 'untracked\n');
+    expect(manager.status(isolation.id).workingTree).toMatchObject({
+      clean: false, staged: [], unstaged: ['tracked.txt'], untracked: ['ghi chú.txt'], conflicts: [],
+    });
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'original\n');
+    git(isolation.worktreeRoot, 'mv', 'tracked.txt', 'renamed file.txt');
+    const renamed = manager.status(isolation.id).workingTree;
+    expect(renamed.staged).toContain('renamed file.txt');
+    rmSync(join(isolation.worktreeRoot, 'renamed file.txt'));
+    expect(manager.status(isolation.id).workingTree.unstaged).toContain('renamed file.txt');
+  });
+
+  it('reports real unresolved merge conflicts instead of treating the worktree as clean', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('status-conflict');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'task side\n');
+    git(isolation.worktreeRoot, 'add', 'tracked.txt');
+    git(isolation.worktreeRoot, 'commit', '-m', 'task side');
+    writeFileSync(join(root, 'tracked.txt'), 'source side\n');
+    git(root, 'add', 'tracked.txt');
+    git(root, 'commit', '-m', 'source side');
+    expect(() => git(isolation.worktreeRoot, 'merge', 'main')).toThrow();
+    expect(manager.status(isolation.id)).toMatchObject({
+      clean: false, conflicts: ['tracked.txt'],
+      workingTree: { clean: false, conflicts: ['tracked.txt'] },
+    });
+  });
+
+  it('labels source snapshots returned after apply and rollback without changing legacy semantics', () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create('status-source');
+    writeFileSync(join(isolation.worktreeRoot, 'tracked.txt'), 'task change\n');
+    expect(manager.apply(isolation.id)).toMatchObject({
+      clean: false, changed: ['tracked.txt'],
+      comparison: { target: 'source', baseCommit: isolation.sourceHead },
+      workingTree: { headCommit: isolation.sourceHead, clean: false, staged: [], unstaged: ['tracked.txt'], untracked: [], conflicts: [] },
+    });
+    expect(manager.rollback(isolation.id)).toMatchObject({
+      clean: true,
+      comparison: { target: 'source', baseCommit: isolation.sourceHead },
+      workingTree: { headCommit: isolation.sourceHead, clean: true, staged: [], unstaged: [], untracked: [], conflicts: [] },
+    });
+  });
+
   it('creates an isolated branch without touching a dirty source workspace', () => {
     const root = repository();
     writeFileSync(join(root, 'tracked.txt'), 'user work\n');
