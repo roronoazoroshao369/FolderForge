@@ -74,6 +74,9 @@ export class FileAuditStore implements AuditStore {
   private readonly signer: AuditSigner | undefined;
   private readonly now: () => number;
   private readonly lockTimeoutMs: number;
+  private tailCache:
+    | { sequence: number; recordHash: string | null; size: number; mtimeMs: number }
+    | undefined;
 
   constructor(projectRoot: string, options: FileAuditStoreOptions = {}) {
     this.filePath = join(projectRoot, '.folderforge', 'audit', 'audit.v2.jsonl');
@@ -113,21 +116,11 @@ export class FileAuditStore implements AuditStore {
   append(event: AuditEvent, options: AuditAppendOptions): AuditEnvelopeV2 {
     const release = this.acquireLock();
     try {
-      const raw = this.readRaw();
-      const parsed = parseAuditChain(raw);
-      if (!parsed.report.ok) {
-        const issue = parsed.report.issues.find((item) => item.code !== 'unknown_signer');
-        throw new Error(
-          issue
-            ? `Audit chain integrity failed at line ${issue.line}: ${issue.message}`
-            : 'Audit chain integrity failed.',
-        );
-      }
-      const previous = parsed.envelopes.at(-1);
+      const tail = this.readTailForAppend();
       const envelope = createAuditEnvelope(
         event,
-        (previous?.sequence ?? 0) + 1,
-        previous?.recordHash ?? null,
+        tail.sequence + 1,
+        tail.recordHash,
         { kind: 'native-v2' },
         this.signer,
       );
@@ -137,10 +130,61 @@ export class FileAuditStore implements AuditStore {
         this.fs.appendFileSync(this.filePath, line, { mode: 0o600 });
         this.ensurePrivateFile(this.filePath);
       }
+      const written = this.fs.statSync(this.filePath);
+      this.tailCache = {
+        sequence: envelope.sequence,
+        recordHash: envelope.recordHash,
+        size: written.size,
+        mtimeMs: written.mtimeMs,
+      };
       return envelope;
     } finally {
       release();
     }
+  }
+
+  /**
+   * Returns the chain tail for the next append. The full chain is re-read and
+   * re-verified only when the file changed since this instance last appended
+   * (size or mtime), so steady-state appends stay O(1) even for very large
+   * audit stores, while append-time integrity checks still run after any
+   * external write.
+   */
+  private readTailForAppend(): { sequence: number; recordHash: string | null } {
+    let stat: ReturnType<AuditFileSystem['statSync']>;
+    try {
+      stat = this.fs.statSync(this.filePath);
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) {
+        this.tailCache = undefined;
+        return { sequence: 0, recordHash: null };
+      }
+      throw error;
+    }
+    if (
+      this.tailCache &&
+      this.tailCache.size === stat.size &&
+      this.tailCache.mtimeMs === stat.mtimeMs
+    ) {
+      return { sequence: this.tailCache.sequence, recordHash: this.tailCache.recordHash };
+    }
+    const parsed = parseAuditChain(this.readRaw());
+    if (!parsed.report.ok) {
+      const issue = parsed.report.issues.find((item) => item.code !== 'unknown_signer');
+      throw new Error(
+        issue
+          ? `Audit chain integrity failed at line ${issue.line}: ${issue.message}`
+          : 'Audit chain integrity failed.',
+      );
+    }
+    const previous = parsed.envelopes.at(-1);
+    this.tailCache = {
+      sequence: previous?.sequence ?? 0,
+      recordHash: previous?.recordHash ?? null,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+    };
+    return { sequence: this.tailCache.sequence, recordHash: this.tailCache.recordHash };
   }
 
   verify(): AuditVerificationReport {

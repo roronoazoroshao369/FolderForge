@@ -653,6 +653,59 @@ describe('FleetManager', () => {
     expect(calls.filter((call) => call.includes('--tools-preset'))).toHaveLength(1);
   });
 
+  it('surfaces the child fatal startup reason instead of a generic exit error', () => {
+    const { root, project } = fixture();
+    const exitListeners = new Map<string, () => void>();
+    const fatalLog =
+      '{"level":30,"msg":"Workspace activated"}\n' +
+      '{"level":50,"err":"Error: Refusing to start without authentication: tunnel client(s) cloudflared are running on this host. Supply --api-key or --token.\\n    at startHttpTransport (/dist/server.js:134:23)","msg":"Fatal startup error"}\n';
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner([]),
+      stopSession: () => undefined,
+      readSession: () => fatalLog,
+      onExit: (sessionId, listener) => {
+        exitListeners.set(sessionId, listener);
+        return () => {
+          exitListeners.delete(sessionId);
+        };
+      },
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    fleet.start(instance.id);
+    exitListeners.get('proc_stub_1')?.();
+
+    const failed = fleet.get(instance.id);
+    expect(failed.state).toBe('failed');
+    expect(failed.lastError).toContain(
+      'Process exited unexpectedly: Refusing to start without authentication',
+    );
+    expect(failed.lastError).toContain('cloudflared');
+    expect(failed.lastError).not.toContain('startHttpTransport');
+  });
+
+  it('keeps the generic exit error when the child logged no fatal reason', () => {
+    const { root, project } = fixture();
+    const exitListeners = new Map<string, () => void>();
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner([]),
+      stopSession: () => undefined,
+      readSession: () => '{"level":30,"msg":"Workspace activated"}\n',
+      onExit: (sessionId, listener) => {
+        exitListeners.set(sessionId, listener);
+        return () => {
+          exitListeners.delete(sessionId);
+        };
+      },
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    fleet.start(instance.id);
+    exitListeners.get('proc_stub_1')?.();
+
+    expect(fleet.get(instance.id).lastError).toBe('Process exited unexpectedly.');
+  });
+
   it('shutdownAll stops every session and never auto-restarts (plane-stop-kills-tree)', () => {
     const { root, project } = fixture();
     const secondProject = join(root, 'project-b');

@@ -839,9 +839,14 @@ export class FleetManager {
     if (record.state !== 'running') return;
     record.state = 'failed';
     const portBusy = this.exitLogMatches(sessionId, EADDRINUSE_RE);
-    record.lastError = portBusy
-      ? `Port ${record.port} is already in use by a process this control plane does not manage. Free the port (or assign another) and start again.`
-      : 'Process exited unexpectedly.';
+    if (portBusy) {
+      record.lastError = `Port ${record.port} is already in use by a process this control plane does not manage. Free the port (or assign another) and start again.`;
+    } else {
+      const fatalReason = this.exitFatalReason(sessionId);
+      record.lastError = fatalReason
+        ? `Process exited unexpectedly: ${fatalReason}`
+        : 'Process exited unexpectedly.';
+    }
     delete record.sessionId;
     delete record.pid;
     delete record.leaseId;
@@ -888,6 +893,38 @@ export class FleetManager {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Extracts the child's fatal startup reason from its buffered output, so the
+   * dashboard shows the real cause (e.g. the unauthenticated-tunnel refusal)
+   * instead of a bare "Process exited unexpectedly.".
+   */
+  private exitFatalReason(sessionId: string): string | undefined {
+    if (!this.readFn) return undefined;
+    let output: string;
+    try {
+      output = this.readFn(sessionId);
+    } catch {
+      return undefined;
+    }
+    const lines = output.split('\n');
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const line = lines[index]!.trim();
+      if (!line.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(line) as { level?: unknown; err?: unknown };
+        const level = typeof parsed.level === 'number' ? parsed.level : 0;
+        if (level >= 50 && typeof parsed.err === 'string' && parsed.err.length > 0) {
+          const [firstLine] = parsed.err.split('\n');
+          const cleaned = firstLine!.replace(/^Error:\s*/, '').trim();
+          return cleaned.length > 240 ? `${cleaned.slice(0, 237)}...` : cleaned;
+        }
+      } catch {
+        // Not a JSON log line; keep scanning upwards.
+      }
+    }
+    return undefined;
   }
 
   /**

@@ -6,6 +6,11 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Mission Control no longer hangs on large audit stores: `FileAuditStore.append` previously re-read and re-verified the entire hash chain on every write — O(chain size) per event, so a ~64 MB chain cost seconds of synchronous CPU per append while holding the writer lock (whose waiters sleep synchronously on the event loop), starving the dashboard HTTP server (Workspaces screen stuck skeleton-loading, control plane pegged at ~100% CPU). Appends now cache the chain tail and re-parse only when the file changed externally (size/mtime), keeping steady-state appends O(1) while preserving append-time integrity checks after external writes.
+- Fleet early-exit surfacing: when an instance child dies during startup, Mission Control now shows the child's fatal startup reason (e.g. the unauthenticated-tunnel refusal while a cloudflared client is running on the host) instead of a bare "Process exited unexpectedly.".
+
 ## [2.8.0] - 2026-09-04
 
 ### Added
