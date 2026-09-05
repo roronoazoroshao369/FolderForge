@@ -33,6 +33,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { get as httpGet } from 'node:http';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -63,6 +64,14 @@ import {
   setOpenAiTunnelSupervisorPid,
   upsertOpenAiTunnelConfig,
 } from './openai-tunnel-store.js';
+import {
+  defaultSystemctl,
+  installService,
+  serviceStatus,
+  serviceStatusLabel,
+  uninstallService,
+  type ServiceDeps,
+} from './service.js';
 
 export interface ControlCliResult {
   output: string;
@@ -102,6 +111,14 @@ export interface ControlDeps {
   terminate: (pid: number) => void;
   /** Open a URL in the default browser (best-effort). */
   openUrl: (url: string) => void;
+  /** Absolute node binary path used in the boot-service ExecStart. */
+  execPath: string;
+  /** User home directory (parent of the XDG fallback for the unit file). */
+  homeDir: string;
+  /** Existence check — the boot-service install fails fast on a moved runtime. */
+  fileExists: (path: string) => boolean;
+  /** Run systemctl with fixed argv (no shell) for the boot service. */
+  execSystemctl: (args: string[]) => { exitCode: number; stdout: string; stderr: string };
   /** Read an environment variable (e.g. the OpenAI API key for --openai-tunnel). */
   getEnv?: (name: string) => string | undefined;
   stdoutIsTty: boolean;
@@ -263,6 +280,10 @@ interface ControlOptions {
   openaiTunnel?: boolean;
   tunnelId?: string;
   apiKeyEnv?: string;
+  /** `control service install`: run systemctl enable --now after writing the unit. */
+  serviceEnable?: boolean;
+  /** `control service install`: overwrite a unit owned by another project. */
+  serviceReplace?: boolean;
   json: boolean;
   help: boolean;
 }
@@ -278,6 +299,8 @@ function parseControlArgs(argv: string[]): ControlOptions {
   let openaiTunnel = false;
   let tunnelId: string | undefined;
   let apiKeyEnv: string | undefined;
+  let serviceEnable = false;
+  let serviceReplace = false;
   let json = false;
   let help = false;
   for (let i = 0; i < argv.length; i++) {
@@ -340,6 +363,12 @@ function parseControlArgs(argv: string[]): ControlOptions {
         apiKeyEnv = v;
         break;
       }
+      case '--enable':
+        serviceEnable = true;
+        break;
+      case '--replace':
+        serviceReplace = true;
+        break;
       case '--no-open':
         open = false;
         break;
@@ -359,7 +388,7 @@ function parseControlArgs(argv: string[]): ControlOptions {
   if (extraPositionals.length > 0) {
     throw new Error(`Unexpected argument: ${extraPositionals[0]}`);
   }
-  if (commandArg !== null && command !== 'auth') {
+  if (commandArg !== null && command !== 'auth' && command !== 'service') {
     throw new Error(`Unexpected argument: ${commandArg}`);
   }
   if (!openaiTunnel && (tunnelId !== undefined || apiKeyEnv !== undefined)) {
@@ -380,6 +409,8 @@ function parseControlArgs(argv: string[]): ControlOptions {
   if (openaiTunnel) result.openaiTunnel = true;
   if (tunnelId !== undefined) result.tunnelId = tunnelId;
   if (apiKeyEnv !== undefined) result.apiKeyEnv = apiKeyEnv;
+  if (serviceEnable) result.serviceEnable = true;
+  if (serviceReplace) result.serviceReplace = true;
   return result;
 }
 
@@ -395,6 +426,7 @@ export function controlHelp(): string {
     '  status     Show control plane state and probe its endpoint',
     '  open       Open the Mission Control SPA in the default browser',
     '  auth       Show or change dashboard auth: control auth [none|token|api-key]',
+    '  service    Boot persistence: control service <install|uninstall|status>',
     '',
     'Options:',
     '  -p, --project <dir>  Project the control plane governs (default: cwd)',
@@ -411,6 +443,8 @@ export function controlHelp(): string {
     '                       (default CONTROL_PLANE_API_KEY; only the name is persisted)',
     '      --open/--no-open Open the SPA after start (default: open on a TTY)',
     '      --json           Machine-readable output for status',
+    '      --enable         With service install: run systemctl --user enable --now',
+    '      --replace        With service install: overwrite a unit owned by another project',
     '  -h, --help           Show this help',
     '',
     'Examples:',
@@ -775,12 +809,13 @@ async function controlStatus(
   deps: ControlDeps,
 ): Promise<ControlCliResult> {
   const { projectRoot } = options;
+  const bootLabel = serviceStatusLabel(makeServiceDeps(deps));
   const existing = readControlState(projectRoot);
   if (!existing) {
     return {
       output: options.json
-        ? `${JSON.stringify({ running: false, projectRoot })}\n`
-        : 'Mission Control plane is not running.\n',
+        ? `${JSON.stringify({ running: false, projectRoot, bootService: bootLabel })}\n`
+        : `Mission Control plane is not running.\nBoot service: ${bootLabel}.\n`,
       exitCode: 0,
     };
   }
@@ -795,6 +830,7 @@ async function controlStatus(
     return {
       output: `${JSON.stringify({
         running: pidAlive && endpointOk,
+        bootService: bootLabel,
         pid: existing.pid,
         port: existing.port,
         projectRoot: existing.projectRoot,
@@ -818,7 +854,7 @@ async function controlStatus(
   }
   if (!pidAlive) {
     return {
-      output: `Control plane (pid ${existing.pid}) is not running; cleared stale state.\n`,
+      output: `Control plane (pid ${existing.pid}) is not running; cleared stale state.\nBoot service: ${bootLabel}.\n`,
       exitCode: 0,
     };
   }
@@ -834,7 +870,8 @@ async function controlStatus(
         ? `ChatGPT tunnel: ${existing.openaiTunnel.tunnelId} — ${
             deps.pidAlive(existing.openaiTunnel.pid) ? 'running' : 'NOT running'
           } (pid ${existing.openaiTunnel.pid}, key from $${existing.openaiTunnel.apiKeyEnv})\n`
-        : ''),
+        : '') +
+      `Boot service: ${bootLabel}\n`,
     exitCode: 0,
   };
 }
@@ -1101,6 +1138,62 @@ async function controlServe(
   return { output: '', exitCode: 0 };
 }
 
+/** Assemble the service-layer deps from the control CLI deps. */
+function makeServiceDeps(deps: ControlDeps): ServiceDeps {
+  return {
+    execPath: deps.execPath,
+    homeDir: deps.homeDir,
+    fileExists: deps.fileExists,
+    execSystemctl: deps.execSystemctl,
+    getEnv: deps.getEnv ?? ((name: string) => process.env[name]),
+    platform: deps.platform,
+    version: deps.version,
+  };
+}
+
+/**
+ * `control service install|uninstall|status` — boot persistence via a per-user
+ * systemd unit (proposal 006). The unit file lives outside the repo and is only
+ * written by the operator's own CLI invocation, never through an MCP tool.
+ */
+function controlService(options: ControlOptions, deps: ControlDeps): ControlCliResult {
+  const serviceDeps = makeServiceDeps(deps);
+  switch (options.commandArg) {
+    case 'install': {
+      const state = readControlState(options.projectRoot);
+      return installService(
+        {
+          state: state
+            ? {
+                projectRoot: state.projectRoot,
+                port: state.port,
+                ...(state.allow ? { allow: state.allow } : {}),
+              }
+            : null,
+          enable: options.serviceEnable === true,
+          replace: options.serviceReplace === true,
+          mainJs: deps.mainJs,
+        },
+        serviceDeps,
+      );
+    }
+    case 'uninstall':
+      return uninstallService(serviceDeps);
+    case 'status':
+      return serviceStatus(serviceDeps);
+    case null:
+      return {
+        output: 'Usage: folderforge control service <install|uninstall|status>\n',
+        exitCode: 2,
+      };
+    default:
+      return {
+        output: `Unknown service command: ${options.commandArg}. Use install|uninstall|status.\n`,
+        exitCode: 2,
+      };
+  }
+}
+
 export async function executeControlCli(
   argv: string[],
   overrides: Partial<ControlDeps> = {},
@@ -1117,6 +1210,10 @@ export async function executeControlCli(
     spawnServe: defaultSpawnServe,
     terminate: defaultTerminate,
     openUrl: (url) => defaultOpenUrl(url, platform),
+    execPath: process.execPath,
+    homeDir: homedir(),
+    fileExists: existsSync,
+    execSystemctl: defaultSystemctl,
     stdoutIsTty: Boolean(process.stdout.isTTY),
     platform,
     ...overrides,
@@ -1128,6 +1225,15 @@ export async function executeControlCli(
   } catch (err) {
     return {
       output: `${(err as Error).message}\n\n${controlHelp()}`,
+      exitCode: 2,
+    };
+  }
+  if (
+    (options.serviceEnable === true || options.serviceReplace === true) &&
+    !(options.command === 'service' && options.commandArg === 'install')
+  ) {
+    return {
+      output: '--enable and --replace are only valid with `control service install`.\n',
       exitCode: 2,
     };
   }
@@ -1150,6 +1256,8 @@ export async function executeControlCli(
       return controlServe(options, deps);
     case 'watch':
       return controlWatch(options, deps);
+    case 'service':
+      return controlService(options, deps);
     default:
       return {
         output: `Unknown control command: ${options.command}\n\n${controlHelp()}`,

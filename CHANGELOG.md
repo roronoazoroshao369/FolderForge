@@ -34,6 +34,17 @@ semantic versioning.
   route applies both fields in one call, and the Mission Control SPA shows a
   warning toggle (danger only) plus a persistent card badge. Default off;
   schema lock, risk classes, and the policy engine are unchanged.
+- `folderforge control service install|uninstall|status` (proposal 006):
+  per-user systemd unit boot persistence for the Mission Control plane. The
+  unit starts `control serve` at login with the exact argv recorded in
+  control.json (project, port, `--allow` list), surviving machine reboots —
+  which the in-process `--watchdog` cannot. Linux-only with a clear unsupported
+  message elsewhere; the unit file is mode 0600 and carries no secrets;
+  `--enable` runs `systemctl --user daemon-reload` + `enable --now` with fixed
+  argv (no shell), while the default flow prints the exact commands for the
+  operator; an existing unit owned by another project is kept unless
+  `--replace` is passed. `control status` shows the boot-service state in text
+  and `--json`. No MCP tool, schema lock, risk class, or policy engine changes.
 
 ### Fixed
 
