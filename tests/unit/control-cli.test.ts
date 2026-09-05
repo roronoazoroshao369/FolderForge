@@ -55,6 +55,10 @@ function makeDeps(overrides: Partial<ControlDeps> = {}): FakeHarness {
     openUrl: (url) => {
       opened.push(url);
     },
+    execPath: "/fake/node",
+    homeDir: "/tmp/ff-control-nohome",
+    fileExists: (path: string) => existsSync(path),
+    execSystemctl: () => ({ exitCode: 1, stdout: "", stderr: "systemctl unavailable (fake)" }),
     stdoutIsTty: false,
     platform: "linux",
     ...overrides,
