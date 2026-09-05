@@ -22,7 +22,12 @@ export function terminateChildProcessTree(
   force = false,
   platform: NodeJS.Platform = process.platform
 ): void {
-  if (child.exitCode !== null || child.signalCode !== null) return;
+  // execa's ResultPromise leaves exitCode/signalCode undefined (not null)
+  // while the child is running — treat both spellings of "not exited" as
+  // alive instead of mistaking the handle for an already-dead process.
+  const exited = child.exitCode !== null && child.exitCode !== undefined;
+  const signalled = child.signalCode !== null && child.signalCode !== undefined;
+  if (exited || signalled) return;
 
   if (platform === 'win32' && child.pid !== undefined) {
     const result = spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {

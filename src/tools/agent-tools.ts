@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, sep } from 'node:path';
 import { execa } from 'execa';
@@ -14,8 +15,11 @@ import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 import {
   VERIFICATION_CHECKS,
   type VerificationCheck,
+  type VerificationManager,
   type VerificationRun,
 } from '../verification/verification-manager.js';
+import { logger } from '../core/logger.js';
+import { terminateChildProcessTree } from '../core/process-tree.js';
 import {
   CHANGE_SUMMARY_OUTPUT_SCHEMA,
   CODE_CONTEXT_OUTPUT_SCHEMA,
@@ -260,6 +264,173 @@ function uncertainVerification(run: VerificationRun, error: unknown): ToolResult
   };
 }
 
+interface VerificationExecutionOptions {
+  manager: VerificationManager;
+  run: VerificationRun;
+  stopOnFailure: boolean;
+  timeout: number;
+  maxOutput: number;
+  cwd: string;
+  shell: string;
+  /** Run-scoped cancellation signal (linked to the request for sync runs). */
+  signal: AbortSignal;
+  redact: (text: string) => string;
+  reportProgress?: (completed: number, total: number, message: string) => Promise<void>;
+}
+
+/**
+ * Execute the persisted checks of a verification run in deterministic order,
+ * checkpointing durable evidence after every check. Shared by the synchronous
+ * (request-bound) path and detached async executions; cancellation flows
+ * exclusively through the run-scoped `options.signal`.
+ */
+async function executeVerificationRun(
+  options: VerificationExecutionOptions,
+): Promise<ToolResult> {
+  const { manager, stopOnFailure, timeout, maxOutput, signal, redact } = options;
+  let run = options.run;
+  for (let index = 0; index < run.results.length; index++) {
+    const result = run.results[index]!;
+    if (signal.aborted) {
+      markPendingSkipped(run, 'Verification cancelled before this check ran.');
+      try {
+        run = manager.finish(run, 'cancelled');
+      } catch (error) {
+        return uncertainVerification(run, error);
+      }
+      return {
+        ok: false,
+        error: 'Verification cancelled.',
+        data: manager.report(run),
+      };
+    }
+
+    if (result.status === 'unavailable') {
+      if (stopOnFailure) {
+        for (const later of run.results.slice(index + 1)) {
+          if (later.status !== 'pending') continue;
+          later.status = 'skipped';
+          later.skipped = true;
+          later.reason = `Not run after unavailable ${result.check} check.`;
+        }
+        try {
+          run = manager.finish(run, 'completed');
+        } catch (error) {
+          return uncertainVerification(run, error);
+        }
+        return { ok: false, error: verificationError(run.overall), data: manager.report(run) };
+      }
+      continue;
+    }
+
+    const command = result.command!;
+    await options.reportProgress?.(index, run.results.length, `Running ${result.check}: ${command}`);
+    const started = Date.now();
+    try {
+      // Detached on POSIX so the check runs in its own process group and an
+      // abort terminates the whole tree (npm -> sh -> node), not just the
+      // direct child — otherwise orphaned grandchildren keep stdio pipes open
+      // and this await hangs until they exit on their own.
+      const child = execa(
+        options.shell,
+        shellCommandArgs(options.shell, command),
+        {
+          cwd: options.cwd,
+          timeout,
+          reject: false,
+          maxBuffer: maxOutput * 4,
+          ...(process.platform !== 'win32' ? { detached: true as const } : {}),
+          ...shellSpawnOptions(options.shell),
+        }
+      );
+      // execa's ResultPromise is a ChildProcess at runtime, but its mapped
+      // types do not satisfy the ChildProcess interface — narrow at the edge.
+      const onAbort = (): void => terminateChildProcessTree(child as unknown as ChildProcess);
+      signal.addEventListener('abort', onAbort, { once: true });
+      // Covers an abort that landed between the loop-top check and the spawn.
+      if (signal.aborted) onAbort();
+      const sub = await child.finally(() => {
+        signal.removeEventListener('abort', onAbort);
+      });
+      const stdout = redact((sub.stdout ?? '').slice(0, maxOutput));
+      const stderr = redact((sub.stderr ?? '').slice(0, maxOutput));
+      const unavailable = commandUnavailable(sub.exitCode, stderr);
+      const success = sub.exitCode === 0;
+      result.exitCode = sub.exitCode ?? null;
+      result.durationMs = Date.now() - started;
+      result.stdout = stdout;
+      result.stderr = stderr;
+      result.errors = parseErrors(`${stdout}\n${stderr}`);
+      result.status = success ? 'passed' : unavailable ? 'unavailable' : 'failed';
+      result.passed = success;
+      if (unavailable) result.reason = 'The verification executable or command is unavailable.';
+      else if (!success && (sub as { timedOut?: boolean }).timedOut) {
+        result.reason = `Verification timed out after ${timeout}ms.`;
+      }
+    } catch (error) {
+      const message = redact(
+        error instanceof Error ? error.message : String(error),
+      );
+      result.status = 'failed';
+      result.passed = false;
+      result.durationMs = Date.now() - started;
+      result.stderr = message.slice(0, maxOutput);
+      result.errors = parseErrors(message);
+      result.reason = 'Verification command could not be executed.';
+    }
+
+    if (signal.aborted) {
+      result.status = 'skipped';
+      result.skipped = true;
+      result.passed = false;
+      result.reason = 'Verification cancelled while this check was running.';
+    }
+    try {
+      run = manager.checkpoint(run);
+    } catch (error) {
+      return uncertainVerification(run, error);
+    }
+    if (signal.aborted) {
+      markPendingSkipped(run, 'Verification cancelled before this check ran.');
+      try {
+        run = manager.finish(run, 'cancelled');
+      } catch (error) {
+        return uncertainVerification(run, error);
+      }
+      return { ok: false, error: 'Verification cancelled.', data: manager.report(run) };
+    }
+    if (result.status !== 'passed' && stopOnFailure) {
+      markPendingSkipped(run, `Not run after ${result.check} ${result.status}.`);
+      try {
+        run = manager.finish(run, 'completed');
+      } catch (error) {
+        return uncertainVerification(run, error);
+      }
+      await options.reportProgress?.(
+        run.results.length,
+        run.results.length,
+        run.overall === 'passed' ? 'Verification passed.' : 'Verification stopped.',
+      );
+      return { ok: false, error: verificationError(run.overall), data: manager.report(run) };
+    }
+  }
+
+  try {
+    run = manager.finish(run, 'completed');
+  } catch (error) {
+    return uncertainVerification(run, error);
+  }
+  await options.reportProgress?.(
+    run.results.length,
+    run.results.length,
+    run.overall === 'passed' ? 'Verification passed.' : 'Verification completed with issues.',
+  );
+  const data = manager.report(run);
+  return run.overall === 'passed'
+    ? { ok: true, data }
+    : { ok: false, error: verificationError(run.overall), data };
+}
+
 async function projectVerify(
   args: Record<string, unknown>,
   ctx: Parameters<ToolDefinition['handler']>[1]
@@ -288,8 +459,40 @@ async function projectVerify(
       },
     };
   }
+  if (action === 'cancel') {
+    const id = String(args.id ?? '');
+    try {
+      const run = manager.get(id, principal);
+      if (run.state !== 'running') {
+        return { ok: true, data: { ...manager.report(run), cancellation: 'not-required' } };
+      }
+      if (!manager.cancelExecution(run.id)) {
+        return {
+          ok: false,
+          error:
+            `Verification run ${run.id} is running but has no active executor in this process. ` +
+            'It cannot be cancelled here; if its executor stopped, the next server start marks it interrupted.',
+        };
+      }
+      // Cancellation is asynchronous: the executor loop observes the abort,
+      // records skipped evidence, and finishes the run cancelled. Re-read for
+      // the caller; polling via status/list observes the terminal state.
+      const current = manager.get(run.id, principal);
+      return { ok: true, data: { ...manager.report(current), cancellation: 'requested' } };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
   if (action !== 'run' && action !== 'plan') {
     return { ok: false, error: `Unknown project_verify action: ${action}.` };
+  }
+
+  if (args.async !== undefined && typeof args.async !== 'boolean') {
+    return { ok: false, error: 'async must be a boolean when provided.' };
+  }
+  const wantsAsync = args.async === true;
+  if (wantsAsync && action !== 'run') {
+    return { ok: false, error: 'async is only supported with action=run.' };
   }
 
   const detected = detectCommands(ctx.projectRoot);
@@ -324,6 +527,20 @@ async function projectVerify(
     ctx.config.terminal.maxOutputBytes,
     Math.max(1000, Number(args.maxOutputBytes ?? ctx.config.terminal.maxOutputBytes))
   );
+
+  // Single-flight guard for detached runs. The check here and the register in
+  // beginExecution below are fully synchronous, so two concurrent async
+  // starts cannot both win.
+  if (wantsAsync) {
+    const active = manager.activeAsyncExecution();
+    if (active !== null) {
+      return {
+        ok: false,
+        error: `Another async verification is still running: ${active}. Poll its status or cancel it before starting a new one.`,
+      };
+    }
+  }
+
   let run: VerificationRun;
   try {
     run = manager.create({
@@ -340,133 +557,90 @@ async function projectVerify(
     };
   }
 
-  for (let index = 0; index < run.results.length; index++) {
-    const result = run.results[index]!;
-    if (ctx.control?.signal?.aborted) {
-      markPendingSkipped(run, 'Verification cancelled before this check ran.');
-      try {
-        run = manager.finish(run, 'cancelled');
-      } catch (error) {
-        return uncertainVerification(run, error);
-      }
-      return {
-        ok: false,
-        error: 'Verification cancelled.',
-        data: manager.report(run),
-      };
-    }
-
-    if (result.status === 'unavailable') {
-      if (stopOnFailure) {
-        for (const later of run.results.slice(index + 1)) {
-          if (later.status !== 'pending') continue;
-          later.status = 'skipped';
-          later.skipped = true;
-          later.reason = `Not run after unavailable ${result.check} check.`;
-        }
-        try {
-          run = manager.finish(run, 'completed');
-        } catch (error) {
-          return uncertainVerification(run, error);
-        }
-        return { ok: false, error: verificationError(run.overall), data: manager.report(run) };
-      }
-      continue;
-    }
-
-    const command = result.command!;
-    await ctx.control?.reportProgress?.(index, checks.length, `Running ${result.check}: ${command}`);
-    const started = Date.now();
-    try {
-      const sub = await execa(
-        ctx.config.terminal.shell,
-        shellCommandArgs(ctx.config.terminal.shell, command),
-        {
-          cwd: ctx.projectRoot,
-          timeout,
-          reject: false,
-          maxBuffer: maxOutput * 4,
-          ...(ctx.control?.signal ? { cancelSignal: ctx.control.signal } : {}),
-          ...shellSpawnOptions(ctx.config.terminal.shell),
-        }
-      );
-      const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, maxOutput));
-      const stderr = ctx.container.policy.secret.redact((sub.stderr ?? '').slice(0, maxOutput));
-      const unavailable = commandUnavailable(sub.exitCode, stderr);
-      const success = sub.exitCode === 0;
-      result.exitCode = sub.exitCode ?? null;
-      result.durationMs = Date.now() - started;
-      result.stdout = stdout;
-      result.stderr = stderr;
-      result.errors = parseErrors(`${stdout}\n${stderr}`);
-      result.status = success ? 'passed' : unavailable ? 'unavailable' : 'failed';
-      result.passed = success;
-      if (unavailable) result.reason = 'The verification executable or command is unavailable.';
-      else if (!success && (sub as { timedOut?: boolean }).timedOut) {
-        result.reason = `Verification timed out after ${timeout}ms.`;
-      }
-    } catch (error) {
-      const message = ctx.container.policy.secret.redact(
-        error instanceof Error ? error.message : String(error),
-      );
-      result.status = 'failed';
-      result.passed = false;
-      result.durationMs = Date.now() - started;
-      result.stderr = message.slice(0, maxOutput);
-      result.errors = parseErrors(message);
-      result.reason = 'Verification command could not be executed.';
-    }
-
-    if (ctx.control?.signal?.aborted) {
-      result.status = 'skipped';
-      result.skipped = true;
-      result.passed = false;
-      result.reason = 'Verification cancelled while this check was running.';
-    }
-    try {
-      run = manager.checkpoint(run);
-    } catch (error) {
-      return uncertainVerification(run, error);
-    }
-    if (ctx.control?.signal?.aborted) {
-      markPendingSkipped(run, 'Verification cancelled before this check ran.');
-      try {
-        run = manager.finish(run, 'cancelled');
-      } catch (error) {
-        return uncertainVerification(run, error);
-      }
-      return { ok: false, error: 'Verification cancelled.', data: manager.report(run) };
-    }
-    if (result.status !== 'passed' && stopOnFailure) {
-      markPendingSkipped(run, `Not run after ${result.check} ${result.status}.`);
-      try {
-        run = manager.finish(run, 'completed');
-      } catch (error) {
-        return uncertainVerification(run, error);
-      }
-      await ctx.control?.reportProgress?.(
-        checks.length,
-        checks.length,
-        run.overall === 'passed' ? 'Verification passed.' : 'Verification stopped.',
-      );
-      return { ok: false, error: verificationError(run.overall), data: manager.report(run) };
-    }
-  }
-
+  let controller: AbortController;
   try {
-    run = manager.finish(run, 'completed');
+    controller = manager.beginExecution(run.id, wantsAsync ? 'async' : 'sync');
   } catch (error) {
-    return uncertainVerification(run, error);
+    // Defensive: the single-flight precheck above makes this unreachable for
+    // async runs. Close the fresh run out instead of leaving it running.
+    try {
+      markPendingSkipped(run, 'Verification executor could not be registered.');
+      manager.finish(run, 'cancelled');
+    } catch {
+      // Evidence-store failure surfaces on the next read; nothing else to do.
+    }
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
-  await ctx.control?.reportProgress?.(
-    checks.length,
-    checks.length,
-    run.overall === 'passed' ? 'Verification passed.' : 'Verification completed with issues.',
-  );
-  const data = manager.report(run);
-  return run.overall === 'passed'
-    ? { ok: true, data }
-    : { ok: false, error: verificationError(run.overall), data };
+
+  const execOptions: VerificationExecutionOptions = {
+    manager,
+    run,
+    stopOnFailure,
+    timeout,
+    maxOutput,
+    cwd: ctx.projectRoot,
+    shell: ctx.config.terminal.shell,
+    signal: controller.signal,
+    redact: (text: string) => ctx.container.policy.secret.redact(text),
+    ...(wantsAsync || !ctx.control?.reportProgress
+      ? {}
+      : {
+          reportProgress: async (completed: number, total: number, message: string) => {
+            await ctx.control?.reportProgress?.(completed, total, message);
+          },
+        }),
+  };
+
+  if (wantsAsync) {
+    // Detached execution: the run outlives this request. Terminal evidence is
+    // the durable run record, observed via status/list — and an orphaned
+    // rejection must never crash the host process.
+    void (async () => {
+      try {
+        await executeVerificationRun(execOptions);
+      } catch (error) {
+        logger.error(
+          { err: error instanceof Error ? error.message : String(error), verificationId: run.id },
+          'Async verification executor failed unexpectedly',
+        );
+        try {
+          const latest = manager.get(run.id);
+          if (latest.state === 'running') {
+            markPendingSkipped(latest, 'Verification executor failed before this check ran.');
+            manager.finish(latest, 'interrupted');
+          }
+        } catch (persistError) {
+          logger.error(
+            {
+              err: persistError instanceof Error ? persistError.message : String(persistError),
+              verificationId: run.id,
+            },
+            'Unable to persist interrupted verification state',
+          );
+        }
+      } finally {
+        manager.endExecution(run.id);
+      }
+    })();
+    return { ok: true, data: manager.report(run) };
+  }
+
+  // Synchronous execution keeps its historical contract: link the request
+  // signal into the run controller so request cancellation still cancels the
+  // run, and the response waits for the terminal state.
+  const requestSignal = ctx.control?.signal;
+  if (requestSignal) {
+    if (requestSignal.aborted) {
+      controller.abort();
+    } else {
+      requestSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
+  try {
+    return await executeVerificationRun(execOptions);
+  } finally {
+    manager.endExecution(run.id);
+  }
 }
 
 interface NumstatEntry {
@@ -651,13 +825,13 @@ export function agentTools(): ToolDefinition[] {
     defineTool({
       name: 'project_verify',
       description:
-        'Plan, execute, list, or inspect durable owner-bound typecheck/lint/test/build verification runs with explicit passed/failed/skipped/unavailable evidence.',
+        'Plan, execute, cancel, list, or inspect durable owner-bound typecheck/lint/test/build verification runs with explicit passed/failed/skipped/unavailable evidence. Pass async:true with action=run to detach a long run from the request lifecycle and poll status/list for the terminal report; action=cancel stops a running run you own.',
       group: 'agent',
       mutates: true,
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['run', 'plan', 'status', 'list'] },
+          action: { type: 'string', enum: ['run', 'plan', 'status', 'list', 'cancel'] },
           id: { type: 'string' },
           limit: { type: 'integer', minimum: 1, maximum: 200 },
           checks: { type: 'array', items: { type: 'string', enum: VERIFY_ORDER } },
@@ -665,6 +839,11 @@ export function agentTools(): ToolDefinition[] {
           stopOnFailure: { type: 'boolean' },
           timeoutMs: { type: 'integer', minimum: 1000, maximum: 1800000 },
           maxOutputBytes: { type: 'integer', minimum: 1000 },
+          async: {
+            type: 'boolean',
+            description:
+              'With action=run, execute detached from the request lifecycle and return the running report immediately; poll status/list for the terminal result.',
+          },
         },
         additionalProperties: false,
       },
