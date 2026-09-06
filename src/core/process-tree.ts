@@ -54,6 +54,34 @@ export function terminateChildProcessTree(
 }
 
 /**
+ * Arm a natural-timeout watchdog for a just-spawned child: when `timeoutMs`
+ * elapses, the WHOLE process tree is force-killed (POSIX group SIGKILL /
+ * Windows taskkill /T /F) instead of execa's direct-child-only timeout kill,
+ * which leaves shell-wrapped grandchildren orphaned and holding stdio pipes.
+ * `dispose()` must be called once the child settles so a finished command
+ * never fires the timer. Force is deliberate: the budget is already blown and
+ * a trappable SIGTERM would let a grandchild keep the pipes open (proposal 008).
+ */
+export function armTreeKillTimeout(
+  child: ChildProcess,
+  timeoutMs: number
+): { readonly timedOut: boolean; dispose: () => void } {
+  const state = { timedOut: false };
+  const timer = setTimeout(() => {
+    state.timedOut = true;
+    terminateChildProcessTree(child, true);
+  }, timeoutMs);
+  // The watchdog must never keep the event loop alive on its own.
+  timer.unref();
+  return {
+    get timedOut() {
+      return state.timedOut;
+    },
+    dispose: () => clearTimeout(timer),
+  };
+}
+
+/**
  * Terminate a process tree by pid (POSIX process-group kill, Windows
  * taskkill /T). Used to reap ORPHANED FolderForge children whose ChildProcess
  * handle was lost across a control-plane restart.

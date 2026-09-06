@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
 
 import {
+  armTreeKillTimeout,
   processCommandLine,
   terminateChildProcessTree,
   terminatePidTree,
@@ -63,6 +64,71 @@ describe('process-tree', () => {
     terminateChildProcessTree(child, true);
     await once(child, 'exit');
 
+    expect(await waitUntil(() => !pidAlive(pid))).toBe(true);
+    expect(await waitUntil(() => !groupAlive(pid))).toBe(true);
+  });
+
+  it('armTreeKillTimeout force-kills the tree when the budget elapses', async () => {
+    const killed: Array<string | undefined> = [];
+    const fake = {
+      pid: undefined,
+      exitCode: null,
+      signalCode: null,
+      kill: (signal?: string) => {
+        killed.push(signal);
+        return true;
+      },
+    } as unknown as ChildProcess;
+    const timer = armTreeKillTimeout(fake, 20);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    timer.dispose();
+    expect(timer.timedOut).toBe(true);
+    expect(killed).toEqual(['SIGKILL']); // timeouts do not negotiate
+  });
+
+  it('armTreeKillTimeout never fires after dispose', async () => {
+    const killed: Array<string | undefined> = [];
+    const fake = {
+      pid: undefined,
+      exitCode: null,
+      signalCode: null,
+      kill: (signal?: string) => {
+        killed.push(signal);
+        return true;
+      },
+    } as unknown as ChildProcess;
+    const timer = armTreeKillTimeout(fake, 20);
+    timer.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(timer.timedOut).toBe(false);
+    expect(killed).toEqual([]);
+  });
+
+  it('armTreeKillTimeout does not kill an already-exited child', async () => {
+    const killed: Array<string | undefined> = [];
+    const fake = {
+      pid: undefined,
+      exitCode: 0,
+      signalCode: null,
+      kill: (signal?: string) => {
+        killed.push(signal);
+        return true;
+      },
+    } as unknown as ChildProcess;
+    const timer = armTreeKillTimeout(fake, 20);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    timer.dispose();
+    expect(killed).toEqual([]);
+  });
+
+  itPosix('armTreeKillTimeout reaps the whole POSIX group on a real tree', async () => {
+    const child = spawnDetached('sleep 30 & sleep 30 & wait');
+    const pid = child.pid!;
+    const timer = armTreeKillTimeout(child, 50);
+    expect(groupAlive(pid)).toBe(true);
+    await once(child, 'exit');
+    expect(timer.timedOut).toBe(true);
+    timer.dispose();
     expect(await waitUntil(() => !pidAlive(pid))).toBe(true);
     expect(await waitUntil(() => !groupAlive(pid))).toBe(true);
   });
