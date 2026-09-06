@@ -6,6 +6,8 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-09-06
+
 ### Added
 
 - Isolation status now separates legacy base-relative task delta from current
@@ -85,6 +87,8 @@ semantic versioning.
   messages, and the cancel path's gentle SIGTERM are unchanged. (Proposal 008)
 
 ## [2.8.1] - 2026-09-05
+
+_Not published to npm; superseded by 2.8.2 on the registry._
 
 ### Added
 
