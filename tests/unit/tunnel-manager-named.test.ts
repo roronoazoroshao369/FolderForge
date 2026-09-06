@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TunnelManager } from '../../src/tunnels/tunnel-manager.js';
 
 interface FakeCall {
@@ -44,7 +47,13 @@ function makeFakeCloudflare(options: { failDns?: boolean } = {}) {
   };
 }
 
-function makeManager(cloudflare?: ReturnType<typeof makeFakeCloudflare>['hook']) {
+function makeManager(
+  cloudflare?: ReturnType<typeof makeFakeCloudflare>['hook'],
+  overrides: {
+    listProcessArgs?: () => Array<{ pid: number; args: string }>;
+    platform?: NodeJS.Platform;
+  } = {},
+) {
   const spawned: string[] = [];
   const manager = new TunnelManager({
     spawn: (command) => {
@@ -57,6 +66,7 @@ function makeManager(cloudflare?: ReturnType<typeof makeFakeCloudflare>['hook'])
     cloudflare,
     urlPollMs: 5,
     urlTimeoutMs: 2_000,
+    ...overrides,
   });
   return { manager, spawned };
 }
@@ -122,5 +132,49 @@ describe('TunnelManager named tunnels', () => {
     const methods = cf.calls.map((c) => c.method);
     expect(methods).toContain('deleteDnsRecord');
     expect(methods).toContain('deleteTunnel');
+  });
+
+  it('refuses to start when an external cloudflared already serves the hostname (proposal 009)', async () => {
+    const cf = makeFakeCloudflare();
+    const dir = mkdtempSync(join(tmpdir(), 'ff-tunnel-dupe-'));
+    try {
+      const configPath = join(dir, 'folder-forge.yml');
+      writeFileSync(
+        configPath,
+        `ingress:\n  - hostname: mcp1.example.com\n    service: http://localhost:3112\n  - service: http_status:404\n`,
+      );
+      const { manager, spawned } = makeManager(cf.hook, {
+        listProcessArgs: () => [
+          { pid: 4242, args: `cloudflared tunnel --config ${configPath} run folder-forge` },
+        ],
+      });
+      await expect(
+        manager.startNamed({ targetPort: 7410, hostname: 'mcp1.example.com' }),
+      ).rejects.toThrow(/pid 4242 already serves hostname mcp1\.example\.com/);
+      // The guard fires before any Cloudflare call or spawn.
+      expect(cf.calls).toHaveLength(0);
+      expect(spawned).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('proceeds when the process scan finds no matching config', async () => {
+    const cf = makeFakeCloudflare();
+    const { manager } = makeManager(cf.hook, { listProcessArgs: () => [] });
+    const record = await manager.startNamed({ targetPort: 7410, hostname: 'mcp1.example.com' });
+    expect(record.state).toBe('running');
+  });
+
+  it('skips the duplicate guard on Windows even when the scanner would throw', async () => {
+    const cf = makeFakeCloudflare();
+    const { manager } = makeManager(cf.hook, {
+      platform: 'win32',
+      listProcessArgs: () => {
+        throw new Error('ps does not exist here');
+      },
+    });
+    const record = await manager.startNamed({ targetPort: 7410, hostname: 'mcp1.example.com' });
+    expect(record.state).toBe('running');
   });
 });

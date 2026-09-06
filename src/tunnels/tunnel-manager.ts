@@ -8,7 +8,9 @@
  * credentials are stored anywhere in tunnel state.
  */
 
+import { spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { CloudflareClient } from '../cloudflare/api-client.js';
 import type { CloudflareConfig } from '../cloudflare/config-store.js';
 
@@ -63,10 +65,39 @@ export interface TunnelManagerOptions {
   urlTimeoutMs?: number;
   /** Poll interval while waiting for the public URL (default 250ms). */
   urlPollMs?: number;
+  /**
+   * Best-effort process-table scan used by the named-tunnel duplicate guard
+   * (proposal 009). Default: `ps -eo pid,args` on POSIX, empty on Windows.
+   */
+  listProcessArgs?: () => Array<{ pid: number; args: string }>;
+  /** Platform override for tests (the duplicate guard is POSIX-only). */
+  platform?: NodeJS.Platform;
   now?: () => number;
 }
 
 const QUICK_TUNNEL_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
+
+/**
+ * Process-table snapshot for the named-tunnel duplicate guard. POSIX only —
+ * Windows returns an empty list (the guard is skipped there).
+ */
+function defaultListProcessArgs(): Array<{ pid: number; args: string }> {
+  if (process.platform === 'win32') return [];
+  try {
+    const res = spawnSync('ps', ['-eo', 'pid,args'], { encoding: 'utf8' });
+    if (res.status !== 0 || typeof res.stdout !== 'string') return [];
+    const out: Array<{ pid: number; args: string }> = [];
+    for (const line of res.stdout.split('\n').slice(1)) {
+      const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+      if (match && match[1] !== undefined && match[2] !== undefined) {
+        out.push({ pid: Number(match[1]), args: match[2] });
+      }
+    }
+    return out;
+  } catch {
+    return []; // ps unavailable: the guard stays best-effort and proceeds
+  }
+}
 
 export class TunnelManager {
   private readonly spawnFn: TunnelSpawner | undefined;
@@ -75,6 +106,8 @@ export class TunnelManager {
   private readonly onExitFn: TunnelExitSubscribe | undefined;
   private readonly cloudflare: CloudflareHook | undefined;
   private readonly binary: string;
+  private readonly listProcessArgs: () => Array<{ pid: number; args: string }>;
+  private readonly platform: NodeJS.Platform;
   private readonly urlTimeoutMs: number;
   private readonly urlPollMs: number;
   private readonly now: () => number;
@@ -87,6 +120,8 @@ export class TunnelManager {
     this.onExitFn = options.onExit;
     this.cloudflare = options.cloudflare;
     this.binary = options.binary ?? 'cloudflared';
+    this.listProcessArgs = options.listProcessArgs ?? defaultListProcessArgs;
+    this.platform = options.platform ?? process.platform;
     this.urlTimeoutMs = options.urlTimeoutMs ?? 15_000;
     this.urlPollMs = options.urlPollMs ?? 250;
     this.now = options.now ?? (() => Date.now());
@@ -169,6 +204,43 @@ export class TunnelManager {
   }
 
   /**
+   * Best-effort duplicate guard (proposal 009): refuse when an EXTERNAL
+   * cloudflared already serves this hostname via a `--config <file>` run —
+   * parallel long-lived connections to one named tunnel are a known source
+   * of intermittent origin_bad_gateway (502). Read-only: never signals or
+   * kills anything; a scan failure proceeds (the in-state dupe check still
+   * applies to tunnels this manager started).
+   */
+  private assertHostnameFree(hostname: string): void {
+    if (this.platform === 'win32') return;
+    let processes: Array<{ pid: number; args: string }>;
+    try {
+      processes = this.listProcessArgs();
+    } catch {
+      return;
+    }
+    const escaped = hostname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const hostnamePattern = new RegExp(`hostname:\\s*${escaped}(?:\\s|$)`, 'i');
+    for (const proc of processes) {
+      if (!/cloudflared/.test(proc.args)) continue;
+      const configMatch = /--config\s+(\S+)/.exec(proc.args);
+      if (!configMatch || configMatch[1] === undefined) continue;
+      let content: string;
+      try {
+        content = readFileSync(configMatch[1], 'utf8');
+      } catch {
+        continue; // unreadable config: nothing to match against
+      }
+      if (hostnamePattern.test(content)) {
+        throw new Error(
+          `cloudflared pid ${proc.pid} already serves hostname ${hostname} (config ${configMatch[1]}). ` +
+            'Stop the duplicate first — parallel tunnel connections cause intermittent origin_bad_gateway (502).',
+        );
+      }
+    }
+  }
+
+  /**
    * Start a NAMED tunnel: creates a Cloudflare tunnel + DNS record via the API
    * (hostname must sit under the linked zone domain), then runs cloudflared
    * with the tunnel token. publicUrl is https://<hostname> — stable across
@@ -208,6 +280,7 @@ export class TunnelManager {
     if (dupe) {
       throw new Error(`Hostname ${hostname} is already exposed by tunnel ${dupe.id}.`);
     }
+    this.assertHostnameFree(hostname);
     if (!this.spawnFn) {
       throw new Error('No process spawner is wired; tunnel start is unavailable.');
     }
