@@ -30,6 +30,7 @@ import {
   executeInitCli,
 } from './onboarding/cli.js';
 import { executeControlCli } from './control/cli.js';
+import { defaultOriginDeps, executeOriginCli } from './control/origin.js';
 import { executeShareCli } from './share/cli.js';
 
 const VERSION = readFolderForgeVersion();
@@ -293,6 +294,7 @@ function printHelp(): void {
       "  worker init|run        Create a worker identity or run an allowlisted remote worker",
       "  plugin <command>       init|validate|test|pack|keygen|sign plugin SDK workflow",
       "  control <command>      start|stop|status|open the local Mission Control plane",
+      "  origin <command>       install|uninstall|status a supervised boot-persistent MCP origin (systemd)",
       "  share                  Temporary trial env: share [--tunnel openai|cloudflare|none] [--auth token|oauth]",
       "",
       "Options:",
@@ -427,6 +429,12 @@ async function main(): Promise<void> {
   }
   if (argv[0] === "control") {
     const result = await executeControlCli(argv.slice(1));
+    process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === "origin") {
+    const result = executeOriginCli(argv.slice(1), defaultOriginDeps());
     process.stdout.write(result.output);
     process.exitCode = result.exitCode;
     return;

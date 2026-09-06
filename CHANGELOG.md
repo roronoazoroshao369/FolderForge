@@ -45,6 +45,23 @@ semantic versioning.
   operator; an existing unit owned by another project is kept unless
   `--replace` is passed. `control status` shows the boot-service state in text
   and `--json`. No MCP tool, schema lock, risk class, or policy engine changes.
+- `folderforge origin install|uninstall|status` (proposal 009): a supervised,
+  boot-persistent plain HTTP MCP origin via a per-user systemd unit
+  (`folderforge-origin.service`, Restart=on-failure, WantedBy=default.target),
+  reusing the generalized `control service` machinery (the plane's unit
+  rendering and messages are byte-identical). Secrets never enter the unit or
+  argv: `--token`/`--token-env`/`--api-key` values are written to
+  `<project>/.folderforge/origin.env` (0600) and wired via a required
+  `EnvironmentFile=` line; the existing FOLDERFORGE_HTTP_TOKEN /
+  FOLDERFORGE_HTTP_API_KEYS env overlay applies them at boot. Linux-only with
+  a clear unsupported message elsewhere; no MCP tool, schema lock, risk
+  class, or policy engine changes.
+- `TunnelManager.startNamed` refuses to start when an external cloudflared
+  already serves the same hostname via `--config <file>` — parallel
+  long-lived connections to one named tunnel cause intermittent
+  origin_bad_gateway (502). The guard names the pid + config path, is
+  read-only (never signals foreign processes), best-effort (a scan failure
+  proceeds), and POSIX-only; quick tunnels are unchanged. (Proposal 009)
 
 ### Fixed
 
