@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -575,6 +575,40 @@ describe('AI coding runtime tools', () => {
     expect(result.error).toMatch(/cancelled/i);
     expect(result.data).toMatchObject({ state: 'cancelled', overall: 'incomplete' });
   });
+
+  it('reaps an orphaned grandchild when a check hits its natural timeout', async () => {
+    if (process.platform === 'win32') return; // POSIX group-kill proof
+    const { registry } = registryFor(root);
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    // A unique script file: it spawns a grandchild and then holds the stdout
+    // pipe itself, so a direct-child-only timeout kill (the pre-fix behavior)
+    // hangs this run until the 300s budget ends. Shell-independent on purpose:
+    // npm runs scripts through sh, which lacks bash's `exec -a`.
+    const marker = `ff35v${Math.random().toString(36).slice(2, 10)}`;
+    writeFileSync(
+      join(root, `${marker}.mjs`),
+      `import { spawn } from 'node:child_process';\nspawn('sleep', ['300'], { stdio: 'ignore' });\nsetTimeout(() => {}, 300_000);\n`,
+    );
+    pkg.scripts.test = `node ${marker}.mjs`;
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const startedAt = Date.now();
+    const result = await registry.call('project_verify', {
+      checks: ['test'],
+      timeoutMs: 1000,
+    });
+    const elapsedMs = Date.now() - startedAt;
+    expect(result.ok).toBe(false);
+    expect(elapsedMs).toBeLessThan(15_000); // pre-fix the orphan held the pipes ~300s
+    const results = (result.data as { results: Array<Record<string, unknown>> }).results;
+    expect(results).toMatchObject([
+      { check: 'test', status: 'failed', reason: expect.stringContaining('timed out') },
+    ]);
+    const orphans = spawnSync('pgrep', ['-f', marker], { stdio: 'pipe' });
+    expect(orphans.status).not.toBe(0); // the grandchild died with the group
+  }, 30_000);
 
   it('rejects async on non-run actions', async () => {
     const { registry } = registryFor(root);

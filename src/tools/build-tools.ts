@@ -5,6 +5,8 @@ import { detectCommands } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
 import { RUN_SCRIPT_OUTPUT_SCHEMA } from './output-schemas.js';
 import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
+import { armTreeKillTimeout } from '../core/process-tree.js';
+import type { ChildProcess } from 'node:child_process';
 
 /**
  * Run a detected project script.
@@ -43,22 +45,31 @@ async function runScript(
       },
     };
   }
-  const sub = await execa(
+  const child = execa(
     ctx.config.terminal.shell,
     shellCommandArgs(ctx.config.terminal.shell, command),
     {
       cwd: ctx.projectRoot,
-      timeout: ctx.config.terminal.defaultTimeoutMs,
       reject: false,
       maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
+      // Detached on POSIX so a timeout can reap the whole process group, not
+      // just the direct shell child (proposal 008).
+      ...(process.platform !== 'win32' ? { detached: true as const } : {}),
       ...shellSpawnOptions(ctx.config.terminal.shell),
     }
   );
+  // A natural timeout must reap the whole tree (proposal 008) — execa's own
+  // timeout would only reach the direct shell child and orphan grandchildren.
+  const treeTimeout = armTreeKillTimeout(
+    child as unknown as ChildProcess,
+    ctx.config.terminal.defaultTimeoutMs
+  );
+  const sub = await child.finally(() => treeTimeout.dispose());
   const max = ctx.config.terminal.maxOutputBytes;
   const stdout = ctx.container.policy.secret.redact((sub.stdout ?? '').slice(0, max));
   const stderr = ctx.container.policy.secret.redact((sub.stderr ?? '').slice(0, max));
   const errors = parseErrors(stdout + '\n' + stderr);
-  if (sub.timedOut) {
+  if (treeTimeout.timedOut) {
     return {
       ok: false,
       error:

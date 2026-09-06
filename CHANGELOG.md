@@ -58,6 +58,14 @@ semantic versioning.
   `control status`; and `control stop` stops a systemd-managed plane via
   `systemctl --user stop` — guarded by the unit's project — instead of a
   SIGTERM that `Restart=on-failure` would immediately undo. (Proposal 007)
+- Natural command timeouts now reap the whole spawned process tree instead of
+  only the direct shell child: `shell_exec`, the synchronous
+  `run_test`/`run_lint`/`run_typecheck`/`run_build` path, and `project_verify`
+  checks arm a per-spawn watchdog that force-kills the process group (POSIX)
+  or runs `taskkill /T /F` (Windows) when the budget elapses — shell-wrapped
+  grandchildren (e.g. `npm` under `bash -lc`) can no longer survive orphaned
+  and hold the stdio pipes open past the timeout. Outward results, timeout
+  messages, and the cancel path's gentle SIGTERM are unchanged. (Proposal 008)
 
 ## [2.8.1] - 2026-09-05
 

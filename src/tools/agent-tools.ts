@@ -19,7 +19,7 @@ import {
   type VerificationRun,
 } from '../verification/verification-manager.js';
 import { logger } from '../core/logger.js';
-import { terminateChildProcessTree } from '../core/process-tree.js';
+import { armTreeKillTimeout, terminateChildProcessTree } from '../core/process-tree.js';
 import {
   CHANGE_SUMMARY_OUTPUT_SCHEMA,
   CODE_CONTEXT_OUTPUT_SCHEMA,
@@ -336,7 +336,6 @@ async function executeVerificationRun(
         shellCommandArgs(options.shell, command),
         {
           cwd: options.cwd,
-          timeout,
           reject: false,
           maxBuffer: maxOutput * 4,
           ...(process.platform !== 'win32' ? { detached: true as const } : {}),
@@ -345,11 +344,17 @@ async function executeVerificationRun(
       );
       // execa's ResultPromise is a ChildProcess at runtime, but its mapped
       // types do not satisfy the ChildProcess interface — narrow at the edge.
-      const onAbort = (): void => terminateChildProcessTree(child as unknown as ChildProcess);
+      const asProcess = child as unknown as ChildProcess;
+      const onAbort = (): void => terminateChildProcessTree(asProcess);
       signal.addEventListener('abort', onAbort, { once: true });
       // Covers an abort that landed between the loop-top check and the spawn.
       if (signal.aborted) onAbort();
+      // A natural timeout must reap the whole tree (proposal 008): execa's own
+      // timeout would only reach the direct shell child, leaving orphaned
+      // grandchildren holding the stdio pipes and hanging this await.
+      const treeTimeout = armTreeKillTimeout(asProcess, timeout);
       const sub = await child.finally(() => {
+        treeTimeout.dispose();
         signal.removeEventListener('abort', onAbort);
       });
       const stdout = redact((sub.stdout ?? '').slice(0, maxOutput));
@@ -364,7 +369,7 @@ async function executeVerificationRun(
       result.status = success ? 'passed' : unavailable ? 'unavailable' : 'failed';
       result.passed = success;
       if (unavailable) result.reason = 'The verification executable or command is unavailable.';
-      else if (!success && (sub as { timedOut?: boolean }).timedOut) {
+      else if (!success && treeTimeout.timedOut) {
         result.reason = `Verification timed out after ${timeout}ms.`;
       }
     } catch (error) {

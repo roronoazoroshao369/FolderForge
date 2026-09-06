@@ -3,6 +3,8 @@ import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
 import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
 import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
+import { armTreeKillTimeout } from '../core/process-tree.js';
+import type { ChildProcess } from 'node:child_process';
 
 export function terminalTools(): ToolDefinition[] {
   return [
@@ -36,18 +38,25 @@ export function terminalTools(): ToolDefinition[] {
 
         const started = Date.now();
         try {
-          const sub = await execa(
+          const child = execa(
             ctx.config.terminal.shell,
             shellCommandArgs(ctx.config.terminal.shell, command),
             {
               cwd,
-              timeout,
               reject: false,
               all: false,
               maxBuffer: maxBytes * 4,
+              // Detached on POSIX so a timeout can reap the whole process
+              // group, not just the direct shell child (proposal 008).
+              ...(process.platform !== 'win32' ? { detached: true as const } : {}),
               ...shellSpawnOptions(ctx.config.terminal.shell),
             }
           );
+          // A natural timeout must reap the whole tree: execa's own timeout
+          // only reaches the direct shell child, leaving orphaned grandchildren
+          // holding the stdio pipes and hanging this await past the budget.
+          const treeTimeout = armTreeKillTimeout(child as unknown as ChildProcess, timeout);
+          const sub = await child.finally(() => treeTimeout.dispose());
           const redact = (s: string) =>
             ctx.container.policy.secret.redact((s ?? '').slice(0, maxBytes));
           const data = {
