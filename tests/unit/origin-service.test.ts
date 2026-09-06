@@ -367,4 +367,86 @@ describe('origin service', () => {
     expect(unknown.exitCode).toBe(1);
     expect(unknown.output).toContain('Unknown argument: --wat');
   });
+
+  it('captures the installer PATH into the unit as Environment= (alongside secrets)', () => {
+    const project = makeProject();
+    const xdg = join(project, 'xdg');
+    const { deps } = makeDeps(xdg, {
+      getEnv: (name) =>
+        name === 'XDG_CONFIG_HOME'
+          ? xdg
+          : name === 'PATH'
+            ? '/nvm/bin:/usr/bin'
+            : undefined,
+    });
+    const result = installOrigin(
+      {
+        project,
+        port: 3112,
+        authMode: 'token',
+        token: 'tok-secret-1',
+        enable: false,
+        replace: false,
+        mainJs: MAIN_JS,
+      },
+      deps,
+    );
+    expect(result.exitCode).toBe(0);
+    const unit = unitText(project);
+    expect(unit).toContain('Environment=PATH=/nvm/bin:/usr/bin');
+    expect(unit).toContain(`EnvironmentFile=${originEnvPath(project)}`);
+    // PATH is environment config, not a secret: it must stay out of origin.env.
+    expect(readFileSync(originEnvPath(project), 'utf8')).toBe(
+      'FOLDERFORGE_HTTP_TOKEN=tok-secret-1\n',
+    );
+  });
+
+  it('captures PATH for auth=none installs too (no env file involved)', () => {
+    const project = makeProject();
+    const xdg = join(project, 'xdg');
+    const { deps } = makeDeps(xdg, {
+      getEnv: (name) =>
+        name === 'XDG_CONFIG_HOME' ? xdg : name === 'PATH' ? '/nvm/bin:/usr/bin' : undefined,
+    });
+    const result = installOrigin(
+      { project, port: 7399, authMode: 'none', enable: false, replace: false, mainJs: MAIN_JS },
+      deps,
+    );
+    expect(result.exitCode).toBe(0);
+    const unit = unitText(project);
+    expect(unit).toContain('Environment=PATH=/nvm/bin:/usr/bin');
+    expect(unit).not.toContain('EnvironmentFile=');
+    expect(existsSync(originEnvPath(project))).toBe(false);
+  });
+
+  it('quotes the Environment line when the captured PATH contains a space', () => {
+    const project = makeProject();
+    const xdg = join(project, 'xdg');
+    const { deps } = makeDeps(xdg, {
+      getEnv: (name) =>
+        name === 'XDG_CONFIG_HOME'
+          ? xdg
+          : name === 'PATH'
+            ? '/opt/my dir/bin:/usr/bin'
+            : undefined,
+    });
+    const result = installOrigin(
+      { project, port: 3113, authMode: 'none', enable: false, replace: false, mainJs: MAIN_JS },
+      deps,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(unitText(project)).toContain('Environment="PATH=/opt/my dir/bin:/usr/bin"');
+  });
+
+  it('renders no Environment line when the installer PATH is undefined', () => {
+    const project = makeProject();
+    const { deps } = makeDeps(join(project, 'xdg'));
+    const result = installOrigin(
+      { project, port: 3114, authMode: 'none', enable: false, replace: false, mainJs: MAIN_JS },
+      deps,
+    );
+    expect(result.exitCode).toBe(0);
+    // Environment= never appears (EnvironmentFile= shares no such substring).
+    expect(unitText(project)).not.toContain('Environment=');
+  });
 });

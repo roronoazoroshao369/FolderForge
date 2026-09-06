@@ -13,6 +13,10 @@
  * are written to `<project>/.folderforge/origin.env` (mode 0600) and wired as
  * a REQUIRED EnvironmentFile=; the runtime config overlay already honors and
  * scrubs FOLDERFORGE_HTTP_TOKEN / FOLDERFORGE_HTTP_API_KEYS at boot.
+ *
+ * The installer's PATH is mirrored into the unit as Environment="PATH=…" so
+ * children spawned by the supervised origin resolve the same toolchain as a
+ * login shell (systemd's default PATH would otherwise hide nvm installs).
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -163,6 +167,10 @@ export function installOrigin(
     '--auth',
     options.authMode,
   ];
+  // Mirror the operator's login-shell PATH into the unit: systemd starts the
+  // origin with a minimal default PATH, so spawned children would otherwise
+  // resolve the system toolchain (node 20) instead of the operator's (nvm).
+  const operatorPath = deps.getEnv('PATH');
   return installUnit(
     {
       spec: ORIGIN_UNIT,
@@ -172,6 +180,9 @@ export function installOrigin(
       replace: options.replace,
       detailLine: `Origin at login: project ${options.project}, ${host}:${options.port} (HTTP MCP, auth ${options.authMode}).`,
       ...(environmentFile !== undefined ? { environmentFile } : {}),
+      ...(operatorPath !== undefined && operatorPath.trim().length > 0
+        ? { environment: { PATH: operatorPath } }
+        : {}),
     },
     deps,
   );
