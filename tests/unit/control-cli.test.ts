@@ -11,7 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  clearServeStateIfOurs,
   executeControlCli,
+  recordServeState,
   type ControlDeps,
 } from "../../src/control/cli.js";
 
@@ -530,5 +532,156 @@ describe("folderforge control", () => {
     );
     expect(result.exitCode).toBe(2);
     expect(result.output).toContain("--tunnel-id");
+  });
+
+  it("stop routes through systemd when the boot service is active for this project", async () => {
+    const root = trackedRoot();
+    const home = trackedRoot();
+    const unitDir = join(home, ".config", "systemd", "user");
+    mkdirSync(unitDir, { recursive: true });
+    writeFileSync(
+      join(unitDir, "folderforge-control.service"),
+      `[Service]\nExecStart=/fake/node /fake/dist/main.js control serve --project ${root} --port 7332\n`,
+      "utf8",
+    );
+    const systemctlCalls: string[][] = [];
+    const { deps, terminated } = makeDeps({
+      homeDir: home,
+      getEnv: () => undefined,
+      execSystemctl: (args) => {
+        systemctlCalls.push(args);
+        if (args[1] === "is-active") return { exitCode: 0, stdout: "active", stderr: "" };
+        if (args[1] === "is-enabled") return { exitCode: 0, stdout: "enabled", stderr: "" };
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+    // No control.json — the #33 wart case: systemd owns the plane, state is absent.
+    const result = await executeControlCli(["stop", "--project", root], deps);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("stopped via systemd");
+    expect(result.output).toContain("still enabled");
+    expect(systemctlCalls).toContainEqual(["--user", "stop", "folderforge-control.service"]);
+    expect(terminated).toHaveLength(0); // never SIGTERM a systemd-managed plane
+  });
+
+  it("stop ignores systemd when the unit targets a different project", async () => {
+    const root = trackedRoot();
+    const home = trackedRoot();
+    const unitDir = join(home, ".config", "systemd", "user");
+    mkdirSync(unitDir, { recursive: true });
+    writeFileSync(
+      join(unitDir, "folderforge-control.service"),
+      `[Service]\nExecStart=/fake/node /fake/dist/main.js control serve --project /other/project --port 7332\n`,
+      "utf8",
+    );
+    const systemctlCalls: string[][] = [];
+    const harness = makeDeps({
+      homeDir: home,
+      getEnv: () => undefined,
+      execSystemctl: (args) => {
+        systemctlCalls.push(args);
+        if (args[1] === "is-active") return { exitCode: 0, stdout: "active", stderr: "" };
+        return { exitCode: 0, stdout: "enabled", stderr: "" };
+      },
+    });
+    await executeControlCli(["start", "--project", root], harness.deps);
+    const result = await executeControlCli(["stop", "--project", root], harness.deps);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("plane stopped");
+    expect(harness.terminated).toEqual([4201]); // legacy SIGTERM path for THIS project
+    expect(systemctlCalls.some((c) => c[1] === "stop")).toBe(false);
+  });
+
+  it("stop keeps the legacy SIGTERM path when the boot service is installed but inactive", async () => {
+    const root = trackedRoot();
+    const home = trackedRoot();
+    const unitDir = join(home, ".config", "systemd", "user");
+    mkdirSync(unitDir, { recursive: true });
+    writeFileSync(
+      join(unitDir, "folderforge-control.service"),
+      `[Service]\nExecStart=/fake/node /fake/dist/main.js control serve --project ${root} --port 7332\n`,
+      "utf8",
+    );
+    const systemctlCalls: string[][] = [];
+    const harness = makeDeps({
+      homeDir: home,
+      getEnv: () => undefined,
+      execSystemctl: (args) => {
+        systemctlCalls.push(args);
+        if (args[1] === "is-active") return { exitCode: 3, stdout: "inactive", stderr: "" };
+        return { exitCode: 0, stdout: "enabled", stderr: "" };
+      },
+    });
+    await executeControlCli(["start", "--project", root], harness.deps);
+    const result = await executeControlCli(["stop", "--project", root], harness.deps);
+    expect(result.exitCode).toBe(0);
+    expect(harness.terminated).toEqual([4201]);
+    expect(systemctlCalls.some((c) => c[1] === "stop")).toBe(false);
+  });
+
+  it("stop reports failure when systemctl stop fails", async () => {
+    const root = trackedRoot();
+    const home = trackedRoot();
+    const unitDir = join(home, ".config", "systemd", "user");
+    mkdirSync(unitDir, { recursive: true });
+    writeFileSync(
+      join(unitDir, "folderforge-control.service"),
+      `[Service]\nExecStart=/fake/node /fake/dist/main.js control serve --project ${root} --port 7332\n`,
+      "utf8",
+    );
+    const harness = makeDeps({
+      homeDir: home,
+      getEnv: () => undefined,
+      execSystemctl: (args) =>
+        args[1] === "stop"
+          ? { exitCode: 1, stdout: "", stderr: "boom" }
+          : { exitCode: 0, stdout: args[1] === "is-active" ? "active" : "enabled", stderr: "" },
+    });
+    const result = await executeControlCli(["stop", "--project", root], harness.deps);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Failed to stop the systemd boot service");
+    expect(harness.terminated).toHaveLength(0);
+  });
+
+  it("recordServeState writes the plane state and preserves fields it does not own", () => {
+    const root = trackedRoot();
+    mkdirSync(join(root, ".folderforge"), { recursive: true });
+    writeFileSync(
+      statePath(root),
+      JSON.stringify({
+        schemaVersion: 1,
+        pid: 111,
+        port: 7332,
+        projectRoot: root,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        version: "0.0.0-old",
+        watchdogPid: 555,
+        auth: { mode: "token" },
+        allow: ["/extra"],
+      }),
+      "utf8",
+    );
+    recordServeState(root, { pid: 222, port: 7400, version: "0.0.0-test" });
+    const state = JSON.parse(readFileSync(statePath(root), "utf8")) as Record<string, unknown>;
+    expect(state.pid).toBe(222);
+    expect(state.port).toBe(7400);
+    expect(state.version).toBe("0.0.0-test");
+    expect(state.watchdogPid).toBe(555);
+    expect(state.auth).toEqual({ mode: "token" });
+    expect(state.allow).toEqual(["/extra"]);
+    // An explicit --allow list from argv wins over the preserved one.
+    recordServeState(root, { pid: 223, port: 7400, version: "0.0.0-test", allow: ["/new"] });
+    const updated = JSON.parse(readFileSync(statePath(root), "utf8")) as Record<string, unknown>;
+    expect(updated.pid).toBe(223);
+    expect(updated.allow).toEqual(["/new"]);
+  });
+
+  it("clearServeStateIfOurs removes the state only for its own pid", () => {
+    const root = trackedRoot();
+    recordServeState(root, { pid: 222, port: 7400, version: "0.0.0-test" });
+    clearServeStateIfOurs(root, 999);
+    expect(existsSync(statePath(root))).toBe(true); // a newer plane's state survives
+    clearServeStateIfOurs(root, 222);
+    expect(existsSync(statePath(root))).toBe(false);
   });
 });
