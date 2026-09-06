@@ -6,7 +6,7 @@
 
 ## Context
 
-FolderForge 2.7.9 already provides a governed MCP control surface for one active
+FolderForge 2.8.2 already provides a governed MCP control surface for one active
 workspace: policy-as-code, approvals, audit, Workspace Capsules, task isolation,
 workflows, distributed workers, plugins, a verified local marketplace, and a
 local Mission Control operator view (`docs/mission-control.md`) that reads the

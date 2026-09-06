@@ -205,7 +205,7 @@ queries are LOW; writes/migrations are HIGH.
 | `vibe` | workspace, workflow, agent, file, search, terminal, process, git, code, build | Full coding and governed-workflow surface (**71 tools** in the audited working tree). |
 | `vibe-lite` | workflow, agent, file, search, code, terminal, build, git, process, browser | Folder-scoped and hard-capped to **50 tools**. The complete workflow, agent, browser, and process-lifecycle groups are pinned; lower-level/default-disabled primitives are trimmed before cap resolution. Explicit `--tools-enable` names are retained. This is the only preset that does not force-add the workspace group. |
 | `readonly` | workspace, workflow, agent, file, search, code | Exploration-oriented surface (**42 tools**); mutating calls are still denied by readonly policy rather than by group membership alone. |
-| `full` | all native groups, including plugin, artifact, distributed, marketplace, and game | Explicit opt-in to the full native surface (**308 tools** in the audited working tree: 288 agent-facing and 20 admin-only). Dynamic child/plugin tools may add to this count. |
+| `full` | all native groups, including plugin, artifact, distributed, marketplace, and game | Explicit opt-in to the full native surface (**304 tools** served over `tools/list` in the audited 2.8.2 tree; the registry holds 329 entries at startup, including 25 admin-only tools). Dynamic child/plugin tools may add to this count. |
 
 ## Task presets
 
