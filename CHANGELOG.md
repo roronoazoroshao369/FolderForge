@@ -6,6 +6,10 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- `folderforge origin install` now mirrors the installer process's `PATH` into the supervised unit as `Environment="PATH=…"` (proposal 011): children spawned by a supervised origin (shell_exec, run_test, verification checks) resolve the operator's toolchain — e.g. nvm-installed Node 22 — instead of systemd's minimal default PATH, which landed origin-spawned shells on the system Node 20 and crashed execa imports. The plane unit rendering is byte-identical, secrets remain exclusively in `origin.env`, and `--auth none` installs get the same mirroring.
+
 ## [2.8.2] - 2026-09-06
 
 ### Added
