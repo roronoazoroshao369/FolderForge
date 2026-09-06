@@ -52,6 +52,12 @@ semantic versioning.
   `exitCode`/`signalCode` are `undefined` while the child is running — for an
   already-exited process; the exit guard now uses loose null equality. The
   misclassification was latent: no previous caller passed execa handles.
+- `control serve` now writes and cleans up `.folderforge/control.json` itself
+  (merge-preserving fields it does not own; pid-guarded cleanup on shutdown),
+  so a plane started by the systemd boot service is visible to
+  `control status`; and `control stop` stops a systemd-managed plane via
+  `systemctl --user stop` — guarded by the unit's project — instead of a
+  SIGTERM that `Restart=on-failure` would immediately undo. (Proposal 007)
 
 ## [2.8.1] - 2026-09-05
 

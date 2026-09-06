@@ -67,7 +67,9 @@ import {
 import {
   defaultSystemctl,
   installService,
+  SERVICE_UNIT_NAME,
   serviceStatus,
+  serviceStatusInfo,
   serviceStatusLabel,
   uninstallService,
   type ServiceDeps,
@@ -256,6 +258,36 @@ function removeControlState(projectRoot: string): void {
   } catch {
     // Already gone.
   }
+}
+
+/**
+ * Fields `control serve` owns in control.json (pid/port/startedAt/version);
+ * watchdogPid/openaiTunnel/auth/allow from a previous writer are preserved.
+ * Runs even when systemd (not `control start`) spawned the plane, so
+ * `control status`/`control stop` can see it (proposal 007).
+ */
+export function recordServeState(
+  projectRoot: string,
+  state: { pid: number; port: number; version: string; allow?: string[] },
+): void {
+  const existing = readControlState(projectRoot);
+  const next: ControlState = {
+    ...(existing ?? {}),
+    schemaVersion: 1,
+    pid: state.pid,
+    port: state.port,
+    projectRoot,
+    startedAt: new Date().toISOString(),
+    version: state.version,
+  };
+  if (state.allow !== undefined) next.allow = state.allow;
+  writeControlState(projectRoot, next);
+}
+
+/** Remove control.json only when it still points at this process's pid. */
+export function clearServeStateIfOurs(projectRoot: string, pid: number): void {
+  const existing = readControlState(projectRoot);
+  if (existing && existing.pid === pid) removeControlState(projectRoot);
 }
 
 function tailFile(path: string, maxChars: number): string {
@@ -679,6 +711,33 @@ async function controlStop(
 ): Promise<ControlCliResult> {
   const { projectRoot } = options;
   const existing = readControlState(projectRoot);
+  // A systemd-managed plane must be stopped through systemd: SIGTERM would be
+  // undone by Restart=on-failure. The project guard ensures that
+  // `control stop --project X` never kills project Y's boot plane (one unit
+  // per user).
+  const bootInfo = serviceStatusInfo(makeServiceDeps(deps));
+  if (
+    bootInfo.installed &&
+    bootInfo.active === 'active' &&
+    bootInfo.projectRoot === projectRoot
+  ) {
+    const res = deps.execSystemctl(['--user', 'stop', SERVICE_UNIT_NAME]);
+    if (res.exitCode !== 0) {
+      return {
+        output:
+          `Failed to stop the systemd boot service (exit ${res.exitCode}): ${res.stderr.trim() || res.stdout.trim() || 'systemctl unavailable'}\n` +
+          'The plane is still running under systemd.\n',
+        exitCode: 1,
+      };
+    }
+    if (existing) removeControlState(projectRoot);
+    return {
+      output:
+        'Mission Control plane stopped via systemd. The boot service is still enabled and starts again at login.\n' +
+        'To disable: folderforge control service uninstall (or systemctl --user disable folderforge-control.service).\n',
+      exitCode: 0,
+    };
+  }
   if (!existing) {
     return {
       output: 'No Mission Control plane state found; nothing to stop.\n',
@@ -1118,6 +1177,15 @@ async function controlServe(
     'Mission Control plane serving',
   );
 
+  // Own the state file even when systemd (not `control start`) spawned us:
+  // without it `control status` / `control stop` are blind to the plane (#34).
+  recordServeState(options.projectRoot, {
+    pid: process.pid,
+    port: boundPort,
+    version: deps.version,
+    ...(options.allow !== undefined ? { allow: options.allow } : {}),
+  });
+
   await new Promise<void>((resolvePromise) => {
     let shuttingDown = false;
     const shutdown = (signal: string): void => {
@@ -1129,7 +1197,10 @@ async function controlServe(
           stopManagedProcessTrees(container, 1_500),
           container.adapters.stopAllAndWait(1_500),
           container.browserEmulation.close(),
-        ]).then(() => resolvePromise());
+        ]).then(() => {
+          clearServeStateIfOurs(options.projectRoot, process.pid);
+          resolvePromise();
+        });
       });
     };
     process.on('SIGINT', () => shutdown('SIGINT'));
