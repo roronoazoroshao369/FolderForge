@@ -6,6 +6,10 @@ semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `folderforge tunnel install|uninstall|status` (proposal 012): supervise a NAMED cloudflared tunnel with a per-user systemd unit (`folderforge-tunnel-<name>.service`, Restart=on-failure, WantedBy=default.target), reusing the generalized `control service` machinery (the plane and origin unit renderings are unchanged). The unit holds no secrets — the named tunnel's credentials stay in cloudflared's own 0400 JSON, referenced only via `--config` — and several named tunnels coexist as separate units; reinstalling the same name overwrites it (the config update path). `InstallUnitOptions` gains an additive `runtimeFiles` override and an optional `mainJs` for non-node units. Linux-only with a clear unsupported message elsewhere; no MCP tool, schema lock, risk class, or policy engine changes.
+
 ### Fixed
 
 - `folderforge origin install` now mirrors the installer process's `PATH` into the supervised unit as `Environment="PATH=…"` (proposal 011): children spawned by a supervised origin (shell_exec, run_test, verification checks) resolve the operator's toolchain — e.g. nvm-installed Node 22 — instead of systemd's minimal default PATH, which landed origin-spawned shells on the system Node 20 and crashed execa imports. The plane unit rendering is byte-identical, secrets remain exclusively in `origin.env`, and `--auth none` installs get the same mirroring.
