@@ -178,7 +178,8 @@ export interface InstallUnitOptions {
   spec: UnitSpec;
   /** Full ExecStart argv (node binary + entry point + flags). */
   serveArgs: string[];
-  mainJs: string;
+  /** Entry point validated before writing; omittable when runtimeFiles is set. */
+  mainJs?: string;
   /** Run systemctl enable --now after writing the unit. */
   enable: boolean;
   /** Overwrite a unit owned by another project. */
@@ -189,6 +190,8 @@ export interface InstallUnitOptions {
   environmentFile?: string;
   /** Optional Environment=KEY=VALUE lines (e.g. the origin mirrors PATH). */
   environment?: Record<string, string>;
+  /** Replace the execPath/mainJs existence check entirely (e.g. tunnel units). */
+  runtimeFiles?: string[];
 }
 
 export function installUnit(
@@ -197,11 +200,18 @@ export function installUnit(
 ): ServiceResult {
   const { spec } = options;
   if (deps.platform !== 'linux') return unsupportedPlatform(deps, spec);
-  if (!deps.fileExists(deps.execPath) || !deps.fileExists(options.mainJs)) {
+  const runtimeFiles =
+    options.runtimeFiles ??
+    [deps.execPath, ...(options.mainJs !== undefined ? [options.mainJs] : [])];
+  const missing = runtimeFiles.filter((file) => !deps.fileExists(file));
+  if (missing.length > 0) {
     return {
       output:
-        `Runtime files are missing (node: ${deps.execPath}; app: ${options.mainJs}). ` +
-        `Repair or upgrade the installation, then re-run \`${spec.generatedBy}\`.\n`,
+        options.runtimeFiles === undefined
+          ? `Runtime files are missing (node: ${deps.execPath}; app: ${options.mainJs}). ` +
+            `Repair or upgrade the installation, then re-run \`${spec.generatedBy}\`.\n`
+          : `Runtime files are missing (${missing.join(', ')}). ` +
+            `Repair or upgrade the installation, then re-run \`${spec.generatedBy}\`.\n`,
       exitCode: 1,
     };
   }
