@@ -207,4 +207,47 @@ describe('VerificationManager', () => {
     expect(manager.activeAsyncExecution()).toBeNull();
     expect(() => manager.beginExecution('verify_0000000000000004', 'async')).not.toThrow();
   });
+
+  it('stopAllExecutions resolves immediately when no executor is registered', async () => {
+    const manager = new VerificationManager(root);
+    await expect(manager.stopAllExecutions(25)).resolves.toEqual({ aborted: 0, drained: true });
+  });
+
+  it('stopAllExecutions aborts every registered executor with the shutdown reason', async () => {
+    const manager = new VerificationManager(root);
+    const syncController = manager.beginExecution('verify_0000000000000011', 'sync');
+    const asyncController = manager.beginExecution('verify_0000000000000012', 'async');
+    const stop = manager.stopAllExecutions(1_000);
+    // Aborts land synchronously, before the settle wait.
+    expect(syncController.signal.aborted).toBe(true);
+    expect(asyncController.signal.aborted).toBe(true);
+    expect((syncController.signal.reason as Error).message).toMatch(/shutting down/i);
+    // Executor loops settle asynchronously; simulate their finally blocks.
+    manager.endExecution('verify_0000000000000011');
+    manager.endExecution('verify_0000000000000012');
+    await expect(stop).resolves.toEqual({ aborted: 2, drained: true });
+    expect(manager.activeAsyncExecution()).toBeNull();
+  });
+
+  it('stopAllExecutions resolves drained:false after grace when an executor never settles', async () => {
+    const manager = new VerificationManager(root);
+    const controller = manager.beginExecution('verify_0000000000000013', 'sync');
+    const started = Date.now();
+    await expect(manager.stopAllExecutions(25)).resolves.toEqual({ aborted: 1, drained: false });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(15);
+    expect(controller.signal.aborted).toBe(true);
+    // A late settle still unregisters cleanly; a second sweep is a no-op.
+    manager.endExecution('verify_0000000000000013');
+    await expect(manager.stopAllExecutions(25)).resolves.toEqual({ aborted: 0, drained: true });
+  });
+
+  it('stopAllExecutions resolves a concurrent second caller when the registry drains', async () => {
+    const manager = new VerificationManager(root);
+    manager.beginExecution('verify_0000000000000014', 'sync');
+    const first = manager.stopAllExecutions(1_000);
+    const second = manager.stopAllExecutions(1_000);
+    manager.endExecution('verify_0000000000000014');
+    await expect(first).resolves.toMatchObject({ aborted: 1, drained: true });
+    await expect(second).resolves.toMatchObject({ drained: true });
+  });
 });

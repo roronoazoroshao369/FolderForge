@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
+import { stopManagedProcessTrees } from '../../src/runtime/shutdown.js';
 import { buildRegistry } from '../../src/tools/index.js';
 
 function initFixture(root: string): void {
@@ -447,6 +448,51 @@ describe('AI coding runtime tools', () => {
     const again = await registry.call('project_verify', { action: 'cancel', id });
     expect(again.ok).toBe(true);
     expect((again.data as { cancellation: string }).cancellation).toBe('not-required');
+  });
+
+  it('server shutdown sweep aborts an in-flight async verification and reaps its detached child tree', async () => {
+    if (process.platform === 'win32') return; // process-group reaping is POSIX-only
+    const { container, registry } = registryFor(root);
+    const marker = join(root, 'ff43-grandchild.pid');
+    writeFileSync(
+      join(root, 'ff43-child.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, String(process.pid));\nsetTimeout(() => console.log('too-late'), 30000);\n`,
+    );
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    pkg.scripts.test = 'node ff43-child.mjs';
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+
+    const started = await registry.call('project_verify', { action: 'run', async: true, checks: ['test'] });
+    expect(started.ok).toBe(true);
+    const id = (started.data as { id: string }).id;
+
+    // Wait until the detached grandchild is actually running (pid marker).
+    let grandchildPid = 0;
+    for (let attempt = 0; attempt < 100 && grandchildPid === 0; attempt++) {
+      if (existsSync(marker)) grandchildPid = Number(readFileSync(marker, 'utf8'));
+      else await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(grandchildPid).toBeGreaterThan(0);
+
+    // The plane-level shutdown sweep must abort the run and signal the whole
+    // detached process group — no orphaned grandchild survives (proposal 015).
+    await stopManagedProcessTrees(container, 1_000);
+
+    const terminal = await registry.call('project_verify', { action: 'status', id });
+    expect(terminal.data).toMatchObject({ id, state: 'cancelled', overall: 'incomplete' });
+
+    let reaped = false;
+    for (let attempt = 0; attempt < 50 && !reaped; attempt++) {
+      try {
+        process.kill(grandchildPid, 0);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch {
+        reaped = true;
+      }
+    }
+    expect(reaped).toBe(true);
   });
 
   it('handles cancel edge cases: terminal run, unknown id, and owner boundary', async () => {

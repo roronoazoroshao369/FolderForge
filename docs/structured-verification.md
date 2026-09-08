@@ -123,6 +123,12 @@ Execution notes:
   killing only the direct child would orphan grandchildren holding stdio).
 - The executor registry is in-memory and process-local. A server restart still
   recovers orphaned `running` records as `interrupted` without replay.
+- Server shutdown aborts every registered executor through the same run-scoped
+  controllers: `stopManagedProcessTrees` awaits
+  `VerificationManager.stopAllExecutions` before the fleet/tunnel/process legs,
+  so an in-flight check's detached process tree is signalled — not orphaned —
+  and the run closes as `cancelled`. If the grace window expires first, the
+  record still heals to `interrupted` at the next start.
 - `plan`/`status`/`list` stay read-only; `run` (sync or async) and `cancel`
   remain MEDIUM/mutating, are denied in readonly mode, and require the write
   scope under OAuth.
