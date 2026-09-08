@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -428,7 +428,7 @@ describe('FleetManager', () => {
     ).toThrow(/not set in the Mission Control process/);
   });
 
-  it('accepts an operator-pasted key when the env var is unset, injecting it into the child env only', () => {
+  it('delivers an operator-pasted key through a 0600 key file when the env var is unset', () => {
     const { root, project } = fixture();
     const calls: string[] = [];
     const envs: Array<Record<string, string> | undefined> = [];
@@ -451,10 +451,17 @@ describe('FleetManager', () => {
         oauth: false,
       });
       expect(started.openAiTunnel?.state).toBe('running');
-      // The key rides the child env overlay, never the command string.
-      expect(envs[0]).toMatchObject({ FOLDERFORGE_PASTED_KEY_SLOT: 'sk-pasted-secret' });
-      expect(envs[0]?.FOLDERFORGE_LEASE_ID).toMatch(/^lse_/);
+      // The key rides a per-instance 0600 key file (--api-key-file) — never
+      // the command string, never the child env.
+      expect(calls[0]).toContain('--api-key-file');
+      expect(calls[0]).not.toContain('--api-key-env');
       expect(calls[0]).not.toContain('sk-pasted-secret');
+      expect(envs[0]).not.toMatchObject({ FOLDERFORGE_PASTED_KEY_SLOT: 'sk-pasted-secret' });
+      expect(envs[0]?.FOLDERFORGE_LEASE_ID).toMatch(/^lse_/);
+      const keyPath = join(root, '.folderforge', 'fleet', `${instance.id}.openai-key`);
+      expect(readFileSync(keyPath, 'utf8')).toBe('sk-pasted-secret');
+      expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+      expect(started.openAiTunnel?.apiKeyFile).toBe(keyPath);
       // ...and it persists in the 0600 fleet state so a later restart needs no re-paste.
       const state = readFileSync(join(root, '.folderforge', 'fleet.json'), 'utf8');
       expect(state).toContain('sk-pasted-secret');
@@ -476,12 +483,111 @@ describe('FleetManager', () => {
       apiKey: 'sk-pasted-secret',
       oauth: false,
     });
-    // The internal record keeps the key (for restart + child env injection)…
+    // The internal record keeps the key (for restart + key-file delivery)…
     expect(started.openAiTunnel?.apiKey).toBe('sk-pasted-secret');
+    expect(started.openAiTunnel?.apiKeyFile).toBe(
+      join(root, '.folderforge', 'fleet', `${instance.id}.openai-key`),
+    );
     // …while every API surface sees a stripped copy.
     const pub = publicFleetInstance(started);
     expect(JSON.stringify(pub)).not.toContain('sk-pasted-secret');
+    expect(JSON.stringify(pub)).not.toContain('.openai-key');
+    expect(pub.openAiTunnel?.apiKeyFile).toBeUndefined();
     expect(pub.openAiTunnel?.tunnelId).toBe('tunnel_0123456789abcdef0123456789abcdef');
+  });
+
+  it('lets an exported env var win over the stored key, writing no key file', () => {
+    const { root, project } = fixture();
+    const calls: string[] = [];
+    const envs: Array<Record<string, string> | undefined> = [];
+    const previous = process.env.FOLDERFORGE_TEST_CONTROL_KEY;
+    process.env.FOLDERFORGE_TEST_CONTROL_KEY = 'sk-exported-secret';
+    try {
+      const fleet = new FleetManager(root, {
+        mainJs: HERE,
+        spawn: (command, _cwd, env) => {
+          calls.push(command);
+          envs.push(env);
+          return { sessionId: `proc_stub_${calls.length}`, pid: 4242 };
+        },
+        stopSession: () => undefined,
+      });
+      const { instance } = fleet.create({ projectPath: project });
+      const started = fleet.startOpenAiTunnel(instance.id, {
+        tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
+        apiKeyEnv: 'FOLDERFORGE_TEST_CONTROL_KEY',
+        apiKey: 'sk-pasted-secret',
+        oauth: false,
+      });
+      expect(started.openAiTunnel?.state).toBe('running');
+      // Exported env var wins: env-ref argv, no key file, no env injection.
+      expect(calls[0]).toContain('--api-key-env');
+      expect(calls[0]).toContain('FOLDERFORGE_TEST_CONTROL_KEY');
+      expect(calls[0]).not.toContain('--api-key-file');
+      expect(envs[0]).not.toMatchObject({ FOLDERFORGE_TEST_CONTROL_KEY: 'sk-pasted-secret' });
+      expect(existsSync(join(root, '.folderforge', 'fleet', `${instance.id}.openai-key`))).toBe(
+        false,
+      );
+      expect(started.openAiTunnel?.apiKeyFile).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.FOLDERFORGE_TEST_CONTROL_KEY;
+      else process.env.FOLDERFORGE_TEST_CONTROL_KEY = previous;
+    }
+  });
+
+  it('surfaces the OpenAI tunnel supervisor fatal reason (pino JSON and ✗ lines)', () => {
+    const { root, project } = fixture();
+    const exitListeners = new Map<string, () => void>();
+    let output = '';
+    const fleet = new FleetManager(root, {
+      mainJs: HERE,
+      spawn: stubSpawner([]),
+      stopSession: () => undefined,
+      readSession: () => output,
+      onExit: (sessionId, listener) => {
+        exitListeners.set(sessionId, listener);
+        return () => {
+          exitListeners.delete(sessionId);
+        };
+      },
+    });
+    const { instance } = fleet.create({ projectPath: project });
+    delete process.env.FOLDERFORGE_PASTED_KEY_SLOT;
+    const start = () =>
+      fleet.startOpenAiTunnel(instance.id, {
+        tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
+        apiKeyEnv: 'FOLDERFORGE_PASTED_KEY_SLOT',
+        apiKey: 'sk-pasted-secret',
+        oauth: false,
+      });
+
+    // Plain-text ✗ fatal (the supervisor's main catch) is surfaced verbatim.
+    start();
+    output =
+      '{"level":30,"msg":"Workspace activated"}\n' +
+      '✗ No runtime API key found. Export CONTROL_PLANE_API_KEY or use --api-key-file.\n';
+    exitListeners.get('proc_stub_1')?.();
+    let tunnel = fleet.get(instance.id).openAiTunnel;
+    expect(tunnel?.state).toBe('failed');
+    expect(tunnel?.lastError).toBe(
+      'OpenAI tunnel supervisor exited unexpectedly: No runtime API key found. Export CONTROL_PLANE_API_KEY or use --api-key-file.',
+    );
+
+    // pino JSON level-50 err lines still work…
+    start();
+    output = '{"level":50,"err":"tunnel-client exited unexpectedly with code 1","msg":"x"}\n';
+    exitListeners.get('proc_stub_2')?.();
+    tunnel = fleet.get(instance.id).openAiTunnel;
+    expect(tunnel?.lastError).toBe(
+      'OpenAI tunnel supervisor exited unexpectedly: tunnel-client exited unexpectedly with code 1',
+    );
+
+    // …and an empty buffer keeps the bare message.
+    start();
+    output = '';
+    exitListeners.get('proc_stub_3')?.();
+    tunnel = fleet.get(instance.id).openAiTunnel;
+    expect(tunnel?.lastError).toBe('OpenAI tunnel supervisor exited unexpectedly.');
   });
 
   it('assigns a fresh lease id on every start and fences stale exit callbacks', () => {

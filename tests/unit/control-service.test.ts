@@ -180,6 +180,9 @@ describe("folderforge control service", () => {
       `ExecStart=/fake/node /fake/dist/main.js control serve --project ${root} --port 7571 --allow "/home/devops/extra dir"`,
     );
     expect(unit).not.toContain("secret-marker-abc");
+    // The plane unit references the operator-managed optional env file
+    // (dash-prefixed: a missing file never blocks boot).
+    expect(unit).toContain(`EnvironmentFile=-${join(root, ".folderforge", "control.env")}`);
     expect(statSync(unitPath(xdg)).mode & 0o777).toBe(0o600);
     expect(systemctl).toHaveLength(0);
     expect(result.output).toContain("systemctl --user enable --now folderforge-control.service");
@@ -336,6 +339,49 @@ describe("folderforge control service", () => {
     );
     expect(() => renderUnit(args, "9.9.9-test", undefined, undefined, undefined, 1.5)).toThrow(
       /Invalid oomScoreAdjust/,
+    );
+  });
+
+  it("renderUnit emits an optional dash-prefixed EnvironmentFile only when set", () => {
+    const args = [
+      "/fake/node",
+      "/fake/dist/main.js",
+      "control",
+      "serve",
+      "--project",
+      "/fake/proj",
+      "--port",
+      "7332",
+    ];
+    // Default: no EnvironmentFile line at all.
+    expect(renderUnit(args, "9.9.9-test")).not.toContain("EnvironmentFile");
+    const withOptional = renderUnit(
+      args,
+      "9.9.9-test",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "/fake/control.env",
+    );
+    expect(withOptional).toContain("EnvironmentFile=-/fake/control.env");
+    // Placement: with the env block, before the Restart= lines.
+    expect(withOptional.indexOf("EnvironmentFile=-/fake/control.env")).toBeLessThan(
+      withOptional.indexOf("Restart=on-failure"),
+    );
+    // Required + optional coexist, required first.
+    const both = renderUnit(
+      args,
+      "9.9.9-test",
+      undefined,
+      "/fake/required.env",
+      undefined,
+      undefined,
+      "/fake/control.env",
+    );
+    expect(both).toContain("EnvironmentFile=/fake/required.env");
+    expect(both.indexOf("EnvironmentFile=/fake/required.env")).toBeLessThan(
+      both.indexOf("EnvironmentFile=-/fake/control.env"),
     );
   });
 });
