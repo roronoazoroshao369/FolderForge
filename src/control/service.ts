@@ -119,6 +119,7 @@ export function renderUnit(
   environmentFile?: string,
   environment?: Record<string, string>,
   oomScoreAdjust?: number,
+  optionalEnvironmentFile?: string,
 ): string {
   if (
     oomScoreAdjust !== undefined &&
@@ -151,6 +152,10 @@ export function renderUnit(
       : []),
     // Required (no `-` prefix): a missing secrets file must fail loudly.
     ...(environmentFile !== undefined ? [`EnvironmentFile=${quoteArg(environmentFile)}`] : []),
+    // Optional (dash prefix): a missing operator env file never blocks boot.
+    ...(optionalEnvironmentFile !== undefined
+      ? [`EnvironmentFile=-${quoteArg(optionalEnvironmentFile)}`]
+      : []),
     // Optional OOM protection for connection-critical units (e.g. -500).
     ...(oomScoreAdjust !== undefined ? [`OOMScoreAdjust=${oomScoreAdjust}`] : []),
     'Restart=on-failure',
@@ -205,6 +210,8 @@ export interface InstallUnitOptions {
   runtimeFiles?: string[];
   /** Optional OOMScoreAdjust= value (kernel range -1000..1000). */
   oomScoreAdjust?: number;
+  /** Optional operator env file wired in as an OPTIONAL (dash-prefixed) EnvironmentFile=. */
+  optionalEnvironmentFile?: string;
 }
 
 export function installUnit(
@@ -236,6 +243,7 @@ export function installUnit(
     options.environmentFile,
     options.environment,
     options.oomScoreAdjust,
+    options.optionalEnvironmentFile,
   );
   const newProject = readUnitProject(unit);
   if (deps.fileExists(unitPath)) {
@@ -321,6 +329,10 @@ export function installService(
       enable: options.enable,
       replace: options.replace,
       detailLine: `Plane at login: project ${state.projectRoot}, port ${state.port} (loopback only).`,
+      // Operator-managed env (e.g. CONTROL_PLANE_API_KEY for the ChatGPT
+      // tunnel) may live in an optional 0600 file; a missing file never
+      // blocks boot (dash-prefixed EnvironmentFile).
+      optionalEnvironmentFile: join(state.projectRoot, '.folderforge', 'control.env'),
     },
     deps,
   );

@@ -91,6 +91,8 @@ describe('origin service', () => {
     );
     expect(unit).toContain('Restart=on-failure');
     expect(unit).toContain('OOMScoreAdjust=-500');
+    // The origin unit does NOT get the plane's optional operator env file.
+    expect(unit).not.toContain('EnvironmentFile=-');
     expect(unit).toContain('WantedBy=default.target');
     expect(statSync(unitPath).mode & 0o777).toBe(0o600);
     const envFile = originEnvPath(project);

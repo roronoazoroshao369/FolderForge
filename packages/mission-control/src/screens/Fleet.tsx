@@ -733,7 +733,7 @@ function OpenAiTunnelModal(props: { instance: FleetInstance; onClose: () => void
         <Field label="OpenAI API key (optional — paste directly)"><Input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-... — stored in the 0600 fleet state" aria-label="OpenAI API key value (stored locally, optional)" /></Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={oauth} onChange={(event) => setOauth(event.target.checked)} /><span>Use OAuth/Auth0 mode instead of legacy static-token tunnel mode</span></label>
         <Banner tone="info">
-          Paste the key here (stored in the 0600 fleet state, injected into the supervisor's environment) or export the env var before <Code>folderforge control start</Code> — either works; an exported env var wins over a stored key.
+          Paste the key here (stored in the 0600 fleet state and delivered to the supervisor through a 0600 key file — never its environment) or export the env var before <Code>folderforge control start</Code> — either works; an exported env var wins over a stored key.
         </Banner>
         {verify?.ok ? (
           <p className="text-xs text-green">{verify.text}</p>

@@ -25,7 +25,9 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -62,6 +64,12 @@ export interface FleetOpenAiTunnel {
    * environment variable always wins over this stored copy.
    */
   apiKey?: string;
+  /**
+   * Per-instance 0600 key-file PATH handed to the supervisor via
+   * --api-key-file when a stored key exists and the env var is absent.
+   * Holds a path only, never the key; stripped from public API copies.
+   */
+  apiKeyFile?: string;
   oauth: boolean;
   state: FleetInstanceState;
   sessionId?: string;
@@ -221,13 +229,16 @@ function cloneInstance(instance: FleetInstance): FleetInstance {
 
 /**
  * Instance shape safe to return from ANY API surface: identical to the record
- * except the pasted OpenAI key is stripped (it stays in the 0600 fleet state
- * and the supervised child's environment only).
+ * except the pasted OpenAI key and the per-instance 0600 key-file path are
+ * stripped (they stay in the 0600 fleet state only).
  */
 export function publicFleetInstance(instance: FleetInstance): FleetInstance {
-  if (!instance.openAiTunnel?.apiKey) return { ...instance };
+  if (!instance.openAiTunnel?.apiKey && !instance.openAiTunnel?.apiKeyFile) {
+    return { ...instance };
+  }
   const publicTunnel = { ...instance.openAiTunnel };
   delete publicTunnel.apiKey;
+  delete publicTunnel.apiKeyFile;
   return { ...instance, openAiTunnel: publicTunnel };
 }
 
@@ -679,11 +690,19 @@ export class FleetManager {
     this.persist();
 
     try {
-      // The pasted key rides the child's environment (never the command
-      // line); an exported env var always wins over the stored copy.
+      // A stored key is delivered through a per-instance 0600 key file the
+      // supervisor reads once at startup (--api-key-file) — never argv, never
+      // the child env, where /proc/<pid>/environ would expose it for the
+      // supervisor's whole lifetime. An exported env var always wins over
+      // the stored copy (then no file is written).
       const env: Record<string, string> = { FOLDERFORGE_LEASE_ID: leaseId };
       if (record.openAiTunnel.apiKey && !process.env[record.openAiTunnel.apiKeyEnv]) {
-        env[record.openAiTunnel.apiKeyEnv] = record.openAiTunnel.apiKey;
+        record.openAiTunnel.apiKeyFile = this.writeOpenAiTunnelKeyFile(
+          record.id,
+          record.openAiTunnel.apiKey,
+        );
+      } else {
+        delete record.openAiTunnel.apiKeyFile;
       }
       const session = this.spawnFn!(
         this.openAiTunnelCommand(record, record.openAiTunnel),
@@ -911,9 +930,13 @@ export class FleetManager {
     if (leaseId !== undefined && tunnel.leaseId !== leaseId) return;
     if (tunnel.state !== 'running') return;
     tunnel.state = 'failed';
-    tunnel.lastError = this.exitLogMatches(sessionId, EADDRINUSE_RE)
+    const portBusy = this.exitLogMatches(sessionId, EADDRINUSE_RE);
+    const fatalReason = portBusy ? undefined : this.exitFatalReason(sessionId);
+    tunnel.lastError = portBusy
       ? `Port ${record.port} is already in use by a process this control plane does not manage. Free the port (or assign another) and start the tunnel again.`
-      : 'OpenAI tunnel supervisor exited unexpectedly.';
+      : fatalReason
+        ? `OpenAI tunnel supervisor exited unexpectedly: ${fatalReason}`
+        : 'OpenAI tunnel supervisor exited unexpectedly.';
     delete tunnel.sessionId;
     delete tunnel.pid;
     delete tunnel.leaseId;
@@ -948,6 +971,14 @@ export class FleetManager {
     const lines = output.split('\n');
     for (let index = lines.length - 1; index >= 0; index -= 1) {
       const line = lines[index]!.trim();
+      // The OpenAI tunnel supervisor reports fatals as plain "✗ <message>"
+      // sink lines rather than pino JSON — recognize those too.
+      if (line.startsWith('✗ ')) {
+        const cleaned = line.slice(2).trim();
+        if (cleaned.length > 0) {
+          return cleaned.length > 240 ? `${cleaned.slice(0, 237)}...` : cleaned;
+        }
+      }
       if (!line.startsWith('{')) continue;
       try {
         const parsed = JSON.parse(line) as { level?: unknown; err?: unknown };
@@ -1135,8 +1166,11 @@ export class FleetManager {
       '--openai-tunnel',
       '--tunnel-id',
       JSON.stringify(tunnel.tunnelId),
-      '--api-key-env',
-      JSON.stringify(tunnel.apiKeyEnv),
+      // Key-file delivery when a stored key was written (env var absent);
+      // otherwise the supervisor resolves the named env var itself.
+      ...(tunnel.apiKeyFile !== undefined
+        ? ['--api-key-file', JSON.stringify(tunnel.apiKeyFile)]
+        : ['--api-key-env', JSON.stringify(tunnel.apiKeyEnv)]),
       '--project',
       JSON.stringify(record.projectPath),
       '--port',
@@ -1156,6 +1190,29 @@ export class FleetManager {
 
   private configPathFor(id: string): string {
     return resolve(this.fleetDir, `${id}.yaml`);
+  }
+
+  private openAiTunnelKeyPathFor(id: string): string {
+    return resolve(this.fleetDir, `${id}.openai-key`);
+  }
+
+  /**
+   * Write the stored OpenAI key to the per-instance 0600 key file the
+   * supervisor reads once at startup via --api-key-file. The content is the
+   * raw key (no trailing newline); a pre-existing symlink is never followed.
+   */
+  private writeOpenAiTunnelKeyFile(id: string, apiKey: string): string {
+    const file = this.openAiTunnelKeyPathFor(id);
+    try {
+      if (lstatSync(file).isSymbolicLink()) {
+        throw new Error(`Refusing to write the OpenAI tunnel key over a symlink: ${file}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    writeFileSync(file, apiKey, 'utf8');
+    chmodSync(file, 0o600);
+    return file;
   }
 
   private touch(record: FleetInstance): void {
