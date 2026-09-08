@@ -103,6 +103,9 @@ export function installTunnel(
       // cloudflared units have no node entry point: validate the real runtime
       // files (binary + config) instead of execPath/mainJs.
       runtimeFiles: [bin, options.configPath],
+      // Tunnel death 502s every client of the origin behind it: same OOM
+      // protection as the origin unit.
+      oomScoreAdjust: -500,
     },
     deps,
   );

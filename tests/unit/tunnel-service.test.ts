@@ -90,6 +90,7 @@ describe('tunnel service', () => {
     );
     expect(unit).not.toContain('EnvironmentFile=');
     expect(unit).toContain('Restart=on-failure');
+    expect(unit).toContain('OOMScoreAdjust=-500');
     expect(unit).toContain('WantedBy=default.target');
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(result.output).toContain('Tunnel service installed:');

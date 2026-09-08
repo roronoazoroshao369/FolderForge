@@ -90,6 +90,7 @@ describe('origin service', () => {
       `ExecStart=/fake/node /fake/dist/main.js --project ${project} --http --host 127.0.0.1 --port 3112 --no-dashboard --auth token`,
     );
     expect(unit).toContain('Restart=on-failure');
+    expect(unit).toContain('OOMScoreAdjust=-500');
     expect(unit).toContain('WantedBy=default.target');
     expect(statSync(unitPath).mode & 0o777).toBe(0o600);
     const envFile = originEnvPath(project);
