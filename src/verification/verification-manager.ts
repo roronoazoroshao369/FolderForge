@@ -185,6 +185,13 @@ export class VerificationManager {
   >();
 
   /**
+   * Waiters resolved by `endExecution` once the executor registry drains.
+   * Used by `stopAllExecutions` so server shutdown can wait (grace-bounded)
+   * for executor loops to persist their terminal evidence.
+   */
+  private readonly idleWaiters = new Set<() => void>();
+
+  /**
    * Register the executor for a run and return its abort controller.
    * Throws when the run already has an executor or when another async
    * execution is already active (async runs are single-flight per process).
@@ -207,6 +214,11 @@ export class VerificationManager {
   /** Unregister a run executor once its loop settles. Idempotent. */
   endExecution(id: string): void {
     this.executors.delete(id);
+    if (this.executors.size === 0 && this.idleWaiters.size > 0) {
+      const waiters = [...this.idleWaiters];
+      this.idleWaiters.clear();
+      for (const resolve of waiters) resolve();
+    }
   }
 
   /**
@@ -226,6 +238,43 @@ export class VerificationManager {
       if (executor.mode === 'async') return id;
     }
     return null;
+  }
+
+  /**
+   * Abort every registered executor (sync and async) and wait — bounded by
+   * `graceMs` — for their loops to settle. Used by server shutdown so an
+   * in-flight verification never leaves its detached child process tree
+   * running after the host exits (proposal 015). The abort synchronously
+   * signals each child process group via the run loop's existing abort
+   * listener, so even a grace-expired wait leaves no un-signalled tree; a
+   * run that misses its terminal write heals as `interrupted` at next boot
+   * (existing behavior). Never rejects.
+   */
+  async stopAllExecutions(
+    graceMs = 1_500,
+  ): Promise<{ aborted: number; drained: boolean }> {
+    const executors = [...this.executors.values()];
+    for (const executor of executors) {
+      executor.controller.abort(new Error('FolderForge is shutting down.'));
+    }
+    if (this.executors.size === 0) {
+      return { aborted: executors.length, drained: true };
+    }
+    const outcome = await Promise.race([
+      new Promise<'drained'>((resolve) => {
+        const waiter = (): void => {
+          this.idleWaiters.delete(waiter);
+          resolve('drained');
+        };
+        this.idleWaiters.add(waiter);
+      }),
+      new Promise<'expired'>((resolve) => {
+        const timer = setTimeout(() => resolve('expired'), Math.max(0, graceMs));
+        // The grace timer must never keep a shutting-down event loop alive.
+        timer.unref();
+      }),
+    ]);
+    return { aborted: executors.length, drained: outcome === 'drained' };
   }
 
   create(input: {
