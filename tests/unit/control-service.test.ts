@@ -15,6 +15,7 @@ import {
   executeControlCli,
   type ControlDeps,
 } from "../../src/control/cli.js";
+import { renderUnit } from "../../src/control/service.js";
 
 interface FakeHarness {
   deps: ControlDeps;
@@ -309,5 +310,32 @@ describe("folderforge control service", () => {
     await executeControlCli(["service", "install", "--project", root], deps);
     const after = await executeControlCli(["status", "--project", root], deps);
     expect(after.output).toContain("Boot service: enabled");
+  });
+
+  it("renderUnit emits OOMScoreAdjust when set and rejects out-of-range values", () => {
+    const args = [
+      "/fake/node",
+      "/fake/dist/main.js",
+      "control",
+      "serve",
+      "--project",
+      "/fake/proj",
+      "--port",
+      "7332",
+    ];
+    const withOom = renderUnit(args, "9.9.9-test", undefined, undefined, undefined, -500);
+    expect(withOom).toContain("OOMScoreAdjust=-500");
+    // Placement: inside [Service], before the Restart= lines.
+    expect(withOom.indexOf("OOMScoreAdjust=-500")).toBeLessThan(
+      withOom.indexOf("Restart=on-failure"),
+    );
+    // The plane path passes nothing: the directive stays absent (byte-identical contract).
+    expect(renderUnit(args, "9.9.9-test")).not.toContain("OOMScoreAdjust");
+    expect(() => renderUnit(args, "9.9.9-test", undefined, undefined, undefined, 1001)).toThrow(
+      /Invalid oomScoreAdjust/,
+    );
+    expect(() => renderUnit(args, "9.9.9-test", undefined, undefined, undefined, 1.5)).toThrow(
+      /Invalid oomScoreAdjust/,
+    );
   });
 });

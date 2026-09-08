@@ -9,6 +9,7 @@ semantic versioning.
 ### Added
 
 - `folderforge tunnel install|uninstall|status` (proposal 012): supervise a NAMED cloudflared tunnel with a per-user systemd unit (`folderforge-tunnel-<name>.service`, Restart=on-failure, WantedBy=default.target), reusing the generalized `control service` machinery (the plane and origin unit renderings are unchanged). The unit holds no secrets — the named tunnel's credentials stay in cloudflared's own 0400 JSON, referenced only via `--config` — and several named tunnels coexist as separate units; reinstalling the same name overwrites it (the config update path). `InstallUnitOptions` gains an additive `runtimeFiles` override and an optional `mainJs` for non-node units. Linux-only with a clear unsupported message elsewhere; no MCP tool, schema lock, risk class, or policy engine changes.
+- Supervised `origin` and `tunnel` units now render `OOMScoreAdjust=-500` (proposal 013): the two connection-critical services — the MCP entrypoint and the cloudflared tunnel in front of it — rank below the OOM killer's default pick on memory-pressured hosts, so a system-level OOM event reaps other processes first. `InstallUnitOptions` gains the optional `oomScoreAdjust` field (integer, kernel range -1000..1000, validated in `renderUnit`); the plane unit rendering stays byte-identical, and no new CLI flag or MCP surface is added (the value is a fixed product decision).
 
 ### Fixed
 

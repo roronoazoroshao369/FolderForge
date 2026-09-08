@@ -183,6 +183,9 @@ export function installOrigin(
       ...(operatorPath !== undefined && operatorPath.trim().length > 0
         ? { environment: { PATH: operatorPath } }
         : {}),
+      // The supervised origin is the MCP entrypoint: rank it below the OOM
+      // killer's default pick (the host has hit swap-full memory pressure).
+      oomScoreAdjust: -500,
     },
     deps,
   );
