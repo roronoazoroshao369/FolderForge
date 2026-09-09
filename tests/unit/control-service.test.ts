@@ -15,7 +15,14 @@ import {
   executeControlCli,
   type ControlDeps,
 } from "../../src/control/cli.js";
-import { renderUnit } from "../../src/control/service.js";
+import {
+  capEffHasSysResource,
+  defaultCanLowerOomScore,
+  installUnit,
+  renderUnit,
+  type ServiceDeps,
+  type UnitSpec,
+} from "../../src/control/service.js";
 
 interface FakeHarness {
   deps: ControlDeps;
@@ -383,5 +390,68 @@ describe("folderforge control service", () => {
     expect(both.indexOf("EnvironmentFile=/fake/required.env")).toBeLessThan(
       both.indexOf("EnvironmentFile=-/fake/control.env"),
     );
+  });
+});
+
+describe("installUnit OOM capability warning", () => {
+  const PROOF_SPEC: UnitSpec = {
+    unitName: "ff-proof.service",
+    description: "ff proof unit",
+    generatedBy: "ff proof install",
+    noun: "Proof service",
+    verifyHint: "ff proof status",
+    cliName: "proof",
+  };
+  const SERVE_ARGS = ["/fake/node", "/fake/dist/main.js", "proof"];
+
+  function svcDeps(xdg: string, canLower: boolean | undefined): ServiceDeps {
+    return {
+      execPath: "/fake/node",
+      homeDir: "/tmp/ff-svc-nohome",
+      fileExists: (path) => path.startsWith("/fake/") || existsSync(path),
+      execSystemctl: () => ({ exitCode: 0, stdout: "", stderr: "" }),
+      getEnv: (name) => (name === "XDG_CONFIG_HOME" ? xdg : undefined),
+      platform: "linux",
+      version: "9.9.9-test",
+      ...(canLower !== undefined ? { canLowerOomScore: () => canLower } : {}),
+    };
+  }
+
+  function installProof(xdg: string, oom: number | undefined, canLower: boolean | undefined) {
+    return installUnit(
+      {
+        spec: PROOF_SPEC,
+        serveArgs: SERVE_ARGS,
+        mainJs: "/fake/dist/main.js",
+        enable: false,
+        replace: false,
+        detailLine: "Proof detail.",
+        ...(oom !== undefined ? { oomScoreAdjust: oom } : {}),
+      },
+      svcDeps(xdg, canLower),
+    );
+  }
+
+  it("warns when a negative OOMScoreAdjust will be inert, and keeps the directive", () => {
+    const xdg = trackedRoot();
+    const result = installProof(xdg, -500, false);
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("CAP_SYS_RESOURCE");
+    const unit = readFileSync(join(xdg, "systemd", "user", "ff-proof.service"), "utf8");
+    expect(unit).toContain("OOMScoreAdjust=-500");
+  });
+
+  it("stays silent when the capability is present, the value is positive, or none is set", () => {
+    expect(installProof(trackedRoot(), -500, true).output).not.toContain("CAP_SYS_RESOURCE");
+    expect(installProof(trackedRoot(), 500, false).output).not.toContain("CAP_SYS_RESOURCE");
+    expect(installProof(trackedRoot(), undefined, false).output).not.toContain("CAP_SYS_RESOURCE");
+  });
+
+  it("capEffHasSysResource reads bit 24 of the CapEff hex mask", () => {
+    expect(capEffHasSysResource("0000000000000000")).toBe(false);
+    expect(capEffHasSysResource("0000000001000000")).toBe(true);
+    expect(capEffHasSysResource("000001ffffffffff")).toBe(true);
+    expect(capEffHasSysResource("not-hex")).toBe(false);
+    expect(typeof defaultCanLowerOomScore()).toBe("boolean");
   });
 });
