@@ -6,6 +6,8 @@ import type { ToolDefinition, ToolContext } from '../core/types.js';
 import { detectProject } from '../workspace/project-detector.js';
 import { parseErrors } from './error-parser.js';
 import { COVERAGE_OUTPUT_SCHEMA } from './output-schemas.js';
+import { armTreeKillTimeout } from '../core/process-tree.js';
+import type { ChildProcess } from 'node:child_process';
 
 /**
  * Coverage runner (Gap 5). Detects the test runner, runs it with coverage
@@ -95,6 +97,40 @@ export function parseCoberturaXml(xml: string): Record<string, number> | null {
   return out;
 }
 
+/**
+ * Run one detected coverage command and return the capped/redacted streams
+ * plus the exit code. A blown budget must reap the whole process tree, not
+ * just the direct child — npx/pytest wrappers would otherwise orphan the
+ * real runner (proposal 017, same pattern as proposal 008). Exported for
+ * tests (same argv-taking shape as pkg-tools' runPm).
+ */
+export async function runCoverageCommand(
+  ctx: ToolContext,
+  argv: string[],
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+  const [bin, ...rest] = argv;
+  const child = execa(bin!, rest, {
+    cwd: ctx.projectRoot,
+    reject: false,
+    maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
+    // Detached on POSIX so a blown budget can reap the whole process group,
+    // not just the direct wrapper child (npx → the real runner).
+    ...(process.platform !== 'win32' ? { detached: true as const } : {}),
+  });
+  const treeTimeout = armTreeKillTimeout(
+    child as unknown as ChildProcess,
+    ctx.config.terminal.defaultTimeoutMs,
+  );
+  const sub = await child.finally(() => treeTimeout.dispose());
+  const max = ctx.config.terminal.maxOutputBytes;
+  const redact = ctx.container.policy.secret.redact;
+  return {
+    exitCode: sub.exitCode ?? null,
+    stdout: redact((sub.stdout ?? '').slice(0, max)),
+    stderr: redact((sub.stderr ?? '').slice(0, max)),
+  };
+}
+
 export function coverageTools(): ToolDefinition[] {
   return [
     defineTool({
@@ -111,17 +147,7 @@ export function coverageTools(): ToolDefinition[] {
         const cmd = detectCoverageCommand(ctx.projectRoot);
         if (!cmd) return { ok: false, error: 'No coverage-capable test runner detected.' };
 
-        const [bin, ...rest] = cmd.argv;
-        const sub = await execa(bin!, rest, {
-          cwd: ctx.projectRoot,
-          timeout: ctx.config.terminal.defaultTimeoutMs,
-          reject: false,
-          maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
-        });
-        const max = ctx.config.terminal.maxOutputBytes;
-        const redact = ctx.container.policy.secret.redact;
-        const stdout = redact((sub.stdout ?? '').slice(0, max));
-        const stderr = redact((sub.stderr ?? '').slice(0, max));
+        const { exitCode, stdout, stderr } = await runCoverageCommand(ctx, cmd.argv);
 
         let summary: Record<string, number> | null = null;
         if (cmd.report) {
@@ -140,10 +166,10 @@ export function coverageTools(): ToolDefinition[] {
         }
 
         return {
-          ok: sub.exitCode === 0,
+          ok: exitCode === 0,
           data: {
             command: cmd.argv.join(' '),
-            exitCode: sub.exitCode ?? null,
+            exitCode,
             summary,
             errors: parseErrors(`${stdout}\n${stderr}`),
             stdout,

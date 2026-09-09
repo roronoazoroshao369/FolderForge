@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { defineTool } from './registry.js';
 import type { ToolDefinition, ToolContext, ToolResult } from '../core/types.js';
 import { detectProject } from '../workspace/project-detector.js';
+import { armTreeKillTimeout } from '../core/process-tree.js';
+import type { ChildProcess } from 'node:child_process';
 
 /**
  * Formatting tools (Gap 3). Detects the project's formatter from manifests and
@@ -86,14 +88,26 @@ export function detectFormatter(root: string): FormatterSpec | null {
   return null;
 }
 
-async function runFmt(ctx: ToolContext, argv: string[]): Promise<ToolResult> {
+/**
+ * Exported for tests. A blown budget must reap the whole process tree, not
+ * just the direct child — npx/formatter wrappers would otherwise orphan the
+ * real workload (proposal 017, same pattern as proposal 008).
+ */
+export async function runFmt(ctx: ToolContext, argv: string[]): Promise<ToolResult> {
   const [bin, ...rest] = argv;
-  const sub = await execa(bin!, rest, {
+  const child = execa(bin!, rest, {
     cwd: ctx.projectRoot,
-    timeout: ctx.config.terminal.defaultTimeoutMs,
     reject: false,
     maxBuffer: ctx.config.terminal.maxOutputBytes * 4,
+    // Detached on POSIX so a blown budget can reap the whole process group,
+    // not just the direct wrapper child (proposal 017).
+    ...(process.platform !== 'win32' ? { detached: true as const } : {}),
   });
+  const treeTimeout = armTreeKillTimeout(
+    child as unknown as ChildProcess,
+    ctx.config.terminal.defaultTimeoutMs,
+  );
+  const sub = await child.finally(() => treeTimeout.dispose());
   const max = ctx.config.terminal.maxOutputBytes;
   const redact = ctx.container.policy.secret.redact;
   return {
