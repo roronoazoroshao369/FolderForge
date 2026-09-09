@@ -452,4 +452,17 @@ describe('origin service', () => {
     // Environment= never appears (EnvironmentFile= shares no such substring).
     expect(unitText(project)).not.toContain('Environment=');
   });
+
+  it('warns when the negative OOMScoreAdjust will be inert (no CAP_SYS_RESOURCE)', () => {
+    const project = makeProject();
+    const { deps } = makeDeps(join(project, 'xdg'), { canLowerOomScore: () => false });
+    const result = installOrigin(
+      { project, port: 7398, authMode: 'none', enable: false, replace: false, mainJs: MAIN_JS },
+      deps,
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('CAP_SYS_RESOURCE');
+    // The directive stays in the unit — it is correct for privileged setups.
+    expect(unitText(project)).toContain('OOMScoreAdjust=-500');
+  });
 });

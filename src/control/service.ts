@@ -64,6 +64,12 @@ export interface ServiceDeps {
   execSystemctl: (args: string[]) => SystemctlResult;
   /** Read an environment variable (XDG_CONFIG_HOME). */
   getEnv: (name: string) => string | undefined;
+  /**
+   * Optional probe: may this user LOWER oom_score_adj (needs CAP_SYS_RESOURCE)?
+   * Defaults to reading the CLI process's own CapEff; tests inject a stub for
+   * host-independent determinism.
+   */
+  canLowerOomScore?: () => boolean;
   platform: NodeJS.Platform;
   version: string;
 }
@@ -87,6 +93,41 @@ export function defaultSystemctl(args: string[]): SystemctlResult {
     stdout: res.stdout ?? '',
     stderr: res.stderr ?? (res.error ? String(res.error) : ''),
   };
+}
+
+/** CAP_SYS_RESOURCE bit index in the kernel capability bitmask. */
+const CAP_SYS_RESOURCE_BIT = 24n;
+
+/**
+ * Pure test seam: does an effective-capability hex mask (the CapEff field of
+ * /proc/self/status) include CAP_SYS_RESOURCE? Unparseable input → false.
+ */
+export function capEffHasSysResource(capEffHex: string): boolean {
+  try {
+    return (BigInt(`0x${capEffHex.trim()}`) & (1n << CAP_SYS_RESOURCE_BIT)) !== 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Unprivileged users (and their systemd --user manager) may RAISE a process's
+ * oom_score_adj but may not lower it — the kernel demands CAP_SYS_RESOURCE for
+ * a decrease. OPS #44 evidence on the operator box: writing -500 to
+ * /proc/self/oom_score_adj fails with EPERM, so a rendered negative
+ * OOMScoreAdjust is silently inert there. This probe reads the CLI process's
+ * own CapEff as the user-equivalent capability proxy. Fail-safe: any read or
+ * parse failure means false (warn rather than stay silent).
+ */
+export function defaultCanLowerOomScore(): boolean {
+  try {
+    const status = readFileSync('/proc/self/status', 'utf8');
+    const line = status.split('\n').find((l) => l.startsWith('CapEff:'));
+    if (line === undefined) return false;
+    return capEffHasSysResource(line.slice('CapEff:'.length).trim());
+  } catch {
+    return false;
+  }
 }
 
 export function unitFilePathFor(
@@ -269,6 +310,21 @@ export function installUnit(
     `${spec.noun} installed: ${unitPath} (mode 0600, no secrets).`,
     options.detailLine,
   ];
+  if (
+    options.oomScoreAdjust !== undefined &&
+    options.oomScoreAdjust < 0 &&
+    deps.platform === 'linux' &&
+    !(deps.canLowerOomScore ?? defaultCanLowerOomScore)()
+  ) {
+    // Honesty fix (proposal 016, OPS #44 evidence): the unit keeps the
+    // directive for privileged setups, but the operator must hear when the
+    // protection is inert on this host class.
+    lines.push(
+      `Note: OOMScoreAdjust=${options.oomScoreAdjust} needs CAP_SYS_RESOURCE to take effect — ` +
+        'an unprivileged systemd --user manager keeps the default OOM score at runtime ' +
+        '(verified on this host class). The directive stays in the unit for privileged setups.',
+    );
+  }
   if (options.enable) {
     const steps = [
       ['--user', 'daemon-reload'],
