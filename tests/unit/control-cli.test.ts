@@ -174,6 +174,10 @@ describe("folderforge control", () => {
     const result = await executeControlCli(["stop", "--project", root], deps);
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("nothing to stop");
+    // Proposal 019: the error self-describes — the exact state file it
+    // looked for, and the --project remedy (the ff44 failure class).
+    expect(result.output).toContain(`state file: ${statePath(root)}`);
+    expect(result.output).toContain("--project <dir>");
   });
 
   it("status --json reports a running plane", async () => {

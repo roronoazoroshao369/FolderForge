@@ -743,7 +743,9 @@ async function controlStop(
   }
   if (!existing) {
     return {
-      output: 'No Mission Control plane state found; nothing to stop.\n',
+      output:
+        'No Mission Control plane state found; nothing to stop.\n' +
+        `(state file: ${controlStatePath(projectRoot)} — pass --project <dir> if your plane lives elsewhere)\n`,
       exitCode: 0,
     };
   }
