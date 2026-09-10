@@ -145,6 +145,9 @@ describe("folderforge control service", () => {
     const noState = await executeControlCli(["service", "install", "--project", root], deps);
     expect(noState.exitCode).toBe(1);
     expect(noState.output).toContain("control start");
+    // Proposal 019: the failure names the state convention + the remedy.
+    expect(noState.output).toContain(".folderforge/control.json");
+    expect(noState.output).toContain("--project <dir>");
     expect(existsSync(unitPath(xdg))).toBe(false);
 
     writeState(root);

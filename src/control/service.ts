@@ -362,7 +362,8 @@ export function installService(
     return {
       output:
         'No control plane state found. Run `folderforge control start` once first, ' +
-        'so the boot service mirrors a known-good configuration.\n',
+        'so the boot service mirrors a known-good configuration. ' +
+        '(state is read from <project>/.folderforge/control.json; pass --project <dir> if your plane lives elsewhere)\n',
       exitCode: 1,
     };
   }

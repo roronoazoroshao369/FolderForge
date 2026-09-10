@@ -94,6 +94,12 @@ export CONTROL_PLANE_API_KEY='sk-...'
 folderforge control start --openai-tunnel --tunnel-id tunnel_<32 hex>
 ```
 
+Control state is per-project: every `control` command reads
+`<projectRoot>/.folderforge/control.json`, and `--project` defaults to the
+current working directory. Scripts and non-interactive shells must pass
+`--project <dir>` explicitly — otherwise e.g. `control stop` from the wrong
+directory reports "nothing to stop" while the plane keeps running.
+
 The same ChatGPT tunnel can be configured from the app itself: **Tunnels →
 ChatGPT tunnel (OpenAI)** saves the tunnel id + API-key env-var name (0600).
 You can also paste the key itself (stored 0600 like the Cloudflare token,
