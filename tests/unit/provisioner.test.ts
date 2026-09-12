@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { FleetManager, publicFleetInstance } from '../../src/provisioner/fleet-manager.js';
+import { parseOpenAiTunnelArgs } from '../../src/chatgpt/openai-tunnel.js';
 
 const HERE = fileURLToPath(import.meta.url);
 
@@ -469,6 +470,49 @@ describe('FleetManager', () => {
       expect(stopped.openAiTunnel?.state).toBe('stopped');
     } finally {
       delete process.env.FOLDERFORGE_PASTED_KEY_SLOT;
+    }
+  });
+
+  it('emits a supervisor command the tunnel CLI can parse (fleet argv ↔ parser contract)', () => {
+    const { root, project } = fixture();
+    const calls: string[] = [];
+    const previous = process.env.FOLDERFORGE_TEST_CONTROL_KEY;
+    process.env.FOLDERFORGE_TEST_CONTROL_KEY = 'sk-contract-secret';
+    try {
+      const fleet = new FleetManager(root, {
+        mainJs: HERE,
+        spawn: stubSpawner(calls),
+        stopSession: () => undefined,
+      });
+      const { instance } = fleet.create({ projectPath: project });
+      fleet.setPolicyMode(instance.id, 'danger');
+      fleet.setAllowCriticalInDanger(instance.id, true);
+      fleet.startOpenAiTunnel(instance.id, {
+        tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
+        apiKeyEnv: 'FOLDERFORGE_TEST_CONTROL_KEY',
+        oauth: false,
+      });
+      expect(calls[0]).toContain('--dangerously-allow-critical');
+      // The emitted command is "<node>" "<mainJs>" connect chatgpt --openai-tunnel …
+      // Tokenize honoring the JSON quoting fleet-manager applies to values
+      // (project paths may contain spaces), then hand the CLI argv to the
+      // supervisor parser — drift here used to kill the supervisor at parse
+      // (proposal 021, user-reported failure on flt_8aa5f0dd).
+      // stubSpawner appends " @ <cwd>" to the captured command — strip it.
+      const commandOnly = calls[0].slice(0, calls[0].lastIndexOf(` @ ${project}`));
+      const tokens = (commandOnly.match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((token) =>
+        token.startsWith('"') ? (JSON.parse(token) as string) : token,
+      );
+      const argv = tokens
+        .slice(tokens.indexOf('connect'))
+        .filter((token) => token !== 'chatgpt');
+      const parsed = parseOpenAiTunnelArgs(argv, project);
+      expect(parsed.allowCriticalInDanger).toBe(true);
+      expect(parsed.policyMode).toBe('danger');
+      expect(parsed.projectRoot).toBe(project);
+    } finally {
+      if (previous === undefined) delete process.env.FOLDERFORGE_TEST_CONTROL_KEY;
+      else process.env.FOLDERFORGE_TEST_CONTROL_KEY = previous;
     }
   });
 
