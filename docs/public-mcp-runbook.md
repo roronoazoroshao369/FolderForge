@@ -43,6 +43,16 @@ public bind). Read fully before the first exposure.
 - The dashboard token input stores the token in browser localStorage — use it
   only on machines/browsers you trust.
 
+**Operator-origin posture** (decision record:
+`docs/council/proposals/020-origin-policy-posture.md`). The operator's own
+MCP origin may intentionally run `--policy danger --dangerously-allow-critical`
+when it is a single-operator, loopback + bearer-auth workhorse whose only
+public path is an authenticated tunnel: lowering it gates every
+HIGH/CRITICAL tool behind approvals, and an origin without a dashboard has
+no reachable approval resolver (its approvals store is separate from the
+control plane's). Revisit only when a reachable approval channel exists,
+the host stops being single-operator, or an incident traces to the posture.
+
 ## Incident response
 
 1. **Cut exposure first**: stop the tunnel (`tunnel_stop <id>` or the Stop
