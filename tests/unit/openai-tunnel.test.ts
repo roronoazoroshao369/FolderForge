@@ -252,6 +252,47 @@ describe("OpenAI Secure MCP Tunnel CLI", () => {
     expect(args).not.toContain("--dangerously-allow-critical");
   });
 
+  it("accepts --dangerously-allow-critical with --policy danger and propagates it to the server argv", () => {
+    const parsed = parseOpenAiTunnelArgs([
+      "connect",
+      "--openai-tunnel",
+      "--tunnel-id",
+      TUNNEL_ID,
+      "--policy",
+      "danger",
+      "--tools-preset",
+      "full",
+      "--dangerously-allow-critical",
+      "--no-open",
+    ]);
+    expect(parsed.allowCriticalInDanger).toBe(true);
+
+    const args = buildFolderForgeServerArgs("/pkg/dist/main.js", {
+      projectRoot: "/workspace/project",
+      dashboard: false,
+      mcpPort: 7412,
+      policyMode: "danger",
+      toolsPreset: "full",
+      allowCriticalInDanger: true,
+    });
+    expect(args).toContain("--dangerously-allow-critical");
+  });
+
+  it("rejects --dangerously-allow-critical with an explicit non-danger --policy", () => {
+    expect(() =>
+      parseOpenAiTunnelArgs([
+        "connect",
+        "--openai-tunnel",
+        "--policy",
+        "dev",
+        "--dangerously-allow-critical",
+      ]),
+    ).toThrow(/requires --policy danger/);
+    expect(
+      parseOpenAiTunnelArgs(["connect", "--openai-tunnel"]).allowCriticalInDanger,
+    ).toBeUndefined();
+  });
+
   it("builds an OAuth server with a separate local metadata route and gateway header", () => {
     const auth = oauthAuth("/workspace/project");
     const args = buildFolderForgeServerArgs("/pkg/dist/main.js", {
