@@ -139,18 +139,18 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.5.0",
     "@types/pngjs": "6.0.5",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^10.8.0",
     "fast-check": "^4.3.0",
     "globals": "^17.7.0",
-    "playwright-core": "1.56.0-alpha-2025-10-01",
+    "playwright-core": "1.63.0",
     "pngjs": "7.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.64.0",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.0"
   },
   "publishConfig": {
     "access": "public"
