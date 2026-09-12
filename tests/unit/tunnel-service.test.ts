@@ -142,6 +142,28 @@ describe('tunnel service', () => {
     );
     expect(missingConfig.exitCode).toBe(1);
     expect(missingConfig.output).toContain('Runtime files are missing');
+    // Underscore names are valid: Cloudflare allows them in tunnel names and
+    // systemd accepts them in unit names (proposal 022; loop #51 evidence:
+    // the operator's repo_vibecode tunnel serves production traffic).
+    const underscored = installTunnel(
+      { name: 'repo_vibecode', configPath, bin: FAKE_BIN, enable: false, replace: false },
+      deps,
+    );
+    expect(underscored.exitCode).toBe(0);
+    const unit = readFileSync(unitPath(join(root, 'xdg'), 'repo_vibecode'), 'utf8');
+    expect(unit).toContain('run repo_vibecode');
+    const leadingUnderscore = installTunnel(
+      { name: '_lead', configPath, bin: FAKE_BIN, enable: false, replace: false },
+      deps,
+    );
+    expect(leadingUnderscore.exitCode).toBe(1);
+    expect(leadingUnderscore.output).toContain('Invalid tunnel name');
+    const overlong = installTunnel(
+      { name: 'a'.repeat(33), configPath, bin: FAKE_BIN, enable: false, replace: false },
+      deps,
+    );
+    expect(overlong.exitCode).toBe(1);
+    expect(overlong.output).toContain('Invalid tunnel name');
   });
 
   it('reinstalls the same tunnel name by overwriting (the config update path)', () => {

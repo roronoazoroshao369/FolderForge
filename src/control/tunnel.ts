@@ -31,8 +31,13 @@ import {
   type UnitSpec,
 } from './service.js';
 
-/** Named tunnels embed in the unit file name — lowercase DNS-ish only. */
-const TUNNEL_NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/**
+ * Named tunnels embed in the unit file name — lowercase DNS-ish plus
+ * underscore: Cloudflare allows underscores in tunnel names (operator's
+ * repo_vibecode / vibcode-auto-test serve production traffic) and systemd
+ * accepts them in unit names. First character stays alphanumeric.
+ */
+const TUNNEL_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
 const DEFAULT_CLOUDFLARED_BIN = '/usr/local/bin/cloudflared';
 
@@ -174,7 +179,7 @@ const TUNNEL_HELP = [
   '  status     Show installed/enabled/active for one tunnel (--json supported)',
   '',
   'Install options:',
-  '  --name <name>          Named tunnel to supervise (required; lowercase, digits, dashes)',
+  '  --name <name>          Named tunnel to supervise (required; lowercase, digits, dashes, underscores)',
   '  --config <path>        Absolute path to the cloudflared YAML config (required)',
   '  --bin <path>           cloudflared binary (default /usr/local/bin/cloudflared)',
   '  --enable               systemctl --user enable --now after writing the unit',
