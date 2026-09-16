@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { CheckCircle2, Loader2, Search, X, XCircle } from 'lucide-react';
 
 /* ---------- utilities ---------- */
@@ -67,6 +67,19 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={cx(
+        'w-full resize-y rounded-lg border border-border bg-raised px-3 py-2 text-[13px] text-fg',
+        'placeholder:text-muted/70 focus:border-accent/60 focus:outline-none transition-colors',
+        props.className,
+      )}
+    />
+  );
+}
+
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
@@ -108,7 +121,7 @@ export function SearchInput(props: { value: string; onChange: (v: string) => voi
 
 export function Card(props: {
   title?: string;
-  hint?: string;
+  hint?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;

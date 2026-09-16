@@ -41,6 +41,7 @@ const MOBILE = { width: 390, height: 844 } as const;
 
 const ROUTES: ReadonlyArray<{ name: string; path: string }> = [
   { name: 'overview', path: '/' },
+  { name: 'responses', path: '/responses' },
   { name: 'fleet', path: '/fleet' },
   { name: 'tools', path: '/tools' },
   { name: 'tunnels', path: '/tunnels' },

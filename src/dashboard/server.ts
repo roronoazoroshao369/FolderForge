@@ -37,8 +37,15 @@ import type { PolicyMode, ToolPrincipal } from "../core/types.js";
 import { adminPrincipalFromCredential } from "../core/principal.js";
 import { ApprovalResolutionError } from "../policy/approvals.js";
 import { makeCloudflareClient } from "../cloudflare/api-client.js";
-import { clearCloudflareConfig, maskedCloudflareConfig, saveCloudflareConfig } from "../cloudflare/config-store.js";
-import { ENV_NAME_PATTERN, TUNNEL_ID_PATTERN } from "../chatgpt/openai-tunnel.js";
+import {
+  clearCloudflareConfig,
+  maskedCloudflareConfig,
+  saveCloudflareConfig,
+} from "../cloudflare/config-store.js";
+import {
+  ENV_NAME_PATTERN,
+  TUNNEL_ID_PATTERN,
+} from "../chatgpt/openai-tunnel.js";
 import {
   clearOpenAiTunnelConfig,
   loadOpenAiTunnelConfig,
@@ -70,6 +77,18 @@ export interface DashboardOptions {
    * behavior: required only for non-loopback binds.
    */
   requireAuth?: boolean;
+  /** Public metadata for the OpenAI-compatible Responses gateway. */
+  responsesGateway?: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    basePath: string;
+    authMode: string;
+    modelIds: string[];
+    workflowId?: string;
+    getWorkflowId?: () => string | undefined;
+    setWorkflowId?: (workflowId: string | undefined) => void;
+  };
 }
 
 /** True when the bind host is loopback-only and therefore safe without a token. */
@@ -152,10 +171,8 @@ export function startDashboard(
       );
       return;
     }
-    const principal = adminPrincipalFromCredential(
-      requireAuth ? credential : undefined,
-    );
-    handle(req, res, container, registry, principal).catch((err) => {
+    const principal = dashboardPrincipal(req, credential, requireAuth);
+    handle(req, res, container, registry, principal, opts).catch((err) => {
       logger.error({ err: String(err) }, "Dashboard request failed");
       sendJson(res, 500, { error: "internal_error", message: String(err) });
     });
@@ -190,6 +207,43 @@ function extractDashboardCredential(req: IncomingMessage): string | undefined {
   return url.searchParams.get("token") ?? undefined;
 }
 
+/**
+ * Preserve remote client/session/task correlation on dashboard API calls.
+ * These headers are metadata only; authentication still comes from the
+ * dashboard credential. Invalid or oversized values are ignored rather than
+ * becoming durable binding keys.
+ */
+function dashboardPrincipal(
+  req: IncomingMessage,
+  credential: string | undefined,
+  requireAuth: boolean,
+): ToolPrincipal {
+  const base = adminPrincipalFromCredential(
+    requireAuth ? credential : undefined,
+  );
+  const clientId = dashboardContextHeader(req, "x-client-id");
+  const sessionId = dashboardContextHeader(req, "x-session-id");
+  const taskId = dashboardContextHeader(req, "x-task-id");
+  return {
+    ...base,
+    ...(clientId ? { oauthClientId: clientId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(taskId ? { taskId } : {}),
+  };
+}
+
+function dashboardContextHeader(
+  req: IncomingMessage,
+  name: string,
+): string | undefined {
+  const value = req.headers[name];
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 && normalized.length <= 256
+    ? normalized
+    : undefined;
+}
+
 /** All directories the operator lets this control plane govern (resolved). */
 function fsAllowedRoots(container: Container): string[] {
   const dirs = container.config.workspace.allowedDirectories ?? [];
@@ -209,7 +263,9 @@ function fsBrowsePoint(container: Container): string {
 /** Best-effort default: ~/Desktop when it exists, else the home directory. */
 function defaultBrowsePoint(): string {
   const desktop = join(homedir(), "Desktop");
-  return existsSync(desktop) && statSync(desktop).isDirectory() ? desktop : homedir();
+  return existsSync(desktop) && statSync(desktop).isDirectory()
+    ? desktop
+    : homedir();
 }
 
 /** True when `target` equals or sits inside `root`. */
@@ -226,7 +282,10 @@ function isWithinDir(root: string, target: string): boolean {
  * instructions when the SPA has not been built.
  */
 function serveMissionControlApp(res: ServerResponse, path: string): void {
-  const relative = path === "/app" || path === "/app/" ? "index.html" : path.slice("/app/".length);
+  const relative =
+    path === "/app" || path === "/app/"
+      ? "index.html"
+      : path.slice("/app/".length);
   if (relative.includes("..")) {
     res.writeHead(400, { "content-type": "text/plain" });
     res.end("bad path");
@@ -264,10 +323,37 @@ function serveMissionControlApp(res: ServerResponse, path: string): void {
       }
     }
   }
-  res.writeHead(404, { "content-type": "text/plain" });
-  res.end(
-    "Mission Control app not built. Run: npm --prefix packages/mission-control install && npm run build:mission-control",
-  );
+  // Keep the control plane navigable even when optional Mission Control
+  // frontend dependencies are unavailable. A real built asset always wins
+  // above; this bounded shell preserves the API entry point and gives the
+  // operator an actionable diagnostic instead of a misleading 404.
+  const fallback = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mission Control</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; background: #10131a; color: #e7eaf0; }
+      main { max-width: 760px; margin: 12vh auto; padding: 32px; }
+      h1 { margin-bottom: 8px; }
+      code { color: #a7f3d0; }
+      .card { border: 1px solid #303746; border-radius: 12px; padding: 20px; background: #171b24; }
+    </style>
+  </head>
+  <body>
+    <main id="root">
+      <h1>Mission Control</h1>
+      <div class="card">
+        <p>The dashboard API is online, but the optional frontend bundle is not installed.</p>
+        <p>Install dependencies and rebuild with <code>npm --prefix packages/mission-control install && npm run build:mission-control</code>.</p>
+      </div>
+    </main>
+  </body>
+</html>`;
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  res.end(fallback);
 }
 
 function timingSafeEqualStr(a: string, b: string): boolean {
@@ -598,18 +684,23 @@ async function runOperatorTool(
   const actionPrincipal: ToolPrincipal = {
     ...principal,
     id: `${principal.id}:operator-action`,
-    roles: [...new Set([...(principal.roles ?? [principal.role]), MISSION_CONTROL_OPERATOR_ROLE])],
+    roles: [
+      ...new Set([
+        ...(principal.roles ?? [principal.role]),
+        MISSION_CONTROL_OPERATOR_ROLE,
+      ]),
+    ],
     sessionId: `${principal.id}:dashboard-session`,
   };
   let result = await registry.call(tool, args, { principal: actionPrincipal });
   if (result.approvalId) {
     const approval = container.policy.approvals.approve(
       result.approvalId,
-      'once',
+      "once",
       principal.id,
     );
     container.audit.record({
-      type: 'approval_resolved',
+      type: "approval_resolved",
       summary: `operator approve ${result.approvalId} (once)`,
       detail: {
         approvalId: result.approvalId,
@@ -639,17 +730,18 @@ function missionControlSnapshot(
     .recent(100)
     .filter((event) =>
       [
-        'tool_call',
-        'tool_result',
-        'tool_error',
-        'policy_deny',
-        'process_event',
-        'task_event',
+        "tool_call",
+        "tool_result",
+        "tool_error",
+        "policy_deny",
+        "process_event",
+        "task_event",
       ].includes(event.type),
     )
     .slice(0, 50);
   const activeCapsules = capsules.filter(
-    (capsule) => !capsule.revokedAt && Date.parse(capsule.expiresAt) > Date.now(),
+    (capsule) =>
+      !capsule.revokedAt && Date.parse(capsule.expiresAt) > Date.now(),
   );
   const proofPackCount = tasks.reduce(
     (count, task) => count + task.proofPacks.length,
@@ -667,17 +759,21 @@ function missionControlSnapshot(
       activeCalls: activeCalls.length,
       authorizedSessions: activeCapsules.length,
       tasks: tasks.length,
-      runningTasks: tasks.filter((task) => task.state === 'running').length,
-      pausedTasks: tasks.filter((task) => task.state === 'paused').length,
+      runningTasks: tasks.filter((task) => task.state === "running").length,
+      pausedTasks: tasks.filter((task) => task.state === "paused").length,
       pendingApprovals: approvals.length,
       managedProcesses: processes.length,
-      activeProcesses: processes.filter((process) => process.status === 'running').length,
+      activeProcesses: processes.filter(
+        (process) => process.status === "running",
+      ).length,
       isolations: isolations.length,
       proofPacks: proofPackCount,
       verificationRuns: verifications.length,
-      runningVerifications: verifications.filter((run) => run.state === 'running').length,
+      runningVerifications: verifications.filter(
+        (run) => run.state === "running",
+      ).length,
       verificationIssues: verifications.filter(
-        (run) => run.overall === 'failed' || run.overall === 'unavailable',
+        (run) => run.overall === "failed" || run.overall === "unavailable",
       ).length,
     },
     activeCalls,
@@ -707,6 +803,7 @@ async function handle(
   container: Container,
   registry: ToolRegistry,
   principal: ToolPrincipal,
+  opts: DashboardOptions,
 ): Promise<void> {
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", "http://localhost");
@@ -730,7 +827,9 @@ async function handle(
     const body = await readJsonBody(req);
     const roots = fsAllowedRoots(container);
     const target = resolve(
-      typeof body?.path === "string" && body.path.length > 0 ? body.path : roots[0]!,
+      typeof body?.path === "string" && body.path.length > 0
+        ? body.path
+        : roots[0]!,
     );
     if (!roots.some((r) => isWithinDir(r, target))) {
       return sendJson(res, 403, {
@@ -742,7 +841,10 @@ async function handle(
     try {
       entries = readdirSync(target, { withFileTypes: true });
     } catch {
-      return sendJson(res, 404, { error: "not_found", message: "Not a readable directory." });
+      return sendJson(res, 404, {
+        error: "not_found",
+        message: "Not a readable directory.",
+      });
     }
     const directories = entries
       .filter((e) => {
@@ -772,8 +874,17 @@ async function handle(
     const roots = fsAllowedRoots(container);
     const parent = resolve(String(body?.path ?? ""));
     const name = String(body?.name ?? "").trim();
-    if (!name || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
-      return sendJson(res, 400, { error: "invalid_request", message: "Invalid folder name." });
+    if (
+      !name ||
+      name.includes("/") ||
+      name.includes("\\") ||
+      name === "." ||
+      name === ".."
+    ) {
+      return sendJson(res, 400, {
+        error: "invalid_request",
+        message: "Invalid folder name.",
+      });
     }
     const target = join(parent, name);
     if (!roots.some((r) => isWithinDir(r, target))) {
@@ -785,7 +896,10 @@ async function handle(
     try {
       mkdirSync(target, { recursive: true });
     } catch (err) {
-      return sendJson(res, 409, { error: "mkdir_failed", message: String(err) });
+      return sendJson(res, 409, {
+        error: "mkdir_failed",
+        message: String(err),
+      });
     }
     container.audit.record({
       type: "dashboard_action",
@@ -829,6 +943,80 @@ async function handle(
     });
   }
 
+  if (method === "GET" && path === "/responses/status") {
+    const configured = opts.responsesGateway ?? {
+      enabled: false,
+      host: container.config.server.http.host,
+      port: container.config.server.http.port,
+      basePath: "/v1",
+      authMode: container.config.server.http.auth?.mode ?? "none",
+      modelIds: [],
+    };
+    const currentWorkflowId =
+      opts.responsesGateway?.getWorkflowId?.() ?? configured.workflowId;
+    const {
+      getWorkflowId: _getWorkflowId,
+      setWorkflowId: _setWorkflowId,
+      ...publicGateway
+    } = configured;
+    const workflows = container.workflows
+      .list(principal, 100)
+      .map((workflow) => ({
+        id: workflow.id,
+        name: workflow.name,
+        state: workflow.state,
+      }));
+    return sendJson(res, 200, {
+      gateway: {
+        ...publicGateway,
+        ...(currentWorkflowId ? { workflowId: currentWorkflowId } : {}),
+      },
+      implementationWorkflows: workflows,
+      compatibility: {
+        models: "/v1/models",
+        responses: "/v1/responses",
+        polling: "/v1/responses/:id",
+        cancellation: "/v1/responses/:id?action=cancel",
+      },
+    });
+  }
+
+  if (method === "POST" && path === "/responses/config") {
+    const body = (await readJsonBody(req)) ?? {};
+    const workflowId =
+      body.workflowId === null || body.workflowId === ""
+        ? undefined
+        : typeof body.workflowId === "string"
+          ? body.workflowId.trim()
+          : undefined;
+    if (workflowId && !/^wf_[A-Za-z0-9]+$/.test(workflowId)) {
+      return sendJson(res, 400, {
+        error: "invalid_workflow_id",
+        message: "workflowId must match wf_<alphanumeric>.",
+      });
+    }
+    if (workflowId) {
+      const exists = container.workflows
+        .list(principal, 100)
+        .some((workflow) => workflow.id === workflowId);
+      if (!exists)
+        return sendJson(res, 404, { error: "workflow_not_found", workflowId });
+    }
+    if (!opts.responsesGateway?.setWorkflowId) {
+      return sendJson(res, 409, {
+        error: "responses_config_unavailable",
+        message: "The Responses gateway is not managed by this process.",
+      });
+    }
+    opts.responsesGateway.setWorkflowId(workflowId);
+    container.audit.record({
+      type: "dashboard_action",
+      summary: `responses_workflow_configured:${workflowId ?? "none"}`,
+      detail: { actorId: principal.id, workflowId: workflowId ?? null },
+    });
+    return sendJson(res, 200, { workflowId: workflowId ?? null });
+  }
+
   if (method === "GET" && path === "/mission-control") {
     return sendJson(
       res,
@@ -837,12 +1025,256 @@ async function handle(
     );
   }
 
+  // Agent loops are the durable discovery -> council -> implementation ->
+  // verification control surface. External Codex clients may use these same
+  // authenticated endpoints as workers; the goal gate is enforced server-side.
+  if (method === "GET" && path === "/agent-loops") {
+    return sendJson(res, 200, {
+      loops: container.agentLoops.list(
+        principal,
+        clampInt(url.searchParams.get("limit"), 100, 1, 200),
+      ),
+    });
+  }
+
+  if (method === "POST" && path === "/agent-loops") {
+    const body = await readJsonBody(req);
+    try {
+      const run = container.agentLoops.create(
+        {
+          title: String(body?.title ?? ""),
+          goal: String(body?.goal ?? ""),
+          acceptanceCriteria: Array.isArray(body?.acceptanceCriteria)
+            ? body.acceptanceCriteria.map(String)
+            : [],
+          ...(Array.isArray(body?.experts) ? { experts: body.experts } : {}),
+          ...(body?.councilMinVotes !== undefined
+            ? { councilMinVotes: Number(body.councilMinVotes) }
+            : {}),
+          ...(body?.councilThreshold !== undefined
+            ? { councilThreshold: Number(body.councilThreshold) }
+            : {}),
+          ...(body?.maxIterations !== undefined
+            ? { maxIterations: Number(body.maxIterations) }
+            : {}),
+          projectRoot:
+            typeof body?.projectRoot === "string"
+              ? body.projectRoot
+              : container.projectRoot(),
+        },
+        principal,
+      );
+      container.audit.record({
+        type: "dashboard_action",
+        summary: `agent_loop_created:${run.id}`,
+        detail: { actorId: principal.id, loopId: run.id },
+      });
+      return sendJson(res, 201, { loop: container.agentLoops.view(run) });
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: "agent_loop_create_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const agentLoopMatch =
+    /^\/agent-loops\/([^/]+)(?:\/(run|report|events|start|resume|pause|cancel|proposals|votes|decide|implementation|verification))?$/.exec(
+      path,
+    );
+  if (agentLoopMatch) {
+    const id = decodeURIComponent(agentLoopMatch[1]!);
+    const action = agentLoopMatch[2];
+    try {
+      if (method === "GET" && action === "events") {
+        return sendJson(
+          res,
+          200,
+          container.agentLoops.eventsSince(
+            id,
+            Number(url.searchParams.get("after") ?? 0),
+            clampInt(url.searchParams.get("limit"), 100, 1, 200),
+            principal,
+          ),
+        );
+      }
+      if (method === "GET" && (action === "report" || !action)) {
+        const current = container.agentLoops.get(id, principal);
+        const loop = container.agentLoops.view(current);
+        if (action === "report") {
+          return sendJson(res, 200, {
+            id: loop.id,
+            title: loop.title,
+            state: loop.state,
+            phase: loop.phase,
+            iteration: loop.iteration,
+            maxIterations: loop.maxIterations,
+            goal: loop.goal,
+            acceptanceCriteria: loop.acceptanceCriteria,
+            goalGate: loop.goalGate,
+            proposals: loop.currentIterationProposals,
+            votes: loop.currentIterationVotes,
+            decision: loop.decision,
+            implementation: loop.implementation,
+            verification: loop.verification,
+            runner: container.agentLoopRunner.status(id),
+          });
+        }
+        return sendJson(res, 200, {
+          loop,
+          runner: container.agentLoopRunner.status(id),
+        });
+      }
+      if (method !== "POST" || !action)
+        return sendJson(res, 405, { error: "method_not_allowed" });
+      const body = (await readJsonBody(req)) ?? {};
+      let run;
+      if (action === "run") {
+        if (typeof body.idempotencyKey === "string")
+          container.agentLoops.claimRunInvocation(
+            id,
+            body.idempotencyKey,
+            principal,
+          );
+        const runner = container.agentLoopRunner.start(id, principal, {
+          ...(typeof body.implementationWorkflowId === "string"
+            ? { workflowId: body.implementationWorkflowId }
+            : {}),
+          ...(body.verificationTimeoutMs !== undefined
+            ? { verificationTimeoutMs: Number(body.verificationTimeoutMs) }
+            : {}),
+        });
+        const current = container.agentLoops.get(id, principal);
+        container.audit.record({
+          type: "dashboard_action",
+          summary: `agent_loop_run:${id}`,
+          detail: {
+            actorId: principal.id,
+            loopId: id,
+            runnerState: runner.state,
+          },
+        });
+        return sendJson(res, 202, {
+          loop: container.agentLoops.view(current),
+          runner,
+        });
+      }
+      if (action === "start" || action === "resume")
+        run = container.agentLoops.start(id, principal);
+      else if (action === "pause")
+        run = container.agentLoops.pause(
+          id,
+          principal,
+          typeof body.reason === "string" ? body.reason : undefined,
+        );
+      else if (action === "cancel")
+        run = container.agentLoops.cancel(
+          id,
+          principal,
+          typeof body.reason === "string" ? body.reason : undefined,
+        );
+      else if (action === "proposals") {
+        run = container.agentLoops.submitProposal(
+          id,
+          {
+            expertId: String(body.expertId ?? ""),
+            ...(body.phase === "discovery" || body.phase === "council"
+              ? { phase: body.phase }
+              : {}),
+            summary: String(body.summary ?? ""),
+            ...(Array.isArray(body.plan)
+              ? { plan: body.plan.map(String) }
+              : {}),
+            ...(Array.isArray(body.risks)
+              ? { risks: body.risks.map(String) }
+              : {}),
+            ...(Array.isArray(body.evidence)
+              ? { evidence: body.evidence.map(String) }
+              : {}),
+          },
+          principal,
+        );
+      } else if (action === "votes") {
+        run = container.agentLoops.submitVote(
+          id,
+          {
+            expertId: String(body.expertId ?? ""),
+            proposalId: String(body.proposalId ?? ""),
+            score: Number(body.score),
+            approve: Boolean(body.approve),
+            ...(body.rationale !== undefined
+              ? { rationale: String(body.rationale) }
+              : {}),
+          },
+          principal,
+        );
+      } else if (action === "decide")
+        run = container.agentLoops.decide(id, principal);
+      else if (action === "implementation") {
+        const status =
+          body.status === "completed" || body.status === "blocked"
+            ? body.status
+            : "running";
+        run = container.agentLoops.recordImplementation(
+          id,
+          {
+            status,
+            summary: String(body.summary ?? ""),
+            ...(Array.isArray(body.changedPaths)
+              ? { changedPaths: body.changedPaths.map(String) }
+              : {}),
+          },
+          principal,
+        );
+      } else {
+        const criteria = Array.isArray(body.criteria)
+          ? body.criteria.flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const value = item as Record<string, unknown>;
+              return [
+                {
+                  name: String(value.name ?? ""),
+                  passed: Boolean(value.passed),
+                  ...(value.evidence !== undefined
+                    ? { evidence: String(value.evidence) }
+                    : {}),
+                },
+              ];
+            })
+          : [];
+        run = container.agentLoops.recordVerification(
+          id,
+          {
+            passed: Boolean(body.passed),
+            criteria,
+            ...(Array.isArray(body.checks)
+              ? { checks: body.checks.map(String) }
+              : {}),
+            ...(body.notes !== undefined ? { notes: String(body.notes) } : {}),
+          },
+          principal,
+        );
+      }
+      container.audit.record({
+        type: "dashboard_action",
+        summary: `agent_loop_${action}:${id}`,
+        detail: { actorId: principal.id, loopId: id, action },
+      });
+      return sendJson(res, 200, { loop: container.agentLoops.view(run) });
+    } catch (error) {
+      return sendJson(res, 409, {
+        error: "agent_loop_action_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (method === "POST" && path === "/mission-control/write-freeze") {
     const body = await readJsonBody(req);
-    if (typeof body?.enabled !== 'boolean') {
+    if (typeof body?.enabled !== "boolean") {
       return sendJson(res, 400, {
-        error: 'invalid_write_freeze',
-        message: 'enabled must be a boolean.',
+        error: "invalid_write_freeze",
+        message: "enabled must be a boolean.",
       });
     }
     const before = container.missionControl.describe();
@@ -851,16 +1283,17 @@ async function handle(
       principal.id,
     );
     container.audit.record({
-      type: 'policy_change',
+      type: "policy_change",
       summary: body.enabled
-        ? 'mission_control_write_freeze_enabled'
-        : 'mission_control_write_freeze_disabled',
+        ? "mission_control_write_freeze_enabled"
+        : "mission_control_write_freeze_disabled",
       detail: { actorId: principal.id, before, after: control },
     });
     return sendJson(res, 200, { control });
   }
 
-  const missionTaskMatch = /^\/mission-control\/tasks\/([^/]+)\/(pause|cancel)$/.exec(path);
+  const missionTaskMatch =
+    /^\/mission-control\/tasks\/([^/]+)\/(pause|cancel)$/.exec(path);
   if (method === "POST" && missionTaskMatch) {
     const id = decodeURIComponent(missionTaskMatch[1]!);
     const action = missionTaskMatch[2]!;
@@ -869,10 +1302,10 @@ async function handle(
       registry,
       container,
       principal,
-      action === 'pause' ? 'workflow_pause' : 'workflow_cancel',
+      action === "pause" ? "workflow_pause" : "workflow_cancel",
       {
         id,
-        ...(action === 'pause' && typeof body?.reason === 'string'
+        ...(action === "pause" && typeof body?.reason === "string"
           ? { reason: body.reason }
           : {}),
       },
@@ -880,7 +1313,8 @@ async function handle(
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
-  const missionProcessMatch = /^\/mission-control\/processes\/([^/]+)\/(stop|kill)$/.exec(path);
+  const missionProcessMatch =
+    /^\/mission-control\/processes\/([^/]+)\/(stop|kill)$/.exec(path);
   if (method === "POST" && missionProcessMatch) {
     const sessionId = decodeURIComponent(missionProcessMatch[1]!);
     const action = missionProcessMatch[2]!;
@@ -888,26 +1322,28 @@ async function handle(
       registry,
       container,
       principal,
-      action === 'stop' ? 'process_stop' : 'process_kill',
+      action === "stop" ? "process_stop" : "process_kill",
       { sessionId },
     );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
-  const missionCapsuleMatch = /^\/mission-control\/capsules\/([^/]+)\/revoke$/.exec(path);
+  const missionCapsuleMatch =
+    /^\/mission-control\/capsules\/([^/]+)\/revoke$/.exec(path);
   if (method === "POST" && missionCapsuleMatch) {
     const id = decodeURIComponent(missionCapsuleMatch[1]!);
     const capsule = container.capsules.revoke(id, principal.id);
-    if (!capsule) return sendJson(res, 404, { error: 'capsule_not_found', id });
+    if (!capsule) return sendJson(res, 404, { error: "capsule_not_found", id });
     container.audit.record({
-      type: 'policy_change',
+      type: "policy_change",
       summary: `mission_control_capsule_revoked:${id}`,
       detail: { actorId: principal.id, capsuleId: id },
     });
     return sendJson(res, 200, { capsule });
   }
 
-  const missionIsolationMatch = /^\/mission-control\/isolations\/([^/]+)\/(rollback|discard)$/.exec(path);
+  const missionIsolationMatch =
+    /^\/mission-control\/isolations\/([^/]+)\/(rollback|discard)$/.exec(path);
   if (method === "POST" && missionIsolationMatch) {
     const id = decodeURIComponent(missionIsolationMatch[1]!);
     const action = missionIsolationMatch[2]!;
@@ -915,59 +1351,69 @@ async function handle(
       registry,
       container,
       principal,
-      action === 'rollback' ? 'isolation_rollback' : 'isolation_discard',
+      action === "rollback" ? "isolation_rollback" : "isolation_discard",
       { id },
     );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
   if (method === "GET" && path === "/fleet") {
-    return sendJson(res, 200, { instances: container.fleet.list().map(publicFleetInstance) });
+    return sendJson(res, 200, {
+      instances: container.fleet.list().map(publicFleetInstance),
+    });
   }
 
   if (method === "POST" && path === "/fleet") {
     const body = await readJsonBody(req);
     const projectPath =
-      typeof body?.projectPath === 'string' ? body.projectPath.trim() : '';
+      typeof body?.projectPath === "string" ? body.projectPath.trim() : "";
     if (!projectPath) {
       return sendJson(res, 400, {
-        error: 'invalid_fleet_create',
-        message: 'projectPath (string) is required.',
+        error: "invalid_fleet_create",
+        message: "projectPath (string) is required.",
       });
     }
     const result = await runOperatorTool(
       registry,
       container,
       principal,
-      'provision_create',
+      "provision_create",
       {
         projectPath,
-        ...(typeof body?.name === 'string' ? { name: body.name } : {}),
-        ...(typeof body?.toolsPreset === 'string'
+        ...(typeof body?.name === "string" ? { name: body.name } : {}),
+        ...(typeof body?.toolsPreset === "string"
           ? { toolsPreset: body.toolsPreset }
           : {}),
-        ...(typeof body?.policyMode === 'string'
+        ...(typeof body?.policyMode === "string"
           ? { policyMode: body.policyMode }
           : {}),
-        ...(typeof body?.authMode === 'string' ? { authMode: body.authMode } : {}),
-        ...(typeof body?.apiKey === 'string' ? { apiKey: body.apiKey } : {}),
-        ...(body?.oauth && typeof body.oauth === 'object' ? { oauth: body.oauth } : {}),
+        ...(typeof body?.authMode === "string"
+          ? { authMode: body.authMode }
+          : {}),
+        ...(typeof body?.apiKey === "string" ? { apiKey: body.apiKey } : {}),
+        ...(body?.oauth && typeof body.oauth === "object"
+          ? { oauth: body.oauth }
+          : {}),
       },
     );
     return sendJson(res, result.ok ? 201 : 409, result);
   }
 
-  const fleetLifecycleMatch = /^\/fleet\/([^/]+)\/(start|stop|restart)$/.exec(path);
+  const fleetLifecycleMatch = /^\/fleet\/([^/]+)\/(start|stop|restart)$/.exec(
+    path,
+  );
   if (method === "POST" && fleetLifecycleMatch) {
     const id = decodeURIComponent(fleetLifecycleMatch[1]!);
     const action = fleetLifecycleMatch[2]!;
     const tool =
-      action === 'start'
-        ? 'provision_start'
-        : action === 'stop'
-          ? 'provision_stop'
-          : 'provision_restart';
-    const result = await runOperatorTool(registry, container, principal, tool, { id });
+      action === "start"
+        ? "provision_start"
+        : action === "stop"
+          ? "provision_stop"
+          : "provision_restart";
+    const result = await runOperatorTool(registry, container, principal, tool, {
+      id,
+    });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
@@ -975,16 +1421,22 @@ async function handle(
   if (method === "POST" && fleetAutoRestartMatch) {
     const id = decodeURIComponent(fleetAutoRestartMatch[1]!);
     const body = await readJsonBody(req);
-    if (typeof body?.enabled !== 'boolean') {
+    if (typeof body?.enabled !== "boolean") {
       return sendJson(res, 400, {
-        error: 'invalid_auto_restart',
-        message: 'enabled must be a boolean.',
+        error: "invalid_auto_restart",
+        message: "enabled must be a boolean.",
       });
     }
-    const result = await runOperatorTool(registry, container, principal, 'provision_update', {
-      id,
-      autoRestart: body.enabled,
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "provision_update",
+      {
+        id,
+        autoRestart: body.enabled,
+      },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
@@ -992,30 +1444,62 @@ async function handle(
   if (method === "POST" && fleetPresetMatch) {
     const id = decodeURIComponent(fleetPresetMatch[1]!);
     const body = await readJsonBody(req);
-    if (typeof body?.toolsPreset !== 'string' || body.toolsPreset.length === 0) {
+    if (
+      typeof body?.toolsPreset !== "string" ||
+      body.toolsPreset.length === 0
+    ) {
       return sendJson(res, 400, {
-        error: 'invalid_preset',
-        message: 'toolsPreset must be one of: vibe, vibe-lite, readonly, full, godot.',
+        error: "invalid_preset",
+        message:
+          "toolsPreset must be one of: vibe, vibe-lite, readonly, full, godot.",
       });
     }
-    const result = await runOperatorTool(registry, container, principal, 'provision_update', {
-      id,
-      toolsPreset: body.toolsPreset,
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "provision_update",
+      {
+        id,
+        toolsPreset: body.toolsPreset,
+      },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
   if (method === "GET" && path === "/plugins") {
-    const result = await runOperatorTool(registry, container, principal, 'plugin_list', {});
-    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "plugin_list",
+      {},
+    );
+    return sendJson(
+      res,
+      result.ok ? 200 : 409,
+      result.ok ? result.data : result,
+    );
   }
 
   if (method === "GET" && path === "/marketplace") {
-    const result = await runOperatorTool(registry, container, principal, 'marketplace_list', {});
-    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "marketplace_list",
+      {},
+    );
+    return sendJson(
+      res,
+      result.ok ? 200 : 409,
+      result.ok ? result.data : result,
+    );
   }
 
-  const pluginLifecycleMatch = /^\/plugins\/([^/]+)\/(enable|disable)$/.exec(path);
+  const pluginLifecycleMatch = /^\/plugins\/([^/]+)\/(enable|disable)$/.exec(
+    path,
+  );
   if (method === "POST" && pluginLifecycleMatch) {
     const id = decodeURIComponent(pluginLifecycleMatch[1]!);
     const action = pluginLifecycleMatch[2]!;
@@ -1023,7 +1507,7 @@ async function handle(
       registry,
       container,
       principal,
-      action === 'enable' ? 'plugin_enable' : 'plugin_disable',
+      action === "enable" ? "plugin_enable" : "plugin_disable",
       { id },
     );
     return sendJson(res, result.ok ? 200 : 409, result);
@@ -1038,7 +1522,10 @@ async function handle(
       title: tool.annotations?.title ?? tool.name,
       description: tool.description,
     }));
-    const presets: Record<string, { groups: string[]; toolCount: number; note?: string }> = {};
+    const presets: Record<
+      string,
+      { groups: string[]; toolCount: number; note?: string }
+    > = {};
     for (const [preset, groups] of Object.entries(GROUP_PRESETS)) {
       const active = resolveActiveTools(registry, { preset });
       presets[preset] = {
@@ -1048,45 +1535,67 @@ async function handle(
     }
     // The adaptive surface is a name-list preset (not group-based): surface it
     // with its measured tools/list savings instead of a group count.
-    const adaptive = resolveActiveTools(registry, { preset: 'adaptive' });
-    presets['adaptive'] = {
+    const adaptive = resolveActiveTools(registry, { preset: "adaptive" });
+    presets["adaptive"] = {
       groups: [],
       toolCount: adaptive === null ? tools.length : adaptive.length,
-      note: 'Typed core + governed call_runtime_tool gateway · ~92.5% smaller tools/list (measured)',
+      note: "Typed core + governed call_runtime_tool gateway · ~92.5% smaller tools/list (measured)",
     };
     return sendJson(res, 200, { tools, presets });
   }
 
   if (method === "GET" && path === "/workspaces") {
-    const result = await runOperatorTool(registry, container, principal, 'workspace_list', {});
-    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "workspace_list",
+      {},
+    );
+    return sendJson(
+      res,
+      result.ok ? 200 : 409,
+      result.ok ? result.data : result,
+    );
   }
 
   if (method === "POST" && path === "/workspaces/switch") {
     const body = await readJsonBody(req);
-    if (typeof body?.path !== 'string' || body.path.length === 0) {
+    if (typeof body?.path !== "string" || body.path.length === 0) {
       return sendJson(res, 400, {
-        error: 'invalid_workspace',
-        message: 'path must be a non-empty string.',
+        error: "invalid_workspace",
+        message: "path must be a non-empty string.",
       });
     }
-    const result = await runOperatorTool(registry, container, principal, 'workspace_switch', {
-      path: body.path,
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "workspace_switch",
+      {
+        path: body.path,
+      },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
   if (method === "POST" && path === "/workspaces/activate") {
     const body = await readJsonBody(req);
-    if (typeof body?.path !== 'string' || body.path.length === 0) {
+    if (typeof body?.path !== "string" || body.path.length === 0) {
       return sendJson(res, 400, {
-        error: 'invalid_workspace',
-        message: 'path must be a non-empty string.',
+        error: "invalid_workspace",
+        message: "path must be a non-empty string.",
       });
     }
-    const result = await runOperatorTool(registry, container, principal, 'workspace_activate', {
-      path: body.path,
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "workspace_activate",
+      {
+        path: body.path,
+      },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
@@ -1096,14 +1605,19 @@ async function handle(
 
   if (method === "POST" && path === "/cloudflare/config") {
     const body = await readJsonBody(req);
-    const apiToken = typeof body?.apiToken === "string" ? body.apiToken.trim() : "";
-    const accountId = typeof body?.accountId === "string" ? body.accountId.trim() : "";
-    const domain = typeof body?.domain === "string" ? body.domain.trim().toLowerCase() : "";
-    const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+    const apiToken =
+      typeof body?.apiToken === "string" ? body.apiToken.trim() : "";
+    const accountId =
+      typeof body?.accountId === "string" ? body.accountId.trim() : "";
+    const domain =
+      typeof body?.domain === "string" ? body.domain.trim().toLowerCase() : "";
+    const DOMAIN_RE =
+      /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
     if (!apiToken || !accountId || !DOMAIN_RE.test(domain)) {
       return sendJson(res, 400, {
         error: "invalid_cloudflare_config",
-        message: "apiToken, accountId and a valid domain (e.g. example.com) are required.",
+        message:
+          "apiToken, accountId and a valid domain (e.g. example.com) are required.",
       });
     }
     const client = makeCloudflareClient(apiToken);
@@ -1125,7 +1639,14 @@ async function handle(
     }
     container.audit.record({
       type: "dashboard_action",
-      summary: "cloudflare linked domain=" + domain + " account=" + accountId + " (principal " + principal.id + ")",
+      summary:
+        "cloudflare linked domain=" +
+        domain +
+        " account=" +
+        accountId +
+        " (principal " +
+        principal.id +
+        ")",
     });
     return sendJson(res, 200, maskedCloudflareConfig(container.projectRoot()));
   }
@@ -1142,7 +1663,8 @@ async function handle(
   if (method === "GET" && path === "/openai-tunnel/status") {
     const config = loadOpenAiTunnelConfig(container.projectRoot());
     if (!config) return sendJson(res, 200, { configured: false });
-    const running = config.supervisorPid !== undefined && processAlive(config.supervisorPid);
+    const running =
+      config.supervisorPid !== undefined && processAlive(config.supervisorPid);
     return sendJson(res, 200, {
       configured: true,
       tunnelId: config.tunnelId,
@@ -1151,15 +1673,22 @@ async function handle(
       running,
       // A stored (operator-pasted) key counts as available for starting.
       apiKeyStored: config.apiKey !== undefined,
-      apiKeyPresent: process.env[config.apiKeyEnv] !== undefined || config.apiKey !== undefined,
-      ...(config.apiKey ? { keyPreview: maskedOpenAiTunnelKeyPreview(config) } : {}),
-      ...(config.supervisorPid !== undefined ? { supervisorPid: config.supervisorPid } : {}),
+      apiKeyPresent:
+        process.env[config.apiKeyEnv] !== undefined ||
+        config.apiKey !== undefined,
+      ...(config.apiKey
+        ? { keyPreview: maskedOpenAiTunnelKeyPreview(config) }
+        : {}),
+      ...(config.supervisorPid !== undefined
+        ? { supervisorPid: config.supervisorPid }
+        : {}),
     });
   }
 
   if (method === "POST" && path === "/openai-tunnel/config") {
     const body = await readJsonBody(req);
-    const tunnelId = typeof body?.tunnelId === "string" ? body.tunnelId.trim() : "";
+    const tunnelId =
+      typeof body?.tunnelId === "string" ? body.tunnelId.trim() : "";
     const apiKeyEnv =
       typeof body?.apiKeyEnv === "string" && body.apiKeyEnv.trim()
         ? body.apiKeyEnv.trim()
@@ -1167,8 +1696,13 @@ async function handle(
     // Optional direct key paste: stored 0600 like the Cloudflare token, never
     // echoed back (only the last-4 preview is returned).
     const apiKey =
-      typeof body?.apiKey === "string" && body.apiKey.trim() ? body.apiKey.trim() : undefined;
-    if (!TUNNEL_ID_PATTERN.test(tunnelId) || !ENV_NAME_PATTERN.test(apiKeyEnv)) {
+      typeof body?.apiKey === "string" && body.apiKey.trim()
+        ? body.apiKey.trim()
+        : undefined;
+    if (
+      !TUNNEL_ID_PATTERN.test(tunnelId) ||
+      !ENV_NAME_PATTERN.test(apiKeyEnv)
+    ) {
       return sendJson(res, 400, {
         error: "invalid_openai_tunnel_config",
         message:
@@ -1183,7 +1717,14 @@ async function handle(
     container.audit.record({
       type: "dashboard_action",
       summary:
-        "openai tunnel configured tunnel=" + tunnelId + " keyEnv=" + apiKeyEnv + (apiKey ? " key=pasted" : "") + " (principal " + principal.id + ")",
+        "openai tunnel configured tunnel=" +
+        tunnelId +
+        " keyEnv=" +
+        apiKeyEnv +
+        (apiKey ? " key=pasted" : "") +
+        " (principal " +
+        principal.id +
+        ")",
     });
     return sendJson(res, 200, {
       ok: true,
@@ -1191,7 +1732,9 @@ async function handle(
       tunnelId,
       apiKeyEnv,
       apiKeyStored: stored.apiKey !== undefined,
-      ...(stored.apiKey ? { keyPreview: maskedOpenAiTunnelKeyPreview(stored) } : {}),
+      ...(stored.apiKey
+        ? { keyPreview: maskedOpenAiTunnelKeyPreview(stored) }
+        : {}),
     });
   }
 
@@ -1220,8 +1763,13 @@ async function handle(
     const body = await readJsonBody(req);
     const config = loadOpenAiTunnelConfig(container.projectRoot());
     const provided =
-      typeof body?.apiKey === "string" && body.apiKey.trim() ? body.apiKey.trim() : undefined;
-    const key = provided ?? config?.apiKey ?? (config ? process.env[config.apiKeyEnv] : undefined);
+      typeof body?.apiKey === "string" && body.apiKey.trim()
+        ? body.apiKey.trim()
+        : undefined;
+    const key =
+      provided ??
+      config?.apiKey ??
+      (config ? process.env[config.apiKeyEnv] : undefined);
     if (!key) {
       return sendJson(res, 409, {
         error: "no_key_available",
@@ -1233,15 +1781,26 @@ async function handle(
     container.audit.record({
       type: "dashboard_action",
       summary:
-        "openai tunnel key verified ok=" + String(verdict.ok) + " (principal " + principal.id + ")",
+        "openai tunnel key verified ok=" +
+        String(verdict.ok) +
+        " (principal " +
+        principal.id +
+        ")",
     });
     if (!verdict.ok) {
       return sendJson(res, 502, {
-        error: verdict.code === "invalid_key" ? "openai_key_invalid" : "openai_unreachable",
+        error:
+          verdict.code === "invalid_key"
+            ? "openai_key_invalid"
+            : "openai_unreachable",
         message: verdict.detail,
       });
     }
-    return sendJson(res, 200, { ok: true, scope: verdict.scope, message: verdict.detail });
+    return sendJson(res, 200, {
+      ok: true,
+      scope: verdict.scope,
+      message: verdict.detail,
+    });
   }
 
   if (method === "POST" && path === "/openai-tunnel/start") {
@@ -1253,7 +1812,11 @@ async function handle(
       });
     }
     if (config.supervisorPid && processAlive(config.supervisorPid)) {
-      return sendJson(res, 200, { ok: true, alreadyRunning: true, pid: config.supervisorPid });
+      return sendJson(res, 200, {
+        ok: true,
+        alreadyRunning: true,
+        pid: config.supervisorPid,
+      });
     }
     if (!process.env[config.apiKeyEnv] && !config.apiKey) {
       return sendJson(res, 409, {
@@ -1270,8 +1833,14 @@ async function handle(
         message: `Built entrypoint not found at ${entrypoint}. Run \`npm run build\` first.`,
       });
     }
-    mkdirSync(join(container.projectRoot(), ".folderforge"), { recursive: true });
-    const logPath = join(container.projectRoot(), ".folderforge", "openai-tunnel-supervisor.log");
+    mkdirSync(join(container.projectRoot(), ".folderforge"), {
+      recursive: true,
+    });
+    const logPath = join(
+      container.projectRoot(),
+      ".folderforge",
+      "openai-tunnel-supervisor.log",
+    );
     const out = openSync(logPath, "a");
     let pid: number;
     try {
@@ -1315,7 +1884,13 @@ async function handle(
     container.audit.record({
       type: "dashboard_action",
       summary:
-        "openai tunnel supervisor started tunnel=" + config.tunnelId + " pid=" + pid + " (principal " + principal.id + ")",
+        "openai tunnel supervisor started tunnel=" +
+        config.tunnelId +
+        " pid=" +
+        pid +
+        " (principal " +
+        principal.id +
+        ")",
     });
     return sendJson(res, 200, { ok: true, pid });
   }
@@ -1329,37 +1904,60 @@ async function handle(
         // Already exited.
       }
     }
-    if (config) setOpenAiTunnelSupervisorPid(container.projectRoot(), undefined);
+    if (config)
+      setOpenAiTunnelSupervisorPid(container.projectRoot(), undefined);
     container.audit.record({
       type: "dashboard_action",
-      summary: "openai tunnel supervisor stopped (principal " + principal.id + ")",
+      summary:
+        "openai tunnel supervisor stopped (principal " + principal.id + ")",
     });
     return sendJson(res, 200, { ok: true });
   }
 
   if (method === "GET" && path === "/tunnels") {
-    const result = await runOperatorTool(registry, container, principal, 'tunnel_list', {});
-    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "tunnel_list",
+      {},
+    );
+    return sendJson(
+      res,
+      result.ok ? 200 : 409,
+      result.ok ? result.data : result,
+    );
   }
 
   if (method === "POST" && path === "/tunnels") {
     const body = await readJsonBody(req);
-    if (typeof body?.targetPort !== 'number' || !Number.isInteger(body.targetPort)) {
+    if (
+      typeof body?.targetPort !== "number" ||
+      !Number.isInteger(body.targetPort)
+    ) {
       return sendJson(res, 400, {
-        error: 'invalid_tunnel',
-        message: 'targetPort must be an integer port (1024-65535).',
+        error: "invalid_tunnel",
+        message: "targetPort must be an integer port (1024-65535).",
       });
     }
-    const fleetTarget = container.fleet.list().find((instance) => instance.port === body.targetPort);
-    if (fleetTarget?.authMode === 'none') {
+    const fleetTarget = container.fleet
+      .list()
+      .find((instance) => instance.port === body.targetPort);
+    if (fleetTarget?.authMode === "none") {
       return sendJson(res, 409, {
-        error: 'authentication_required',
+        error: "authentication_required",
         message: `Port ${body.targetPort} belongs to Fleet instance ${fleetTarget.id}, which has no application authentication. Enable token, API-key, or OAuth auth before public exposure.`,
       });
     }
-    const result = await runOperatorTool(registry, container, principal, 'tunnel_start', {
-      targetPort: body.targetPort,
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "tunnel_start",
+      {
+        targetPort: body.targetPort,
+      },
+    );
     return sendJson(res, result.ok ? 201 : 409, result);
   }
 
@@ -1372,7 +1970,12 @@ async function handle(
         const record = await container.tunnels.destroy(id);
         container.audit.record({
           type: "dashboard_action",
-          summary: "tunnel " + id + " stopped + cloudflare cleanup (principal " + principal.id + ")",
+          summary:
+            "tunnel " +
+            id +
+            " stopped + cloudflare cleanup (principal " +
+            principal.id +
+            ")",
         });
         return sendJson(res, 200, { ok: true, data: record });
       } catch (error) {
@@ -1382,7 +1985,13 @@ async function handle(
         });
       }
     }
-    const result = await runOperatorTool(registry, container, principal, 'tunnel_stop', { id });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "tunnel_stop",
+      { id },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
@@ -1450,31 +2059,46 @@ async function handle(
 
   if (method === "POST" && path === "/isolations") {
     const body = await readJsonBody(req);
-    const result = await runOperatorTool(registry, container, principal, 'isolation_create', {
-      taskId: String(body?.taskId ?? ''),
-      baseRef: String(body?.baseRef ?? 'HEAD'),
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "isolation_create",
+      {
+        taskId: String(body?.taskId ?? ""),
+        baseRef: String(body?.baseRef ?? "HEAD"),
+      },
+    );
     return sendJson(res, result.ok ? 201 : 409, result);
   }
 
-  const isolationReadMatch = /^\/isolations\/([^/]+)\/(status|diff)$/.exec(path);
+  const isolationReadMatch = /^\/isolations\/([^/]+)\/(status|diff)$/.exec(
+    path,
+  );
   if (method === "GET" && isolationReadMatch) {
     const id = decodeURIComponent(isolationReadMatch[1]!);
-    const tool = isolationReadMatch[2] === 'diff' ? 'isolation_diff' : 'isolation_status';
-    const result = await runOperatorTool(registry, container, principal, tool, { id });
+    const tool =
+      isolationReadMatch[2] === "diff" ? "isolation_diff" : "isolation_status";
+    const result = await runOperatorTool(registry, container, principal, tool, {
+      id,
+    });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
-  const isolationActionMatch = /^\/isolations\/([^/]+)\/(apply|rollback|discard)$/.exec(path);
+  const isolationActionMatch =
+    /^\/isolations\/([^/]+)\/(apply|rollback|discard)$/.exec(path);
   if (method === "POST" && isolationActionMatch) {
     const id = decodeURIComponent(isolationActionMatch[1]!);
     const action = isolationActionMatch[2];
-    const tool = action === 'apply'
-      ? 'isolation_apply'
-      : action === 'rollback'
-        ? 'isolation_rollback'
-        : 'isolation_discard';
-    const result = await runOperatorTool(registry, container, principal, tool, { id });
+    const tool =
+      action === "apply"
+        ? "isolation_apply"
+        : action === "rollback"
+          ? "isolation_rollback"
+          : "isolation_discard";
+    const result = await runOperatorTool(registry, container, principal, tool, {
+      id,
+    });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
@@ -1482,13 +2106,19 @@ async function handle(
   if (method === "POST" && fleetPolicyMatch) {
     const id = decodeURIComponent(fleetPolicyMatch[1]!);
     const body = await readJsonBody(req);
-    const result = await runOperatorTool(registry, container, principal, "provision_update", {
-      id,
-      policyMode: String(body?.policyMode ?? ""),
-      ...(typeof body?.allowCriticalInDanger === "boolean"
-        ? { allowCriticalInDanger: body.allowCriticalInDanger }
-        : {}),
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "provision_update",
+      {
+        id,
+        policyMode: String(body?.policyMode ?? ""),
+        ...(typeof body?.allowCriticalInDanger === "boolean"
+          ? { allowCriticalInDanger: body.allowCriticalInDanger }
+          : {}),
+      },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
@@ -1497,26 +2127,45 @@ async function handle(
     const id = decodeURIComponent(fleetAuthMatch[1]!);
     const body = await readJsonBody(req);
     if (typeof body?.mode !== "string") {
-      return sendJson(res, 400, { error: "invalid_auth", message: "mode is required." });
+      return sendJson(res, 400, {
+        error: "invalid_auth",
+        message: "mode is required.",
+      });
     }
-    const result = await runOperatorTool(registry, container, principal, "provision_set_auth", {
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "provision_set_auth",
+      {
+        id,
+        mode: body.mode,
+        ...(typeof body.apiKey === "string" ? { apiKey: body.apiKey } : {}),
+        ...(body.oauth && typeof body.oauth === "object"
+          ? { oauth: body.oauth }
+          : {}),
+      },
+    );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetRotateMatch = /^\/fleet\/([^/]+)\/rotate-(token|credential)$/.exec(
+    path,
+  );
+  if (method === "POST" && fleetRotateMatch) {
+    const id = decodeURIComponent(fleetRotateMatch[1]!);
+    const tool =
+      fleetRotateMatch[2] === "credential"
+        ? "provision_rotate_credential"
+        : "provision_rotate_token";
+    const result = await runOperatorTool(registry, container, principal, tool, {
       id,
-      mode: body.mode,
-      ...(typeof body.apiKey === "string" ? { apiKey: body.apiKey } : {}),
-      ...(body.oauth && typeof body.oauth === "object" ? { oauth: body.oauth } : {}),
     });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
-  const fleetRotateMatch = /^\/fleet\/([^/]+)\/rotate-(token|credential)$/.exec(path);
-  if (method === "POST" && fleetRotateMatch) {
-    const id = decodeURIComponent(fleetRotateMatch[1]!);
-    const tool = fleetRotateMatch[2] === "credential" ? "provision_rotate_credential" : "provision_rotate_token";
-    const result = await runOperatorTool(registry, container, principal, tool, { id });
-    return sendJson(res, result.ok ? 200 : 409, result);
-  }
-
-  const fleetOpenAiTunnelMatch = /^\/fleet\/([^/]+)\/openai-tunnel\/(start|stop)$/.exec(path);
+  const fleetOpenAiTunnelMatch =
+    /^\/fleet\/([^/]+)\/openai-tunnel\/(start|stop)$/.exec(path);
   if (method === "POST" && fleetOpenAiTunnelMatch) {
     const id = decodeURIComponent(fleetOpenAiTunnelMatch[1]!);
     const action = fleetOpenAiTunnelMatch[2]!;
@@ -1525,13 +2174,19 @@ async function handle(
       registry,
       container,
       principal,
-      action === "start" ? "provision_openai_tunnel_start" : "provision_openai_tunnel_stop",
+      action === "start"
+        ? "provision_openai_tunnel_start"
+        : "provision_openai_tunnel_stop",
       action === "start"
         ? {
             id,
             tunnelId: String(body?.tunnelId ?? ""),
-            ...(typeof body?.apiKeyEnv === "string" ? { apiKeyEnv: body.apiKeyEnv } : {}),
-            ...(typeof body?.apiKey === "string" ? { apiKey: body.apiKey } : {}),
+            ...(typeof body?.apiKeyEnv === "string"
+              ? { apiKeyEnv: body.apiKeyEnv }
+              : {}),
+            ...(typeof body?.apiKey === "string"
+              ? { apiKey: body.apiKey }
+              : {}),
             ...(typeof body?.oauth === "boolean" ? { oauth: body.oauth } : {}),
           }
         : { id },
@@ -1539,11 +2194,22 @@ async function handle(
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
-  const fleetOpenAiTunnelLogsMatch = /^\/fleet\/([^/]+)\/openai-tunnel\/logs$/.exec(path);
+  const fleetOpenAiTunnelLogsMatch =
+    /^\/fleet\/([^/]+)\/openai-tunnel\/logs$/.exec(path);
   if (method === "GET" && fleetOpenAiTunnelLogsMatch) {
     const id = decodeURIComponent(fleetOpenAiTunnelLogsMatch[1]!);
-    const result = await runOperatorTool(registry, container, principal, "provision_openai_tunnel_logs", { id });
-    return sendJson(res, result.ok ? 200 : 409, result.ok ? result.data : result);
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "provision_openai_tunnel_logs",
+      { id },
+    );
+    return sendJson(
+      res,
+      result.ok ? 200 : 409,
+      result.ok ? result.data : result,
+    );
   }
 
   const fleetTunnelMatch = /^\/fleet\/([^/]+)\/tunnel$/.exec(path);
@@ -1559,7 +2225,8 @@ async function handle(
     if (instance.authMode === "none") {
       return sendJson(res, 409, {
         error: "authentication_required",
-        message: "Public Cloudflare exposure requires token, API-key, or OAuth authentication.",
+        message:
+          "Public Cloudflare exposure requires token, API-key, or OAuth authentication.",
       });
     }
     const body = await readJsonBody(req);
@@ -1572,7 +2239,16 @@ async function handle(
         });
         container.audit.record({
           type: "dashboard_action",
-          summary: "named tunnel " + record.id + " " + (record.hostname ?? "") + " -> :" + instance.port + " (principal " + principal.id + ")",
+          summary:
+            "named tunnel " +
+            record.id +
+            " " +
+            (record.hostname ?? "") +
+            " -> :" +
+            instance.port +
+            " (principal " +
+            principal.id +
+            ")",
         });
         return sendJson(res, 200, { ok: true, data: record });
       } catch (error) {
@@ -1582,9 +2258,15 @@ async function handle(
         });
       }
     }
-    const result = await runOperatorTool(registry, container, principal, "tunnel_start", {
-      targetPort: instance.port,
-    });
+    const result = await runOperatorTool(
+      registry,
+      container,
+      principal,
+      "tunnel_start",
+      {
+        targetPort: instance.port,
+      },
+    );
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
@@ -1598,17 +2280,25 @@ async function handle(
       instance = undefined;
     }
     if (!instance) {
-      return sendJson(res, 404, { error: "unknown_instance", message: "Unknown instance: " + id });
+      return sendJson(res, 404, {
+        error: "unknown_instance",
+        message: "Unknown instance: " + id,
+      });
     }
     const sessionId = instance.sessionId;
     if (!sessionId || !container.processes.isManaged(sessionId)) {
       return sendJson(res, 409, {
         error: "no_logs",
-        message: "No live process session for this instance (start it first; sessions reset when the plane restarts).",
+        message:
+          "No live process session for this instance (start it first; sessions reset when the plane restarts).",
       });
     }
     const peeked = container.processes.peek(sessionId);
-    return sendJson(res, 200, { id, status: peeked.status, output: peeked.output });
+    return sendJson(res, 200, {
+      id,
+      status: peeked.status,
+      output: peeked.output,
+    });
   }
 
   if (method === "GET" && path === "/approvals") {
@@ -1631,28 +2321,47 @@ async function handle(
       const capsule = container.capsules.create({
         workspaceRoot: String(body?.workspaceRoot ?? container.projectRoot()),
         principalId: String(body?.principalId ?? ""),
-        profile: String(body?.profile ?? "") as import('../capsule/workspace-capsule-manager.js').PermissionProfile,
+        profile: String(
+          body?.profile ?? "",
+        ) as import("../capsule/workspace-capsule-manager.js").PermissionProfile,
         ...(body?.ttlMs !== undefined ? { ttlMs: Number(body.ttlMs) } : {}),
-        ...(typeof body?.sessionId === "string" ? { sessionId: body.sessionId } : {}),
-        ...(typeof body?.clientId === "string" ? { clientId: body.clientId } : {}),
+        ...(typeof body?.sessionId === "string"
+          ? { sessionId: body.sessionId }
+          : {}),
+        ...(typeof body?.clientId === "string"
+          ? { clientId: body.clientId }
+          : {}),
         ...(typeof body?.taskId === "string" ? { taskId: body.taskId } : {}),
         ...(Array.isArray(body?.grantedScopes)
           ? { grantedScopes: body.grantedScopes.map(String) }
           : {}),
         ...(typeof body?.isolation === "string"
-          ? { isolation: body.isolation as import('../capsule/workspace-capsule-manager.js').CapsuleIsolation }
+          ? {
+              isolation:
+                body.isolation as import("../capsule/workspace-capsule-manager.js").CapsuleIsolation,
+            }
           : {}),
         ...(typeof body?.networkPolicy === "string"
-          ? { networkPolicy: body.networkPolicy as import('../capsule/workspace-capsule-manager.js').CapsuleNetworkPolicy }
+          ? {
+              networkPolicy:
+                body.networkPolicy as import("../capsule/workspace-capsule-manager.js").CapsuleNetworkPolicy,
+            }
           : {}),
         ...(body?.limits && typeof body.limits === "object"
-          ? { limits: body.limits as Partial<import('../capsule/workspace-capsule-manager.js').CapsuleLimits> }
+          ? {
+              limits: body.limits as Partial<
+                import("../capsule/workspace-capsule-manager.js").CapsuleLimits
+              >,
+            }
           : {}),
         ...(typeof body?.evidenceDestination === "string"
           ? { evidenceDestination: body.evidenceDestination }
           : {}),
         ...(typeof body?.clientCompatibility === "string"
-          ? { clientCompatibility: body.clientCompatibility as import('../capsule/workspace-capsule-manager.js').ClientCompatibilityProfile }
+          ? {
+              clientCompatibility:
+                body.clientCompatibility as import("../capsule/workspace-capsule-manager.js").ClientCompatibilityProfile,
+            }
           : {}),
       });
       container.audit.record({
@@ -1735,7 +2444,7 @@ async function handle(
       container.missionControl.setPolicyMode(mode, principal.id);
     } catch (error) {
       return sendJson(res, 409, {
-        error: 'policy_mode_blocked',
+        error: "policy_mode_blocked",
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1749,7 +2458,6 @@ async function handle(
 
   sendJson(res, 404, { error: "not_found", path });
 }
-
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });

@@ -160,4 +160,119 @@ describe('MCP platform protocol', () => {
       await server.close().catch(() => undefined);
     }
   });
+
+  it('keeps agent-loop ownership, task-correlated events, and idempotent run claims on MCP', async () => {
+    const root = project();
+    const config = loadConfig({ projectRoot: root });
+    config.policy.defaultMode = 'dev';
+    config.adapters.serena.enabled = false;
+    config.adapters.playwright.enabled = false;
+    config.adapters.desktopCommander.enabled = false;
+    const container = new Container(config);
+    const registry = buildRegistry(container);
+    const principal = {
+      id: 'agent:codex-mcp-loop',
+      role: 'agent' as const,
+      authMode: 'stdio' as const,
+      oauthClientId: 'codex-client',
+      sessionId: 'codex-session',
+      taskId: 'codex-task',
+    };
+    const server = createMcpServer(registry, {
+      name: 'folderforge-loop-test',
+      version: '0.0.0-test',
+      roots: [root],
+      principal,
+      container,
+    });
+    const client = new Client(
+      { name: 'folderforge-loop-client', version: '1.0.0' },
+      { capabilities: {} },
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+
+      const created = await client.callTool({
+        name: 'agent_loop_create',
+        arguments: {
+          title: 'MCP-bound loop',
+          goal: 'Prove the public agent-loop surface.',
+          acceptanceCriteria: ['MCP ownership is enforced'],
+        },
+      });
+      expect(created.isError).not.toBe(true);
+      const createdText = created.content.find((entry) => entry.type === 'text');
+      const createdPayload = JSON.parse(createdText?.type === 'text' ? createdText.text : '{}') as {
+        data?: { id?: string; clientId?: string; sessionId?: string; taskId?: string };
+      };
+      const loopId = createdPayload.data?.id;
+      if (!loopId) throw new Error(`Unexpected agent_loop_create result: ${JSON.stringify(created)}`);
+      expect(loopId).toMatch(/^loop_/);
+      expect(createdPayload.data).toMatchObject({
+        clientId: 'codex-client',
+        sessionId: 'codex-session',
+        taskId: 'codex-task',
+      });
+
+      const eventsResult = await client.callTool({
+        name: 'agent_loop_events',
+        arguments: { id: loopId },
+      });
+      expect(eventsResult.isError).not.toBe(true);
+      const eventsText = eventsResult.content.find((entry) => entry.type === 'text');
+      const eventsPayload = JSON.parse(eventsText?.type === 'text' ? eventsText.text : '{}') as {
+        data?: { events?: Array<{ data?: { taskId?: string } }> };
+      };
+      expect(eventsPayload.data?.events?.length).toBeGreaterThan(0);
+      expect(eventsPayload.data?.events?.every((event) => event.data?.taskId === 'codex-task')).toBe(true);
+
+      const firstRun = await client.callTool({
+        name: 'agent_loop_run',
+        arguments: { id: loopId, idempotencyKey: 'mcp-run-1' },
+      });
+      expect(firstRun.isError).not.toBe(true);
+      const replay = await client.callTool({
+        name: 'agent_loop_run',
+        arguments: { id: loopId, idempotencyKey: 'mcp-run-1' },
+      });
+      expect(replay.isError).not.toBe(true);
+      const conflicting = await client.callTool({
+        name: 'agent_loop_run',
+        arguments: { id: loopId, idempotencyKey: 'mcp-run-2' },
+      });
+      expect(conflicting.isError).toBe(true);
+      expect(JSON.stringify(conflicting.content)).toContain('different idempotency key');
+
+      const mismatchedServer = createMcpServer(registry, {
+        name: 'folderforge-loop-test-mismatch',
+        version: '0.0.0-test',
+        principal: { ...principal, taskId: 'different-task' },
+        container,
+      });
+      const mismatchedClient = new Client(
+        { name: 'folderforge-loop-mismatch-client', version: '1.0.0' },
+        { capabilities: {} },
+      );
+      const [mismatchedClientTransport, mismatchedServerTransport] = InMemoryTransport.createLinkedPair();
+      try {
+        await mismatchedServer.connect(mismatchedServerTransport);
+        await mismatchedClient.connect(mismatchedClientTransport);
+        const denied = await mismatchedClient.callTool({
+          name: 'agent_loop_status',
+          arguments: { id: loopId },
+        });
+        expect(denied.isError).toBe(true);
+        expect(JSON.stringify(denied.content)).toContain('task binding mismatch');
+      } finally {
+        await mismatchedClient.close().catch(() => undefined);
+        await mismatchedServer.close().catch(() => undefined);
+      }
+    } finally {
+      await client.close().catch(() => undefined);
+      await server.close().catch(() => undefined);
+    }
+  });
 });
