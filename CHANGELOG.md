@@ -28,6 +28,17 @@ semantic versioning.
 - `folderforge origin install` now mirrors the installer process's `PATH` into the supervised unit as `Environment="PATH=…"` (proposal 011): children spawned by a supervised origin (shell_exec, run_test, verification checks) resolve the operator's toolchain — e.g. nvm-installed Node 22 — instead of systemd's minimal default PATH, which landed origin-spawned shells on the system Node 20 and crashed execa imports. The plane unit rendering is byte-identical, secrets remain exclusively in `origin.env`, and `--auth none` installs get the same mirroring.
 - Fleet cards now surface the OpenAI tunnel supervisor's REAL fatal reason (proposal 014): the tunnel exit handler reuses the fatal-reason extractor (previously instance-only) and the extractor also recognizes the supervisor's plain-text `✗ <message>` fatal lines, so e.g. "No runtime API key found. Export CONTROL_PLANE_API_KEY or use --api-key-file." replaces the bare "OpenAI tunnel supervisor exited unexpectedly." EADDRINUSE messaging is unchanged.
 
+## [2.9.0] - 2026-09-16
+
+### Added
+
+- Governed Agent Loops with discovery, weighted expert council decisions, durable implementation workflows, verification gates, Mission Control screens, and an OpenAI-compatible Responses API at `/v1` for Codex clients.
+- Durable Responses gateway workflow selection, SSE streaming, polling, cancellation, idempotency handling, proof-pack evidence, and public tunnel documentation.
+
+### Fixed
+
+- Client-disconnected SSE and aborted non-stream Responses requests now cancel the persisted response and associated Agent Loop instead of leaving work stranded in `in_progress`.
+
 ## [2.8.2] - 2026-09-06
 
 ### Added
