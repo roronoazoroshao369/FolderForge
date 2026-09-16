@@ -184,6 +184,7 @@ const DEFAULT_DENIED_GLOBS = [
   '**/.folderforge/proof-packs/**',
   '**/.folderforge/workflows/**',
   '**/.folderforge/verifications/**',
+  '**/.folderforge/agent-loops/**',
   '**/.folderforge/mission-control.json',
   '**/.folderforge/mission-control.json.*.tmp',
   '**/.folderforge/fleet.json',

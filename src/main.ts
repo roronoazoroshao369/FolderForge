@@ -15,6 +15,13 @@ import { createMcpServer } from "./server/mcp-server.js";
 import { startStdioTransport } from "./server/transports/stdio.js";
 import { startHttpTransport } from "./server/transports/http.js";
 import { startDashboard, isLoopbackHost } from "./dashboard/server.js";
+import { ResponsesStore } from "./openai/responses-store.js";
+import {
+  clearResponsesGatewayConfig,
+  loadResponsesGatewayConfig,
+  saveResponsesGatewayConfig,
+} from "./control/responses-gateway-store.js";
+import { createResponsesHttpHandler } from "./openai/responses-http.js";
 import { logger } from "./core/logger.js";
 import { readFolderForgeVersion } from "./core/version.js";
 import { executeDoctorCli } from "./doctor/index.js";
@@ -22,17 +29,17 @@ import { executeBrowserSetupCli } from "./setup/browser.js";
 import { executeChatGptCli } from "./chatgpt/cli.js";
 import { executeOpenAiTunnelCli } from "./chatgpt/openai-tunnel.js";
 import type { OAuthHttpAuthConfig, ToolPrincipal } from "./core/types.js";
-import { STDIO_AGENT_PRINCIPAL, withExecutionContext } from "./core/principal.js";
-import { executeDistributedCli } from './distributed/cli.js';
-import { executePluginSdkCli } from './plugins/sdk-cli.js';
 import {
-  executeConnectClientCli,
-  executeInitCli,
-} from './onboarding/cli.js';
-import { executeControlCli } from './control/cli.js';
-import { defaultOriginDeps, executeOriginCli } from './control/origin.js';
-import { defaultTunnelDeps, executeTunnelCli } from './control/tunnel.js';
-import { executeShareCli } from './share/cli.js';
+  STDIO_AGENT_PRINCIPAL,
+  withExecutionContext,
+} from "./core/principal.js";
+import { executeDistributedCli } from "./distributed/cli.js";
+import { executePluginSdkCli } from "./plugins/sdk-cli.js";
+import { executeConnectClientCli, executeInitCli } from "./onboarding/cli.js";
+import { executeControlCli } from "./control/cli.js";
+import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
+import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
+import { executeShareCli } from "./share/cli.js";
 
 const VERSION = readFolderForgeVersion();
 
@@ -380,15 +387,12 @@ async function main(): Promise<void> {
     argv.includes("--openai-tunnel")
   ) {
     let streamed = false;
-    const result = await executeOpenAiTunnelCli(
-      ["connect", ...argv.slice(2)],
-      {
-        onLine: (line: string) => {
-          streamed = true;
-          process.stdout.write(`${line}\n`);
-        },
+    const result = await executeOpenAiTunnelCli(["connect", ...argv.slice(2)], {
+      onLine: (line: string) => {
+        streamed = true;
+        process.stdout.write(`${line}\n`);
       },
-    );
+    });
     if (!streamed) process.stdout.write(result.output);
     process.exitCode = result.exitCode;
     return;
@@ -463,7 +467,7 @@ async function main(): Promise<void> {
   });
   const httpGatewayToken = process.env.FOLDERFORGE_HTTP_GATEWAY_TOKEN?.trim();
   const httpGatewayHeader = (
-    process.env.FOLDERFORGE_HTTP_GATEWAY_HEADER ?? 'X-FolderForge-Tunnel-Guard'
+    process.env.FOLDERFORGE_HTTP_GATEWAY_HEADER ?? "X-FolderForge-Tunnel-Guard"
   ).trim();
   delete process.env.FOLDERFORGE_HTTP_GATEWAY_TOKEN;
   delete process.env.FOLDERFORGE_HTTP_GATEWAY_HEADER;
@@ -491,12 +495,21 @@ async function main(): Promise<void> {
   if (args.allowCriticalInDanger) {
     config.policy.allowCriticalInDanger = true;
   }
-  if (config.policy.allowCriticalInDanger && config.policy.defaultMode !== "danger") {
-    throw new Error("--dangerously-allow-critical requires --policy danger (or policy.defaultMode=danger)");
+  if (
+    config.policy.allowCriticalInDanger &&
+    config.policy.defaultMode !== "danger"
+  ) {
+    throw new Error(
+      "--dangerously-allow-critical requires --policy danger (or policy.defaultMode=danger)",
+    );
   }
   const dashboardEnabled =
     args.dashboard && config.server.dashboard.enabled !== false;
-  if (!dashboardEnabled && config.policy.defaultMode !== "readonly" && !config.policy.allowCriticalInDanger) {
+  if (
+    !dashboardEnabled &&
+    config.policy.defaultMode !== "readonly" &&
+    !config.policy.allowCriticalInDanger
+  ) {
     logger.warn(
       { mode: config.policy.defaultMode },
       "Dashboard disabled: approval-gated actions cannot be resolved. Enable the dashboard or use --policy danger --dangerously-allow-critical in an isolated environment.",
@@ -511,7 +524,8 @@ async function main(): Promise<void> {
     ];
   }
   if (args.requireAuth) config.server.http.requireAuth = true;
-  if (args.allowUnauthenticatedTunnel) process.env.FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL = '1';
+  if (args.allowUnauthenticatedTunnel)
+    process.env.FOLDERFORGE_ALLOW_UNAUTHENTICATED_TUNNEL = "1";
   if (args.authMode !== undefined) {
     config.server.http.auth = {
       ...(config.server.http.auth ?? {}),
@@ -579,6 +593,146 @@ async function main(): Promise<void> {
 
   const container = new Container(config);
   const registry = buildRegistry(container);
+  const responsesStore = new ResponsesStore();
+  const persistedResponsesGateway = loadResponsesGatewayConfig(
+    container.projectRoot(),
+  );
+  let responsesDefaultWorkflowId =
+    process.env.FOLDERFORGE_RESPONSES_WORKFLOW_ID?.trim() ||
+    persistedResponsesGateway?.workflowId;
+  const responsesHandler = createResponsesHttpHandler({
+    store: responsesStore,
+    execute: async ({
+      ownerId,
+      principalContext,
+      request,
+      responseId,
+      signal,
+    }) => {
+      const principal = withExecutionContext(
+        {
+          ...STDIO_AGENT_PRINCIPAL,
+          id: ownerId,
+          ...(principalContext.clientId
+            ? { oauthClientId: principalContext.clientId }
+            : {}),
+          ...(principalContext.sessionId
+            ? { sessionId: principalContext.sessionId }
+            : {}),
+          ...(principalContext.taskId
+            ? { taskId: principalContext.taskId }
+            : {}),
+        },
+        container.projectRoot(),
+      );
+      const prompt =
+        typeof request.input === "string"
+          ? request.input
+          : request.input
+              .filter((item) => item.type === "message")
+              .map((item) =>
+                typeof item.content === "string" ? item.content : "",
+              )
+              .filter(Boolean)
+              .join("\\n");
+      responsesStore.update(responseId, ownerId, "in_progress");
+      const loop = container.agentLoops.create(
+        {
+          title: `Codex response ${responseId}`,
+          goal: [request.instructions, prompt].filter(Boolean).join("\\n\\n"),
+          acceptanceCriteria: [
+            "Complete the requested task and report governed evidence.",
+          ],
+          projectRoot: container.projectRoot(),
+        },
+        principal,
+      );
+      const cancelLoop = () => {
+        if (!signal.aborted) return;
+        try {
+          container.agentLoops.cancel(
+            loop.id,
+            principal,
+            "Response cancellation requested.",
+          );
+        } catch {
+          // The loop may already have reached a terminal state.
+        }
+      };
+      signal.addEventListener("abort", cancelLoop, { once: true });
+      const implementationWorkflowId =
+        principalContext.workflowId ?? responsesDefaultWorkflowId;
+      container.agentLoopRunner.start(
+        loop.id,
+        principal,
+        ...(implementationWorkflowId
+          ? [{ workflowId: implementationWorkflowId }]
+          : [{}]),
+        { signal },
+      );
+      const deadline = Date.now() + 30 * 60_000;
+      while (Date.now() < deadline) {
+        if (
+          signal.aborted ||
+          responsesStore.get(responseId, ownerId).record.status === "cancelled"
+        )
+          return;
+        const runnerStatus = container.agentLoopRunner.status(loop.id);
+        if (runnerStatus?.state === "finished") break;
+        if (runnerStatus?.state === "failed") {
+          throw new Error(
+            runnerStatus.error ?? `Agent Loop ${loop.id} failed.`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      const runnerStatus = container.agentLoopRunner.status(loop.id);
+      if (runnerStatus?.state !== "finished") {
+        throw new Error(
+          `Agent Loop ${loop.id} did not reach a terminal state before the response deadline.`,
+        );
+      }
+      const completedRun = container.agentLoops.get(loop.id, principal);
+      if (completedRun.state !== "completed") {
+        const status =
+          completedRun.state === "cancelled" ? "cancelled" : "failed";
+        responsesStore.update(responseId, ownerId, status, {
+          error: {
+            code:
+              status === "cancelled"
+                ? "response_cancelled"
+                : "agent_loop_blocked",
+            message:
+              completedRun.pauseReason ??
+              completedRun.failure ??
+              `Agent Loop ${loop.id} ended in ${completedRun.state} state.`,
+          },
+        });
+        signal.removeEventListener("abort", cancelLoop);
+        return;
+      }
+      signal.removeEventListener("abort", cancelLoop);
+      const acknowledgement = `Agent Loop ${loop.id} completed the governed discovery, council, implementation, and verification cycle.`;
+      responsesStore.appendDelta(
+        responseId,
+        ownerId,
+        `msg_${responseId}`,
+        acknowledgement,
+      );
+      responsesStore.update(responseId, ownerId, "completed", {
+        output: [
+          {
+            type: "message",
+            id: `msg_${responseId}`,
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: acknowledgement }],
+          },
+        ],
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      });
+    },
+  });
 
   // Trim the advertised tool surface (config + CLI). Clients that cap the tool
   // list (e.g. ~50 tools) can run a focused preset like "vibe". CLI flags win
@@ -595,7 +749,7 @@ async function main(): Promise<void> {
   ).tools;
   // Default to 'vibe' (84 tools) instead of the full catalog (304 tools); LLMs work
   // better with a focused surface and users can widen it with --tools-preset full.
-  const effectivePreset = args.toolsPreset ?? cfgTools?.preset ?? 'vibe';
+  const effectivePreset = args.toolsPreset ?? cfgTools?.preset ?? "vibe";
   const active = resolveActiveTools(registry, {
     preset: effectivePreset,
     enabledGroups: args.toolsGroups ?? cfgTools?.enabledGroups,
@@ -662,6 +816,30 @@ async function main(): Promise<void> {
       host: dashHost,
       port: config.server.dashboard.port,
       ...(token ? { token } : {}),
+      responsesGateway: {
+        enabled: config.server.transport === "http",
+        host: config.server.http.host,
+        port: config.server.http.port,
+        basePath: "/v1",
+        authMode:
+          config.server.http.auth?.mode ??
+          (config.server.http.token || config.server.http.apiKeys?.length
+            ? "token"
+            : "none"),
+        modelIds: ["folderforge-agent"],
+        ...(responsesDefaultWorkflowId
+          ? { workflowId: responsesDefaultWorkflowId }
+          : {}),
+        getWorkflowId: () => responsesDefaultWorkflowId,
+        setWorkflowId: (workflowId) => {
+          responsesDefaultWorkflowId = workflowId;
+          if (workflowId) {
+            saveResponsesGatewayConfig(container.projectRoot(), workflowId);
+          } else {
+            clearResponsesGatewayConfig(container.projectRoot());
+          }
+        },
+      },
     });
   }
 
@@ -710,6 +888,7 @@ async function main(): Promise<void> {
       ...(config.server.http.sessionTtlMs !== undefined
         ? { sessionTtlMs: config.server.http.sessionTtlMs }
         : {}),
+      responsesHandler,
     });
   } else {
     await startStdioTransport(server);

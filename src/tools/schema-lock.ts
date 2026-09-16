@@ -457,6 +457,23 @@ export const FROZEN_TOOLS: readonly FrozenTool[] = [
   { name: 'game_manage_theme_resource', mutates: true, risk: 'HIGH' },
   { name: 'game_manage_resource', mutates: true, risk: 'HIGH' },
   { name: 'game_locale', mutates: true, risk: 'MEDIUM' },
+
+  // --- autonomous agent loops ---
+  { name: 'agent_loop_create', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_list', mutates: false, risk: 'LOW' },
+  { name: 'agent_loop_status', mutates: false, risk: 'LOW' },
+  { name: 'agent_loop_start', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_pause', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_resume', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_cancel', mutates: true, risk: 'HIGH' },
+  { name: 'agent_loop_propose', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_vote', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_decide', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_implementation', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_verify', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_run', mutates: true, risk: 'MEDIUM' },
+  { name: 'agent_loop_report', mutates: false, risk: 'LOW' },
+  { name: 'agent_loop_events', mutates: false, risk: 'LOW' },
 ] as const;
 
 /** Set of frozen tool names for O(1) membership checks. */

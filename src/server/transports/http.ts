@@ -51,6 +51,8 @@ export interface HttpTransportOptions {
   corsOrigins?: string[];
   /** Idle session lifetime in ms before the transport session is expired. */
   sessionTtlMs?: number;
+  /** Optional OpenAI-compatible /v1 handler, protected by the same HTTP auth. */
+  responsesHandler?: (req: IncomingMessage, res: ServerResponse, ownerId: string) => Promise<boolean>;
 }
 
 import { detectTunnelExposure, type TunnelExposure } from '../tunnel-exposure.js';
@@ -455,6 +457,7 @@ export async function startHttpTransport(
 
       const gatewayProtected =
         pathname === mcpPath ||
+        pathname.startsWith('/v1/') ||
         Boolean(oauthRuntime?.protectedResourceMetadataPaths.includes(pathname));
       if (
         gatewayProtected &&
@@ -483,6 +486,70 @@ export async function startHttpTransport(
         });
         res.end(JSON.stringify(oauthRuntime.protectedResourceMetadata));
         return;
+      }
+
+      if (opts.responsesHandler && pathname.startsWith('/v1/')) {
+        let ownerId: string;
+        if (authMode === 'oauth') {
+          const runtime = oauthRuntime!;
+          const bearer = extractBearer(req);
+          if (!bearer) {
+            writeJson(
+              res,
+              401,
+              { error: 'unauthorized', message: 'OAuth bearer access token required' },
+              { 'www-authenticate': oauthChallenge(runtime, { scopes: [runtime.config.readScope] }) }
+            );
+            return;
+          }
+          try {
+            const verified = await runtime.verifyAccessToken(bearer);
+            if (!verified.scopes.includes(runtime.config.readScope)) {
+              writeJson(
+                res,
+                403,
+                { error: 'insufficient_scope', message: 'Read scope is required for Responses access' },
+                {
+                  'www-authenticate': oauthChallenge(runtime, {
+                    scopes: [runtime.config.readScope],
+                    error: 'insufficient_scope',
+                    errorDescription: 'Read scope is required for Responses access',
+                  }),
+                }
+              );
+              return;
+            }
+            ownerId = runtime.principalFor(verified).id;
+          } catch {
+            writeJson(
+              res,
+              401,
+              { error: 'invalid_token', message: 'Access token is invalid or expired' },
+              {
+                'www-authenticate': oauthChallenge(runtime, {
+                  scopes: [runtime.config.readScope],
+                  error: 'invalid_token',
+                  errorDescription: 'Access token is invalid or expired',
+                }),
+              }
+            );
+            return;
+          }
+        } else {
+          const provided = extractBearer(req) ?? extractApiKey(req);
+          if (authMode === 'token' && !matchesAnyCredential(provided, credentials)) {
+            writeJson(
+              res,
+              401,
+              { error: 'unauthorized', message: 'Valid static credential required' },
+              { 'www-authenticate': 'Bearer realm="folderforge-responses"' }
+            );
+            return;
+          }
+          ownerId = agentPrincipalFromCredential(provided).id;
+        }
+        const handled = await opts.responsesHandler(req, res, ownerId);
+        if (handled) return;
       }
 
       if (pathname === mcpPath) {

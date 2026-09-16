@@ -4,11 +4,13 @@ import {
   FolderGit2,
   LayoutDashboard,
   ListChecks,
+  BrainCircuit,
   Puzzle,
   ScrollText,
   Settings as SettingsIcon,
   Share2,
   Wrench,
+  Cpu,
 } from 'lucide-react';
 import { getToken } from './api';
 import { ToastProvider, cx } from './ui';
@@ -21,10 +23,14 @@ import { PluginsScreen } from './screens/Plugins';
 import { ApprovalsScreen } from './screens/Approvals';
 import { AuditScreen } from './screens/Audit';
 import { SettingsScreen } from './screens/Settings';
+import { AgentLoopsScreen } from './screens/AgentLoops';
+import { ResponsesScreen } from './screens/Responses';
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/fleet', label: 'Fleet', icon: Boxes },
+  { to: '/agent-loops', label: 'Agent loops', icon: BrainCircuit },
+  { to: '/responses', label: 'OpenAI API', icon: Cpu },
   { to: '/tools', label: 'Tools', icon: Wrench },
   { to: '/tunnels', label: 'Tunnels', icon: Share2 },
   { to: '/workspaces', label: 'Workspaces', icon: FolderGit2 },
@@ -95,6 +101,8 @@ function Shell() {
           <Routes>
             <Route path="/" element={<OverviewScreen />} />
             <Route path="/fleet" element={<FleetScreen />} />
+            <Route path="/agent-loops" element={<AgentLoopsScreen />} />
+            <Route path="/responses" element={<ResponsesScreen />} />
             <Route path="/tools" element={<ToolsScreen />} />
             <Route path="/tunnels" element={<TunnelsScreen />} />
             <Route path="/workspaces" element={<WorkspacesScreen />} />
