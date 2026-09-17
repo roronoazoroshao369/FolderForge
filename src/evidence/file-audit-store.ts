@@ -7,25 +7,27 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
   writeSync,
-} from 'node:fs';
-import { dirname, join } from 'node:path';
-import type { AuditEvent } from '../audit/event-types.js';
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
+import type { AuditEvent } from "../audit/event-types.js";
+import { logger } from "../core/logger.js";
 import {
   createAuditEnvelope,
   parseAuditChain,
   type AuditSigner,
-} from './audit-chain.js';
+} from "./audit-chain.js";
 import type {
   AuditAppendOptions,
   AuditEnvelopeV2,
   AuditStore,
   AuditVerificationReport,
-} from './ports.js';
+} from "./ports.js";
 
 const LOCK_TIMEOUT_MS = 5_000;
 const LOCK_STALE_MS = 30_000;
@@ -42,6 +44,7 @@ export interface AuditFileSystem {
   mkdirSync: typeof mkdirSync;
   openSync: typeof openSync;
   readFileSync: typeof readFileSync;
+  readSync: typeof readSync;
   renameSync: typeof renameSync;
   statSync: typeof statSync;
   unlinkSync: typeof unlinkSync;
@@ -58,6 +61,7 @@ const NODE_FILE_SYSTEM: AuditFileSystem = {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -83,12 +87,22 @@ export class FileAuditStore implements AuditStore {
   private readonly lockTimeoutMs: number;
   private readonly maxFileBytes: number;
   private tailCache:
-    | { sequence: number; recordHash: string | null; size: number; mtimeMs: number }
+    | {
+        sequence: number;
+        recordHash: string | null;
+        size: number;
+        mtimeMs: number;
+      }
     | undefined;
 
   constructor(projectRoot: string, options: FileAuditStoreOptions = {}) {
-    this.filePath = join(projectRoot, '.folderforge', 'audit', 'audit.v2.jsonl');
-    this.lockPath = join(projectRoot, '.folderforge', 'audit', 'audit.v2.lock');
+    this.filePath = join(
+      projectRoot,
+      ".folderforge",
+      "audit",
+      "audit.v2.jsonl",
+    );
+    this.lockPath = join(projectRoot, ".folderforge", "audit", "audit.v2.lock");
     this.fs = { ...NODE_FILE_SYSTEM, ...options.fileSystem };
     this.signer = options.signer;
     this.now = options.now ?? Date.now;
@@ -97,10 +111,13 @@ export class FileAuditStore implements AuditStore {
   }
 
   preflight(required: boolean): void {
+    // Crash recovery runs before integrity verification: quarantine a torn
+    // final record so an interrupted write cannot lock operators out forever.
+    this.repairTornTail();
     let fd: number | undefined;
     try {
       this.ensureDirectory();
-      fd = this.fs.openSync(this.filePath, 'a', 0o600);
+      fd = this.fs.openSync(this.filePath, "a", 0o600);
       this.fs.fsyncSync(fd);
       this.ensurePrivateFile(this.filePath);
     } finally {
@@ -109,11 +126,13 @@ export class FileAuditStore implements AuditStore {
     if (!this.fs.existsSync(this.filePath)) return;
     const report = this.verify();
     if (!report.ok) {
-      const first = report.issues.find((issue) => issue.code !== 'unknown_signer');
+      const first = report.issues.find(
+        (issue) => issue.code !== "unknown_signer",
+      );
       throw new Error(
         first
           ? `Audit chain integrity failed at line ${first.line}: ${first.message}`
-          : 'Audit chain integrity failed.',
+          : "Audit chain integrity failed.",
       );
     }
     if (required && report.unverifiedSignatures > 0) {
@@ -125,16 +144,17 @@ export class FileAuditStore implements AuditStore {
   append(event: AuditEvent, options: AuditAppendOptions): AuditEnvelopeV2 {
     const release = this.acquireLock();
     try {
+      this.repairTornTail();
       this.rotateIfOversized();
       const tail = this.readTailForAppend();
       const envelope = createAuditEnvelope(
         event,
         tail.sequence + 1,
         tail.recordHash,
-        { kind: 'native-v2' },
+        { kind: "native-v2" },
         this.signer,
       );
-      const line = Buffer.from(`${JSON.stringify(envelope)}\n`, 'utf8');
+      const line = Buffer.from(`${JSON.stringify(envelope)}\n`, "utf8");
       if (options.required) this.writeRequired(line);
       else {
         this.fs.appendFileSync(this.filePath, line, { mode: 0o600 });
@@ -161,11 +181,11 @@ export class FileAuditStore implements AuditStore {
    * external write.
    */
   private readTailForAppend(): { sequence: number; recordHash: string | null } {
-    let stat: ReturnType<AuditFileSystem['statSync']>;
+    let stat: ReturnType<AuditFileSystem["statSync"]>;
     try {
       stat = this.fs.statSync(this.filePath);
     } catch (error) {
-      if (isErrno(error, 'ENOENT')) {
+      if (isErrno(error, "ENOENT")) {
         this.tailCache = undefined;
         return { sequence: 0, recordHash: null };
       }
@@ -176,15 +196,20 @@ export class FileAuditStore implements AuditStore {
       this.tailCache.size === stat.size &&
       this.tailCache.mtimeMs === stat.mtimeMs
     ) {
-      return { sequence: this.tailCache.sequence, recordHash: this.tailCache.recordHash };
+      return {
+        sequence: this.tailCache.sequence,
+        recordHash: this.tailCache.recordHash,
+      };
     }
     const parsed = parseAuditChain(this.readRaw());
     if (!parsed.report.ok) {
-      const issue = parsed.report.issues.find((item) => item.code !== 'unknown_signer');
+      const issue = parsed.report.issues.find(
+        (item) => item.code !== "unknown_signer",
+      );
       throw new Error(
         issue
           ? `Audit chain integrity failed at line ${issue.line}: ${issue.message}`
-          : 'Audit chain integrity failed.',
+          : "Audit chain integrity failed.",
       );
     }
     const previous = parsed.envelopes.at(-1);
@@ -194,7 +219,10 @@ export class FileAuditStore implements AuditStore {
       size: stat.size,
       mtimeMs: stat.mtimeMs,
     };
-    return { sequence: this.tailCache.sequence, recordHash: this.tailCache.recordHash };
+    return {
+      sequence: this.tailCache.sequence,
+      recordHash: this.tailCache.recordHash,
+    };
   }
 
   /**
@@ -205,17 +233,126 @@ export class FileAuditStore implements AuditStore {
    * writer lock, so concurrent writers cannot race the rename.
    */
   private rotateIfOversized(): void {
-    let stat: ReturnType<AuditFileSystem['statSync']>;
+    let stat: ReturnType<AuditFileSystem["statSync"]>;
     try {
       stat = this.fs.statSync(this.filePath);
     } catch {
       return; // No live chain yet — nothing to rotate.
     }
     if (stat.size <= this.maxFileBytes) return;
-    const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, '-');
-    const rotated = this.filePath.replace(/audit\.v2\.jsonl$/, `audit.v2.${stamp}.jsonl`);
+    const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, "-");
+    const rotated = this.filePath.replace(
+      /audit\.v2\.jsonl$/,
+      `audit.v2.${stamp}.jsonl`,
+    );
     this.fs.renameSync(this.filePath, rotated);
     this.tailCache = undefined;
+  }
+
+  /**
+   * Crash-only self-repair. An interrupted append (power loss, SIGKILL) can
+   * tear the final record, leaving trailing bytes with no terminating
+   * newline; every later required write then fail-closes on chain
+   * verification. When — and only when — the file ends mid-record AND the
+   * remaining prefix verifies as an intact chain, the torn bytes are
+   * quarantined to a preserved timestamped sibling and the chain resumes from
+   * the last complete record with an in-chain `audit_repair` marker.
+   * Mid-chain edits, hash/sequence mismatches, and complete-but-invalid
+   * records return undefined here and stay fail-closed. The hot path stays
+   * O(1): the file is fully read only when its final byte is not a newline.
+   * Callers: startup preflight and the append writer lock.
+   */
+  private repairTornTail():
+    { quarantinePath: string; tornBytes: number } | undefined {
+    let stat: ReturnType<AuditFileSystem["statSync"]>;
+    try {
+      stat = this.fs.statSync(this.filePath);
+    } catch {
+      return undefined; // No live chain — nothing to repair.
+    }
+    if (stat.size === 0) return undefined;
+    const tailByte = Buffer.alloc(1);
+    let read = 0;
+    let peek: number | undefined;
+    try {
+      peek = this.fs.openSync(this.filePath, "r");
+      read = this.fs.readSync(peek, tailByte, 0, 1, stat.size - 1);
+    } finally {
+      if (peek !== undefined) this.fs.closeSync(peek);
+    }
+    if (read !== 1 || tailByte[0] === 0x0a) return undefined;
+    const raw = this.fs.readFileSync(this.filePath, "utf8");
+    const lastNewline = raw.lastIndexOf("\n");
+    const prefix = lastNewline === -1 ? "" : raw.slice(0, lastNewline + 1);
+    const torn = raw.slice(prefix.length);
+    if (torn.length === 0) return undefined;
+    const parsed = parseAuditChain(prefix);
+    if (!parsed.report.ok) {
+      // Mid-chain damage or tampering: never auto-repair; stay fail-closed.
+      return undefined;
+    }
+    const tornBytes = Buffer.byteLength(torn);
+    const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, "-");
+    const quarantinePath = this.filePath.replace(
+      /audit\.v2\.jsonl$/,
+      `audit.v2.torn-${stamp}.jsonl`,
+    );
+    // Evidence first: the torn bytes are preserved before the chain moves.
+    this.fs.writeFileSync(quarantinePath, torn, { mode: 0o600 });
+    this.ensurePrivateFile(quarantinePath);
+    const marker = createAuditEnvelope(
+      {
+        ts: new Date(this.now()).toISOString(),
+        type: "audit_repair",
+        summary:
+          `Quarantined a torn audit tail (${tornBytes} bytes) left by an interrupted write; ` +
+          "the chain resumes from the last complete record.",
+        detail: {
+          quarantine: basename(quarantinePath),
+          tornBytes,
+          resumedFromHash: parsed.report.headHash,
+        },
+      },
+      parsed.report.records + 1,
+      parsed.report.headHash,
+      { kind: "native-v2" },
+      this.signer,
+    );
+    const repaired = `${prefix}${JSON.stringify(marker)}\n`;
+    const tmp = `${this.filePath}.repair-${stamp}.tmp`;
+    let out: number | undefined;
+    try {
+      out = this.fs.openSync(tmp, "w", 0o600);
+      const line = Buffer.from(repaired, "utf8");
+      let offset = 0;
+      while (offset < line.length) {
+        const written = this.fs.writeSync(
+          out,
+          line,
+          offset,
+          line.length - offset,
+        );
+        if (written <= 0)
+          throw new Error("Audit repair write made no forward progress.");
+        offset += written;
+      }
+      this.fs.fsyncSync(out);
+    } finally {
+      if (out !== undefined) this.fs.closeSync(out);
+    }
+    this.fs.renameSync(tmp, this.filePath);
+    this.ensurePrivateFile(this.filePath);
+    this.tailCache = undefined;
+    logger.warn(
+      {
+        auditPath: this.filePath,
+        quarantinePath,
+        tornBytes,
+        resumedFromHash: parsed.report.headHash,
+      },
+      "Quarantined a torn audit tail left by an interrupted write; the chain continues with an audit_repair marker.",
+    );
+    return { quarantinePath, tornBytes };
   }
 
   verify(): AuditVerificationReport {
@@ -223,18 +360,24 @@ export class FileAuditStore implements AuditStore {
   }
 
   readRaw(): string {
-    if (!this.fs.existsSync(this.filePath)) return '';
-    return this.fs.readFileSync(this.filePath, 'utf8');
+    if (!this.fs.existsSync(this.filePath)) return "";
+    return this.fs.readFileSync(this.filePath, "utf8");
   }
 
   private writeRequired(line: Buffer): void {
     let fd: number | undefined;
     try {
-      fd = this.fs.openSync(this.filePath, 'a', 0o600);
+      fd = this.fs.openSync(this.filePath, "a", 0o600);
       let offset = 0;
       while (offset < line.length) {
-        const written = this.fs.writeSync(fd, line, offset, line.length - offset);
-        if (written <= 0) throw new Error('Audit write made no forward progress.');
+        const written = this.fs.writeSync(
+          fd,
+          line,
+          offset,
+          line.length - offset,
+        );
+        if (written <= 0)
+          throw new Error("Audit write made no forward progress.");
         offset += written;
       }
       this.fs.fsyncSync(fd);
@@ -250,11 +393,11 @@ export class FileAuditStore implements AuditStore {
     while (true) {
       let fd: number | undefined;
       try {
-        fd = this.fs.openSync(this.lockPath, 'wx', 0o600);
+        fd = this.fs.openSync(this.lockPath, "wx", 0o600);
         this.fs.writeFileSync(
           fd,
           `${JSON.stringify({ pid: process.pid, createdAt: new Date(this.now()).toISOString() })}\n`,
-          { encoding: 'utf8' },
+          { encoding: "utf8" },
         );
         this.fs.fsyncSync(fd);
         this.fs.closeSync(fd);
@@ -264,7 +407,7 @@ export class FileAuditStore implements AuditStore {
           try {
             this.fs.unlinkSync(this.lockPath);
           } catch (error) {
-            if (!isErrno(error, 'ENOENT')) throw error;
+            if (!isErrno(error, "ENOENT")) throw error;
           }
         };
       } catch (error) {
@@ -275,10 +418,12 @@ export class FileAuditStore implements AuditStore {
             // Preserve the original lock acquisition failure.
           }
         }
-        if (!isErrno(error, 'EEXIST')) throw error;
+        if (!isErrno(error, "EEXIST")) throw error;
         if (this.reclaimStaleLock()) continue;
         if (this.now() >= deadline) {
-          throw new Error(`Timed out waiting for audit writer lock: ${this.lockPath}`);
+          throw new Error(
+            `Timed out waiting for audit writer lock: ${this.lockPath}`,
+          );
         }
         sleepSync(LOCK_RETRY_MS);
       }
@@ -291,7 +436,9 @@ export class FileAuditStore implements AuditStore {
       if (age < LOCK_STALE_MS) return false;
       let pid: number | undefined;
       try {
-        const parsed = JSON.parse(this.fs.readFileSync(this.lockPath, 'utf8')) as {
+        const parsed = JSON.parse(
+          this.fs.readFileSync(this.lockPath, "utf8"),
+        ) as {
           pid?: unknown;
         };
         if (Number.isSafeInteger(parsed.pid) && Number(parsed.pid) > 0) {
@@ -304,19 +451,19 @@ export class FileAuditStore implements AuditStore {
       this.fs.unlinkSync(this.lockPath);
       return true;
     } catch (error) {
-      return isErrno(error, 'ENOENT');
+      return isErrno(error, "ENOENT");
     }
   }
 
   private ensureDirectory(): void {
     this.fs.mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
-    if (process.platform !== 'win32') {
+    if (process.platform !== "win32") {
       this.fs.chmodSync(dirname(this.filePath), 0o700);
     }
   }
 
   private ensurePrivateFile(path: string): void {
-    if (process.platform !== 'win32') this.fs.chmodSync(path, 0o600);
+    if (process.platform !== "win32") this.fs.chmodSync(path, 0o600);
   }
 }
 
@@ -330,15 +477,15 @@ function processIsAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return !isErrno(error, 'ESRCH');
+    return !isErrno(error, "ESRCH");
   }
 }
 
 function isErrno(error: unknown, code: string): boolean {
   return Boolean(
     error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      (error as NodeJS.ErrnoException).code === code,
+    typeof error === "object" &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === code,
   );
 }

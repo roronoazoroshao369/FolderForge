@@ -51,20 +51,29 @@ are maintained at mode `0600`. Startup preflight verifies existing sequence,
 previous-hash, record-hash, and JSONL completeness, so a crash-interrupted or
 modified chain is not silently followed by new required evidence.
 
+Crash recovery is deliberately narrow: when the chain's final bytes form an
+incomplete trailing record — and the remaining prefix verifies intact — the
+torn bytes are quarantined to `audit.v2.torn-<timestamp>.jsonl` (preserved,
+never deleted) and the chain resumes from the last complete record with an
+in-chain `audit_repair` marker, so a power cut cannot permanently lock
+operators out of governed actions. Any other integrity failure stays
+fail-closed.
+
 Best-effort writes retain the prior availability behavior: a write failure is
 logged, the event remains in the bounded in-memory buffer, and execution may
 continue.
 
 ## Failure contract
 
-| Failure point | Required mode result | Handler status | Retry guidance |
-| --- | --- | --- | --- |
-| Startup preflight with baseline `required` | Startup fails with `AUDIT_UNAVAILABLE` | Not started | Repair storage, then restart |
-| Startup finds malformed or incomplete JSONL | Required startup/call fails with `AUDIT_UNAVAILABLE` | Not started | Preserve and repair or migrate the evidence file |
-| Initial call-event write | Tool returns `AUDIT_UNAVAILABLE` | Not started | Repair storage; a later call is safe |
-| Policy, approval, or rate-limit event write | Tool returns `AUDIT_UNAVAILABLE` | Not started | Repair storage; a later call is safe |
-| Terminal result/error write after handler starts | Tool returns `AUDIT_OUTCOME_UNCERTAIN` | Completed or may be partial | Do not retry automatically |
-| Any best-effort write | Warning and in-memory event | Unchanged | Operator decides whether degraded evidence is acceptable |
+| Failure point                                                            | Required mode result                                                                                                                                                               | Handler status              | Retry guidance                                           |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------------------- |
+| Startup preflight with baseline `required`                               | Startup fails with `AUDIT_UNAVAILABLE`                                                                                                                                             | Not started                 | Repair storage, then restart                             |
+| Startup/append finds a torn final JSONL record (crash-interrupted write) | Torn bytes are quarantined to `audit.v2.torn-<timestamp>.jsonl`; the chain resumes from the last complete record with an in-chain `audit_repair` marker; the startup/call proceeds | Repaired before execution   | None required; inspect the quarantine file               |
+| Startup finds any other malformed or modified JSONL                      | Required startup/call fails with `AUDIT_UNAVAILABLE`                                                                                                                               | Not started                 | Preserve and repair or migrate the evidence file         |
+| Initial call-event write                                                 | Tool returns `AUDIT_UNAVAILABLE`                                                                                                                                                   | Not started                 | Repair storage; a later call is safe                     |
+| Policy, approval, or rate-limit event write                              | Tool returns `AUDIT_UNAVAILABLE`                                                                                                                                                   | Not started                 | Repair storage; a later call is safe                     |
+| Terminal result/error write after handler starts                         | Tool returns `AUDIT_OUTCOME_UNCERTAIN`                                                                                                                                             | Completed or may be partial | Do not retry automatically                               |
+| Any best-effort write                                                    | Warning and in-memory event                                                                                                                                                        | Unchanged                   | Operator decides whether degraded evidence is acceptable |
 
 Errors returned to clients contain stable codes and remediation guidance. They
 do not include raw tool arguments or filesystem error details. Detailed local
@@ -101,7 +110,10 @@ host changes or platform-specific permission assumptions. It verifies:
 - Required startup preflight failure and best-effort degradation.
 - HIGH-risk and authenticated-HTTP pre-execution blocking.
 - Simulated `ENOSPC`, partial writes, `fsync` failure, and close failure.
-- Restart rejection of an incomplete trailing JSONL record.
+- Quarantine of a torn trailing JSONL record after a crash, with the torn bytes
+  preserved and an in-chain `audit_repair` marker before required writes resume.
+- Continued fail-closed rejection of mid-chain modification (no auto-repair),
+  including read-only `verify()` never mutating the chain.
 - Secret-free client errors and uncertain-outcome signaling after execution.
 - Complete records from independent writers sharing one audit path.
 
