@@ -83,7 +83,7 @@
     "lint": "eslint \"src/**/*.ts\" \"packages/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.mjs\" --max-warnings=0",
     "lint:fix": "npm run lint -- --fix",
     "architecture:check": "node scripts/check-architecture.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run architecture:check && npm test && npm run build",
+    "verify": "npm run typecheck && npm run lint && npm run architecture:check && npm test",
     "smoke:package": "node scripts/smoke-package.mjs",
     "smoke:http": "node scripts/smoke-http.mjs",
     "release:check": "node scripts/run-release-check.mjs",
@@ -121,7 +121,7 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:publish": "node scripts/publish-release.mjs",
     "release:publish:dry-run": "node scripts/publish-release.mjs --dry-run",
-    "pretest": "node -e \"require('fs').existsSync('dist/main.js') || process.exit(1)\" || npm run build"
+    "pretest": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
