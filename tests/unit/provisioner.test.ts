@@ -461,7 +461,9 @@ describe('FleetManager', () => {
       expect(envs[0]?.FOLDERFORGE_LEASE_ID).toMatch(/^lse_/);
       const keyPath = join(root, '.folderforge', 'fleet', `${instance.id}.openai-key`);
       expect(readFileSync(keyPath, 'utf8')).toBe('sk-pasted-secret');
-      expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+      }
       expect(started.openAiTunnel?.apiKeyFile).toBe(keyPath);
       // ...and it persists in the 0600 fleet state so a later restart needs no re-paste.
       const state = readFileSync(join(root, '.folderforge', 'fleet.json'), 'utf8');

@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  realpathSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -69,12 +70,13 @@ describe("WorktreeManager", () => {
     rmSync(linkedRoot, { recursive: true, force: true });
     git(root, "worktree", "add", "--detach", linkedRoot, "HEAD");
     try {
+      const canonicalLinkedRoot = realpathSync(linkedRoot);
       const manager = new WorktreeManager([linkedRoot], linkedRoot);
       expect(manager.available).toBe(true);
       const isolation = manager.create("linked-worktree");
-      expect(isolation.sourceRoot).toBe(linkedRoot);
+      expect(isolation.sourceRoot).toBe(canonicalLinkedRoot);
       expect(manager.get(isolation.id)).toMatchObject({
-        sourceRoot: linkedRoot,
+        sourceRoot: canonicalLinkedRoot,
         state: "active",
       });
       manager.discard(isolation.id);
@@ -428,6 +430,7 @@ describe("WorktreeManager", () => {
 
   it("revalidates an untracked target after preflight and blocks a symlink or junction swap", () => {
     const root = repository();
+    const canonicalRoot = realpathSync(root);
     const outside = mkdtempSync(
       join(tmpdir(), "folderforge-worktree-outside-"),
     );
@@ -437,7 +440,7 @@ describe("WorktreeManager", () => {
       beforeUntrackedCopy: ({ target }) => {
         if (swapped) return;
         swapped = true;
-        const parent = join(root, "nested");
+        const parent = join(canonicalRoot, "nested");
         expect(target).toBe(join(parent, "new.txt"));
         symlinkSync(
           outside,
