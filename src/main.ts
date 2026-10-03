@@ -40,6 +40,9 @@ import { executeControlCli } from "./control/cli.js";
 import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
 import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
+import { ensureRuntimeNodeOnPath } from "./runtime/node-path.js";
+
+ensureRuntimeNodeOnPath();
 
 const VERSION = readFolderForgeVersion();
 
@@ -337,7 +340,7 @@ function printHelp(): void {
       "      --tools-enable <csv> Always-keep tool names (added back on top of the filter)",
       "      --tools-disable <csv> Drop these tool names from the advertised list",
       "      --policy <mode>      Policy mode at startup (readonly|safe|dev|danger)",
-      "      --dangerously-allow-critical  Allow CRITICAL actions without approval in danger mode",
+      "      --dangerously-allow-critical  Deprecated no-op; danger mode already bypasses approvals",
       "  -v, --version            Print version and exit",
       "  -h, --help               Show this help",
       "",
@@ -493,26 +496,20 @@ async function main(): Promise<void> {
     }
   }
   if (args.allowCriticalInDanger) {
-    config.policy.allowCriticalInDanger = true;
-  }
-  if (
-    config.policy.allowCriticalInDanger &&
-    config.policy.defaultMode !== "danger"
-  ) {
-    throw new Error(
-      "--dangerously-allow-critical requires --policy danger (or policy.defaultMode=danger)",
+    logger.warn(
+      { mode: config.policy.defaultMode },
+      "--dangerously-allow-critical is deprecated and has no effect; --policy danger already bypasses approval requirements.",
     );
   }
   const dashboardEnabled =
     args.dashboard && config.server.dashboard.enabled !== false;
   if (
     !dashboardEnabled &&
-    config.policy.defaultMode !== "readonly" &&
-    !config.policy.allowCriticalInDanger
+    (config.policy.defaultMode === "safe" || config.policy.defaultMode === "dev")
   ) {
     logger.warn(
       { mode: config.policy.defaultMode },
-      "Dashboard disabled: approval-gated actions cannot be resolved. Enable the dashboard or use --policy danger --dangerously-allow-critical in an isolated environment.",
+      "Dashboard disabled: approval-gated actions in safe/dev mode cannot be resolved until an admin approval surface is available.",
     );
   }
   // CLI auth overrides for the HTTP transport. CLI wins over env/YAML.

@@ -1,6 +1,6 @@
 import { readFileSync, lstatSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import fg from 'fast-glob';
+import { glob } from 'tinyglobby';
 import { simpleGit } from 'simple-git';
 import { detectCommands, detectProject } from '../workspace/project-detector.js';
 
@@ -136,7 +136,7 @@ export async function analyzeProject(
   frameworks.push(...readPythonFrameworks(root, options));
 
   const manifests = MANIFESTS.filter((file) => safeFile(root, file, options) !== null);
-  const rawConfigFiles = await fg(
+  const rawConfigFiles = await glob(
     [
       '*.{config,conf}.{js,cjs,mjs,ts,json,yaml,yml}',
       '.*rc',
@@ -148,15 +148,16 @@ export async function analyzeProject(
       onlyFiles: true,
       dot: true,
       followSymbolicLinks: false,
+      expandDirectories: false,
       ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
     }
   );
   const configFiles = safeFiles(root, rawConfigFiles, options);
-  const rawEntrypoints = await fg(ENTRYPOINT_GLOBS, {
+  const rawEntrypoints = await glob(ENTRYPOINT_GLOBS, {
     cwd: root,
     onlyFiles: true,
-    unique: true,
     followSymbolicLinks: false,
+    expandDirectories: false,
     ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
   });
   const entrypoints = safeFiles(root, rawEntrypoints, options);
@@ -166,12 +167,13 @@ export async function analyzeProject(
     options
   );
   const testRoots = existingDirectories(root, ['test', 'tests', '__tests__', 'spec', 'e2e'], options);
-  const rawSourceFiles = await fg(
+  const rawSourceFiles = await glob(
     ['**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,rb,php,cs,c,cpp,h,hpp}'],
     {
       cwd: root,
       onlyFiles: true,
       followSymbolicLinks: false,
+      expandDirectories: false,
       ignore: [
         '**/node_modules/**',
         '**/.git/**',

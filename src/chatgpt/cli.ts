@@ -68,9 +68,8 @@ export interface ChatGptRuntimeSettings {
   profile: ChatGptProfile;
   policyMode: ChatGptPolicyMode;
   /**
-   * Let CRITICAL tools (git_push, git_reset, ...) run without an approval
-   * round-trip. Only meaningful together with policyMode "danger"; the server
-   * refuses the combination in any other mode.
+   * @deprecated Legacy receipt/config field. Danger mode bypasses approval
+   * requirements without an additional escape hatch.
    */
   allowCriticalInDanger: boolean;
   toolsPreset: ChatGptToolsPreset;
@@ -576,7 +575,7 @@ export function chatGptHelp(): string {
     "      --no-dashboard      Persistently disable the local dashboard",
     "      --dashboard-port <n|auto> Local dashboard port (default 7332; auto picks the first free port)",
     "      --open/--no-open    Open the dashboard in the browser after connect (default: open when the dashboard is on)",
-    "      --dangerously-allow-critical  Run CRITICAL tools (git_push, git_reset) without an approval round-trip; requires --policy danger",
+    "      --dangerously-allow-critical  Deprecated no-op; danger mode already bypasses approvals",
     "      --offline-access    Allow refresh tokens (default for ChatGPT)",
     "      --no-offline-access Disable refresh-token issuance",
     "      --dcr-client-policy <id> allow-all|require-grant; quick default provisions a scoped third-party DCR user grant",
@@ -2270,13 +2269,9 @@ async function connect(
           settings.dashboardPort = picked;
         }
       }
-      if (
-        settings.policyMode === "danger" &&
-        !settings.allowCriticalInDanger &&
-        !settings.dashboard
-      ) {
+      if (settings.policyMode === "danger" && settings.allowCriticalInDanger) {
         sink.line(
-          "! CRITICAL tools (git_push, git_reset) still pause for approval and the dashboard is off, so nothing can resolve them. Add --dashboard or --dangerously-allow-critical.",
+          "! Legacy critical-bypass setting ignored: danger mode already executes authorized actions without approval.",
         );
       }
       await assertChatGptRuntimePortsAvailable(settings);

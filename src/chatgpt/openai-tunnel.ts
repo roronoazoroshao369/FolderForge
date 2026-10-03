@@ -299,8 +299,7 @@ export function parseOpenAiTunnelArgs(
         options.profile = "full";
         break;
       case "--dangerously-allow-critical":
-        // Fleet parity (proposal 005): the operator's CRITICAL-bypass opt-in
-        // on a danger instance must survive the tunnel supervisor too.
+        // Deprecated compatibility flag. Danger mode itself is autonomous.
         options.allowCriticalInDanger = true;
         break;
       case "--policy":
@@ -413,13 +412,6 @@ export function parseOpenAiTunnelArgs(
     throw new Error("Choose only one of --api-key-env or --api-key-file");
   }
   if (
-    options.allowCriticalInDanger &&
-    options.policyMode !== undefined &&
-    options.policyMode !== "danger"
-  ) {
-    throw new Error("--dangerously-allow-critical requires --policy danger");
-  }
-  if (
     oauthExplicitlyDisabled &&
     (oauthExplicitlyEnabled || oauthSpecificOptionSeen)
   ) {
@@ -456,8 +448,8 @@ export function openAiTunnelHelp(): string {
     "      --no-install          Do not auto-install the official client when missing",
     "      --install-only        Install/verify tunnel-client, then exit",
     "      --profile <id>        safe|developer|full (default developer)",
-    "      --full-access         Shortcut for --profile full; CRITICAL bypass stays off",
-    "      --dangerously-allow-critical  With --policy danger, skip CRITICAL approval (operator opt-in)",
+    "      --full-access         Shortcut for --profile full (danger/full)",
+    "      --dangerously-allow-critical  Deprecated no-op; danger already bypasses approvals",
     "      --policy <mode>       readonly|safe|dev|danger",
     "      --tools-preset <id>   vibe|vibe-lite|readonly|full|godot",
     "      --port <n>            Preferred local MCP port (default 7331 or free port)",
@@ -1252,7 +1244,6 @@ export function buildFolderForgeServerArgs(
   > & {
     projectRoot: string;
     dashboard: boolean;
-    allowCriticalInDanger?: boolean;
     auth?: OpenAiTunnelAuthReceipt;
   },
 ): string[] {
@@ -1299,7 +1290,6 @@ export function buildFolderForgeServerArgs(
     options.policyMode,
     "--tools-preset",
     options.toolsPreset,
-    ...(options.allowCriticalInDanger ? ["--dangerously-allow-critical"] : []),
     ...(options.dashboard && options.dashboardPort
       ? ["--dashboard-port", String(options.dashboardPort)]
       : ["--no-dashboard"]),
@@ -1762,6 +1752,10 @@ export async function executeOpenAiTunnelCli(
     };
   }
 
+  if (options.allowCriticalInDanger) {
+    sink.line("! Legacy critical-bypass flag ignored: danger mode is already autonomous.");
+  }
+
   const resolvedHooks = {
     fetchImpl: hooks.fetchImpl ?? fetch,
     cliEntry: hooks.cliEntry ?? CLI_ENTRY,
@@ -1831,7 +1825,6 @@ export async function executeOpenAiTunnelCli(
         : {}),
       policyMode: runtime.policyMode,
       toolsPreset: runtime.toolsPreset,
-      ...(options.allowCriticalInDanger ? { allowCriticalInDanger: true } : {}),
       auth: runtime.auth,
     });
     const tunnelArgs = buildTunnelClientArgs(runtime);

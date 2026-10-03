@@ -339,7 +339,12 @@ export class AgentLoopRunner {
     let report = result.data;
     const verificationId = extractVerificationId(report);
     if (verificationId) {
-      for (let attempt = 0; attempt < 180; attempt++) {
+      const pollTimeoutMs = Math.min(
+        1_800_000,
+        Math.max(60_000, options.verificationTimeoutMs ?? 600_000),
+      );
+      const maxPolls = Math.ceil(pollTimeoutMs / 1000) + 5;
+      for (let attempt = 0; attempt < maxPolls; attempt++) {
         if (control.signal?.aborted) break;
         await sleep(1_000);
         const polled = await this.callAgent(

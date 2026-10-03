@@ -16,8 +16,8 @@ export function processTools(): ToolDefinition[] {
       handler: async (args, ctx) => {
         const command = String(args.command);
         const cls = ctx.container.policy.command.classify(command);
-        if (cls.risk === 'CRITICAL' && ctx.container.policy.getMode() !== 'danger') {
-          return { ok: false, error: `Blocked destructive command: ${cls.blockedReason ?? command}` };
+        if (cls.blockedReason) {
+          return { ok: false, error: `Blocked destructive command: ${cls.blockedReason}` };
         }
         const cwd = args.cwd
           ? ctx.container.policy.path.resolveSafe(String(args.cwd), ctx.projectRoot)

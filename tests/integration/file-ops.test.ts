@@ -156,10 +156,12 @@ describe('file tools integration (Q8)', () => {
     expect(existsSync(join(ws, 'src', 'hello.txt'))).toBe(true);
   });
 
-  it('deletes a file in danger mode', async () => {
+  it('deletes a file in danger mode without creating an approval gate', async () => {
     const { registry } = setup(ws, 'danger');
     await registry.call('workspace_activate', { path: ws });
-    data(await registry.call('file_delete', { path: 'src/hello.txt' }));
+    const result = await registry.call('file_delete', { path: 'src/hello.txt' });
+    expect(result.approvalId).toBeUndefined();
+    data(result);
     expect(existsSync(join(ws, 'src', 'hello.txt'))).toBe(false);
   });
 

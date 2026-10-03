@@ -72,7 +72,8 @@ tools; FolderForge normalizes the surface). Each reference tool maps 1:1.
   node/property mutation, resource creation). Approval-gated outside `dev`/`danger`.
 - **CRITICAL** - arbitrary code execution or irreversible/host-reaching ops
   (`game_eval`, `game_call_method`, file delete, `create_project`, networking,
-  runtime script attach). Always approval-gated, even in `danger`.
+  runtime script attach). Approval-gated in `safe`/`dev`; authorized calls execute
+  without manual approval in `danger`, after hard-deny and containment checks.
 
 ## Full tool map (149)
 
@@ -247,9 +248,10 @@ Reuses ~80% of existing FolderForge infrastructure: the adapter pattern
 ### Step 0 - Unblock approval `[do first]`
 - Add `approval_approve` (`id`, `scope: once|session`) and `approval_deny` (`id`).
 - Update `schema-lock.ts` and `risk.ts`.
-- **Why:** the current MCP client does not support elicitation; running
-  `--no-dashboard` otherwise leaves no way to resolve CRITICAL approvals, so
-  runtime/eval tools would hang. Required before any CRITICAL `game_*` tool ships.
+- **Why:** in `safe` and `dev`, a client without elicitation plus
+  `--no-dashboard` leaves no way to resolve CRITICAL approvals. `danger` now
+  bypasses manual approvals for authorized tools, while hard denies and
+  containment still apply.
 
 ### Step 1 - Adapter + headless read tier (~25 tools)
 - `packages/adapter-godot/src/cli.ts` + bundled `godot_operations.gd`.
@@ -342,7 +344,7 @@ actionable error instead of throwing, and `game_runtime_status` never fails.
 | `game_get_logs` | LOW | RUN | Tail the engine log, optional last `lines` |
 | `game_pause` | MEDIUM | RUN | Pause/resume (transient, reversible) |
 | `game_wait` | MEDIUM | RUN | Advance/idle for N seconds |
-| `game_eval` | CRITICAL | RUN | Arbitrary GDScript in the live process; approval-gated |
+| `game_eval` | CRITICAL | RUN | Arbitrary GDScript; approval-gated in `safe`/`dev`, autonomous in `danger` after hard checks |
 
 Wiring done: risk bands in `src/policy/risk.ts`, frozen surface in
 `src/tools/schema-lock.ts`, tools registered in `src/tools/game-tools.ts` (group
@@ -372,7 +374,7 @@ required); `game_locale` is a RUN-channel runtime tool.
 | `game_load_sprite` | HIGH | CLI | Ensures a `Texture2D` ext_resource + sets a node property (default `texture`) to `ExtResource("id")` |
 | `game_export_mesh_library` | HIGH | CLI | Writes a text MeshLibrary (`.meshlib`/`.tres`/`.res`) referencing the source scene; refuses to clobber unless `overwrite=true` |
 | `game_manage_scene_signals` | HIGH | CLI | `connect` / `disconnect` / `list` `[connection]` entries in a `.tscn` |
-| `game_manage_shader` | CRITICAL | CLI | Create/overwrite a `.gdshader` (executable GPU code; approval-gated). Canvas_item stub unless content supplied |
+| `game_manage_shader` | CRITICAL | CLI | Create/overwrite executable GPU code; approval-gated in `safe`/`dev`, autonomous in `danger` after hard checks |
 | `game_manage_theme_resource` | HIGH | CLI | Bootstrap or upsert properties in a Theme `.tres` |
 | `game_manage_resource` | HIGH | CLI | Generic `.tres`: `create` / `set` / `read` |
 | `game_locale` | MEDIUM | RUN | Get/set the running game's TranslationServer locale |
@@ -387,9 +389,9 @@ green; the schema-lock guard confirms exactly 149 `game_*` tools.
 **Other context:**
 - CLI flag `--policy <mode>` (readonly | safe | dev | danger) - implemented;
   build + typecheck pass.
-- Finding: there is no approve/deny tool over the MCP channel and the client
-  does not support elicitation -> CRITICAL approvals are blocked under
-  `--no-dashboard` (motivates Step 0).
+- Finding: there is no approve/deny tool over the MCP channel. In `safe` and
+  `dev`, clients without elicitation cannot resolve CRITICAL approvals under
+  `--no-dashboard`; `danger` executes authorized calls without manual approval.
 
 ## Risks & notes
 
@@ -398,8 +400,8 @@ green; the schema-lock guard confirms exactly 149 `game_*` tools.
 | 149 tools is a large surface | Phased (Step 1-5); schema-lock + a per-tool test guards each tier. |
 | Must ship a GDScript addon | Required by every Godot MCP; FolderForge ships editor plugin + runtime autoload. |
 | Runtime tools need a running game | "is game running?" guard mirroring `isEnabled('playwright')`. |
-| CRITICAL blocked under `--no-dashboard` | Do Step 0 first to provide an approve channel over MCP. |
-| Networking tools reach the host | All CRITICAL + approval-gated; blocked outside `danger`/explicit approval. |
+| CRITICAL blocked under `--no-dashboard` in `safe`/`dev` | Provide an approval channel or use isolated `danger`; hard denies still apply. |
+| Networking tools reach the host | CRITICAL and approval-gated in `safe`/`dev`; `danger` bypasses approval, not authorization or hard denies. |
 | Editor APIs differ across Godot minor versions | Recommend Godot 4.4+ (UID features need 4.4+). |
 | Tool surface is frozen | Every new tool must update `schema-lock.ts`. |
 
@@ -408,8 +410,8 @@ green; the schema-lock guard confirms exactly 149 `game_*` tools.
 - [ ] Start Step 0 + Step 1 now (recommended).
 - [ ] Editor WS port (6550) and runtime TCP port (9090) - keep community convention?
 - [ ] Addon name `folderforge_bridge` - OK?
-- [ ] `game_call_method` / `game_eval` stay CRITICAL even in `danger`, or drop to
-  HIGH under `danger`?
+- [x] Keep `game_call_method` / `game_eval` classified CRITICAL in every mode;
+  `danger` bypasses approval without changing risk classification.
 - [ ] Normalize all names to `game_*` (recommended) vs. mirror reference names
   exactly (`read_scene`, ...) for drop-in familiarity?
 
@@ -441,10 +443,9 @@ Things this session discovered/decided that are NOT obvious from the code:
   game). Its test only asserts the structured "no game running" error, mirroring
   every other runtime tool - the RUN channel is never unit-tested against a real
   engine, only against the fake TCP bridge or the not-running path.
-- **`game_manage_shader` is CRITICAL** (it writes executable GPU code) and stays
-  approval-gated even in `danger` mode - tests must pre-approve it via
-  `approvals.create(...).id` + `approvals.approve(id, 'session')`, same pattern
-  as `game_eval` / `game_create_project`.
+- **`game_manage_shader` is CRITICAL** (it writes executable GPU code). It remains
+  approval-gated in `safe`/`dev`; `danger` bypasses manual approval after hard-deny,
+  authorization, and containment checks. Tests must cover both contracts.
 - **Adding any `game_*` tool requires four synchronized edits**, in this order:
   `packages/adapter-godot/src/cli.ts` (or `runtime.ts`) -> `src/tools/game-tools.ts`
   (register) -> `src/policy/risk.ts` (risk band) -> `src/tools/schema-lock.ts`

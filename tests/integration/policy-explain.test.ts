@@ -56,6 +56,7 @@ describe('policy_explain tool', () => {
     const out = explain(await registry.call('policy_explain', { tool: 'file_delete' }));
     expect(out.risk).toBe('HIGH');
     expect(out.decision).toBe('allow');
+    expect(out.factors.join(' ')).toMatch(/danger mode bypasses/i);
   });
 
   it('classifies shell_exec risk from the command', async () => {

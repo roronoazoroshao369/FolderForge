@@ -303,14 +303,17 @@ FolderForge treats the agent as capable but not fully trusted.
   symlink/junction, and protected-directory checks.
 - Commands and tools are classified by risk and evaluated under `readonly`,
   `safe`, `dev`, or `danger` policy.
-- High-risk and critical actions may require a separate administrator approval.
-  Agent MCP clients cannot approve their own requests or elevate policy.
+- In `safe` and `dev`, high-risk and critical actions may require a separate
+  administrator approval. Agent MCP clients cannot approve their own requests
+  or elevate policy.
 - Arguments, output, approvals, diagnostics, and audit records use bounded secret
   redaction.
 - HTTP defaults to loopback. Non-loopback use requires explicit authentication.
 
-`--policy danger` does not by itself bypass critical approvals. The
-`--dangerously-allow-critical` escape hatch is for isolated development only.
+`--policy danger` bypasses all manual approval requirements for authorized tools,
+including HIGH and CRITICAL calls. Explicit denies, destructive-command blocks,
+workspace/path/Capsule containment, authorization, audit, and rate limits remain
+enforced. `--dangerously-allow-critical` is retained only as a deprecated no-op.
 Read [Security](SECURITY.md) and the [technical security model](docs/security.md)
 before exposing FolderForge beyond a trusted local machine.
 
@@ -367,7 +370,7 @@ to `X-API-Key`. For ChatGPT/Auth0 and external authorization-server setup, use:
 | `--require-auth` | | Refuse requests that have no valid credential | off |
 | `--allow-unauthenticated-tunnel` | | Bypass the tunnel-exposure guard (see [Security](docs/security.md)) | off |
 | `--policy <mode>` | | Risk policy: `readonly`, `safe`, `dev`, `danger` | `dev` |
-| `--dangerously-allow-critical` | | Allow critical-risk tools in `danger` mode | off |
+| `--dangerously-allow-critical` | | Deprecated no-op retained for compatibility; `danger` already bypasses approvals | off |
 | `--project <path>` | `-p` | Workspace root | `cwd` |
 | `--config <path>` | `-c` | Config file path | auto-detect |
 | `--no-dashboard` | | Disable the local dashboard server | off |

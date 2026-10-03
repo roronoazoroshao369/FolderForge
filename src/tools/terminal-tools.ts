@@ -27,8 +27,8 @@ export function terminalTools(): ToolDefinition[] {
         const command = String(args.command);
         const cls = ctx.container.policy.command.classify(command);
         const effectiveRisk = cls.risk === 'CRITICAL' ? 'CRITICAL' : 'HIGH';
-        if (cls.risk === 'CRITICAL' && ctx.container.policy.getMode() !== 'danger') {
-          return { ok: false, error: `Blocked destructive command: ${cls.blockedReason ?? command}` };
+        if (cls.blockedReason) {
+          return { ok: false, error: `Blocked destructive command: ${cls.blockedReason}` };
         }
         const cwd = args.cwd
           ? ctx.container.policy.path.resolveSafe(String(args.cwd), ctx.projectRoot)

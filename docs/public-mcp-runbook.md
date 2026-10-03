@@ -30,11 +30,10 @@ public bind). Read fully before the first exposure.
 
 ## Operating rules
 
-- Never set the fleet `allowCriticalInDanger` escape hatch on a
-  tunnel-exposed or otherwise public instance. It exists for isolated,
-  loopback-only instances whose operator deliberately runs `danger` without
-  per-call CRITICAL approval; combined with exposure it removes the last
-  approval gate.
+- Treat `policyMode: danger` itself as zero-manual-approval. On tunnel-exposed
+  or otherwise public instances, use it only when the authentication, scope,
+  workspace containment, hard-deny rules, audit, and rate-limit posture are
+  intentionally strong enough for autonomous HIGH/CRITICAL execution.
 - Rotate fleet tokens on suspicion or schedule; rotation restarts the
   instance (`restartRequired`).
 - Keep auto-restart on for long-lived fleet instances, but treat repeated
@@ -45,13 +44,11 @@ public bind). Read fully before the first exposure.
 
 **Operator-origin posture** (decision record:
 `docs/council/proposals/020-origin-policy-posture.md`). The operator's own
-MCP origin may intentionally run `--policy danger --dangerously-allow-critical`
-when it is a single-operator, loopback + bearer-auth workhorse whose only
-public path is an authenticated tunnel: lowering it gates every
-HIGH/CRITICAL tool behind approvals, and an origin without a dashboard has
-no reachable approval resolver (its approvals store is separate from the
-control plane's). Revisit only when a reachable approval channel exists,
-the host stops being single-operator, or an incident traces to the posture.
+MCP origin may intentionally run `--policy danger` when it is a single-operator,
+loopback + bearer-auth workhorse whose only public path is an authenticated
+tunnel. This is now a zero-manual-approval posture by definition; the legacy
+`--dangerously-allow-critical` flag is a deprecated no-op. Revisit the posture
+when the host stops being single-operator or an incident traces to it.
 
 ## Incident response
 

@@ -164,7 +164,7 @@ rules:
     }
   );
 
-  it('keeps an explicit approval rule active in danger mode and never weakens baseline hard denies', () => {
+  it('bypasses approval rules in danger mode while preserving explicit deny and baseline hard denies', () => {
     const root = project();
     policy(root, `
 version: 1
@@ -175,15 +175,21 @@ rules:
     principals:
       organizationIds: ["org:acme"]
     reason: Team review required
+  - id: deny-delete
+    effect: deny
+    tools: ["file_delete"]
+    reason: Deletion is forbidden
 `);
     const config = loadConfig({ projectRoot: root });
     config.policy.defaultMode = 'danger';
-    config.policy.allowCriticalInDanger = true;
     const engine = new PolicyEngine(config);
 
     expect(engine.evaluate('file_write', 'LOW', true, {}, principal)).toMatchObject({
-      kind: 'approval',
-      reason: expect.stringContaining('review-low-write'),
+      kind: 'allow',
+    });
+    expect(engine.evaluate('file_delete', 'HIGH', true, {}, principal)).toMatchObject({
+      kind: 'deny',
+      reason: expect.stringContaining('deny-delete'),
     });
 
     engine.setMode('safe');

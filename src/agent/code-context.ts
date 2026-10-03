@@ -1,6 +1,6 @@
 import { readFileSync, lstatSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
-import fg from 'fast-glob';
+import { glob } from 'tinyglobby';
 import { bm25Rank, tokenize } from '../adapters/child-mcp/rank.js';
 
 const DEFAULT_GLOB = '**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,rb,php,cs,c,cpp,h,hpp,md,json,yaml,yml,toml}';
@@ -87,12 +87,12 @@ export async function buildCodeContext(
   if (!query) throw new Error('query is required.');
   const maxResults = Math.min(30, Math.max(1, Number(options.maxResults ?? 12)));
   const maxFiles = Math.min(2000, Math.max(1, Number(options.maxFiles ?? 500)));
-  const files = await fg(options.glob ?? DEFAULT_GLOB, {
+  const files = await glob(options.glob ?? DEFAULT_GLOB, {
     cwd: root,
     onlyFiles: true,
-    unique: true,
     ignore: IGNORE,
     followSymbolicLinks: false,
+    expandDirectories: false,
   });
 
   const indexed: IndexedFile[] = [];

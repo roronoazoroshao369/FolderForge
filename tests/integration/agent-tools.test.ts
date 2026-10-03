@@ -72,6 +72,30 @@ async function waitForVerificationTerminal(
   }
 }
 
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+
+  // Linux containers can leave a successfully terminated grandchild as a
+  // short-lived zombie owned by PID 1. kill(pid, 0) still succeeds for a
+  // zombie even though it cannot execute or hold resources, so distinguish
+  // that state from a live orphan. Other POSIX platforms keep the portable
+  // kill(0) liveness check.
+  if (process.platform === 'linux') {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const commEnd = stat.lastIndexOf(')');
+      if (commEnd >= 0 && stat.slice(commEnd + 2).startsWith('Z ')) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 describe('AI coding runtime tools', () => {
   let root: string;
 
@@ -483,16 +507,12 @@ describe('AI coding runtime tools', () => {
     const terminal = await registry.call('project_verify', { action: 'status', id });
     expect(terminal.data).toMatchObject({ id, state: 'cancelled', overall: 'incomplete' });
 
-    let reaped = false;
-    for (let attempt = 0; attempt < 50 && !reaped; attempt++) {
-      try {
-        process.kill(grandchildPid, 0);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      } catch {
-        reaped = true;
-      }
+    let stopped = false;
+    for (let attempt = 0; attempt < 50 && !stopped; attempt++) {
+      stopped = !processIsRunning(grandchildPid);
+      if (!stopped) await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    expect(reaped).toBe(true);
+    expect(stopped).toBe(true);
   });
 
   it('handles cancel edge cases: terminal run, unknown id, and owner boundary', async () => {

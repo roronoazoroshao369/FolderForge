@@ -116,7 +116,7 @@ folderforge connect chatgpt --openai-tunnel --profile safe
 folderforge connect chatgpt --openai-tunnel --profile full
 ```
 
-`safe` uses `safe` policy and `vibe-lite` tools. `full` uses `danger` policy and the full built-in tool surface, but it does **not** pass `--dangerously-allow-critical`; critical operations remain approval-gated. Use the local dashboard shown at startup to review approvals.
+`safe` uses `safe` policy and `vibe-lite` tools. `full` uses `danger` policy and the full built-in tool surface. In danger mode, authorized HIGH and CRITICAL operations execute without approval; hard denies, authorization, containment, audit, and rate limits remain enforced. The legacy `--dangerously-allow-critical` flag is accepted as a deprecated no-op and is not forwarded to the server.
 
 Override individual settings when needed:
 

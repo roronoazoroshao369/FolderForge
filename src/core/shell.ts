@@ -82,7 +82,10 @@ export function shellCommandArgs(
     return ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command];
   }
 
-  return ['-lc', command];
+  // Do not start a login shell here. Login startup files can overwrite the
+  // governed server PATH and silently downgrade child commands to an older
+  // system Node.js than the runtime executing FolderForge.
+  return ['-c', command];
 }
 
 /** Quote one literal argument for a configured shell command string. */

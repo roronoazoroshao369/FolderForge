@@ -1016,7 +1016,7 @@
         panel.classList.toggle("has-pending", pending.length > 0);
         const el = document.getElementById("approvals");
         const explanation = policyMode === "danger"
-          ? "Danger mode executes approval-gated actions without creating requests. Switch to dev or safe when you want manual review."
+          ? "Danger mode executes authorized actions without approval requests. Hard denies and containment still apply. Switch to dev or safe when you want manual review."
           : policyMode === "readonly"
             ? "Readonly mode blocks mutations, so approval requests are not expected."
             : "High-risk actions appear here when an agent requests them. This page refreshes automatically.";

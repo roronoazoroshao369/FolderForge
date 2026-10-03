@@ -18,7 +18,7 @@ export interface FleetInstance {
   port: number;
   toolsPreset: string;
   policyMode: string;
-  /** Opt-in escape hatch (only valid with policyMode "danger"): CRITICAL tools run without per-call approval on this instance. */
+  /** @deprecated Legacy compatibility field; danger mode itself bypasses approvals. */
   allowCriticalInDanger?: boolean;
   authMode: FleetAuthMode;
   oauth?: FleetOAuthConfig;

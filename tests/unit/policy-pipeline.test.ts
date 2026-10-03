@@ -92,31 +92,46 @@ describe('policy pipeline: approval gating', () => {
 
   it('CRITICAL tool is denied outright in safe/dev mode (no approval offered)', async () => {
     const { registry } = setup('dev');
-    const res = await registry.call('shell_exec', { command: 'git push --force origin main' });
+    const res = await registry.call('git_push', { remote: 'origin', branch: 'main' });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/CRITICAL/i);
     expect(res.approvalId).toBeUndefined();
   });
 
-  it('CRITICAL tool is gated by approval in danger mode by default', async () => {
+  it('danger mode bypasses HIGH and CRITICAL approval gates without creating requests', async () => {
+    const { container, registry } = setup('danger');
+    const before = container.policy.approvals.all().length;
+
+    const high = await registry.call('shell_exec', { command: 'echo danger-ok' });
+    expect(high.ok).toBe(true);
+    expect(high.approvalId).toBeUndefined();
+
+    const critical = container.policy.evaluate(
+      'git_push',
+      'CRITICAL',
+      true,
+      { remote: 'origin', branch: 'main' },
+      'agent:test'
+    );
+    expect(critical.kind).toBe('allow');
+    expect(container.policy.approvals.all()).toHaveLength(before);
+
+    const explanation = container.policy.explain(
+      'git_push',
+      'CRITICAL',
+      true,
+      { remote: 'origin', branch: 'main' },
+    );
+    expect(explanation.decision).toBe('allow');
+    expect(explanation.factors).toContain('danger mode bypasses all approval requirements');
+  });
+
+  it('danger mode still hard-denies destructive blocked commands', async () => {
     const { registry } = setup('danger');
     const res = await registry.call('shell_exec', { command: 'git push --force origin main' });
     expect(res.ok).toBe(false);
-    expect(res.approvalId).toBeDefined();
-  });
-
-  it('allows CRITICAL actions with the explicit autonomous danger escape hatch', async () => {
-    const { container } = setup('danger');
-    container.config.policy.allowCriticalInDanger = true;
-    const decision = container.policy.evaluate(
-      'shell_exec',
-      'CRITICAL',
-      true,
-      { command: 'git push --force origin main' },
-      'agent:test'
-    );
-    expect(decision.kind).toBe('allow');
-    expect(container.policy.explain('shell_exec', 'CRITICAL', true).decision).toBe('allow');
+    expect(res.error).toMatch(/Blocked destructive command/i);
+    expect(res.approvalId).toBeUndefined();
   });
 
   it('a session-scoped approval lets the same tool through next time', async () => {

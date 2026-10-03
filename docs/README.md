@@ -3,6 +3,18 @@
 This index separates current user and operator guidance from contributor design
 material and historical records.
 
+## Current project truth
+
+| Document | Audience | Purpose |
+| --- | --- | --- |
+| [Project status](PROJECT_STATUS.md) | Maintainer / Agent | Verified current repository, CI, release, security, dependency, and maturity state. |
+| [Current frontier](CURRENT_FRONTIER.md) | Maintainer / Agent | Prioritized P0/P1/P2 execution frontier and exit conditions. |
+| [Handoff](HANDOFF.md) | Maintainer / Agent | Resume instructions, preserved working-tree scope, and the immediate next action. |
+
+These documents are the entry point for current execution state. Historical
+roadmaps and implementation logs provide context but must not override current
+repository, CI, release, or verification evidence.
+
 ## Getting started
 
 | Document | Audience | Purpose |

@@ -114,16 +114,15 @@ describe('plugin lifecycle tools', () => {
     expect(JSON.parse(envText)).toEqual({ allowed: 'visible-to-plugin', secret: null });
     expect(envText).not.toContain('must-not-reach-plugin');
 
-    const criticalArgs = { tool: 'danger', args: { text: 'approved plugin operation' } };
-    const gated = await registry.call('demo-plugin__call_tool', criticalArgs);
-    expect(gated.ok).toBe(false);
-    expect(gated.approvalId).toBeDefined();
-    container.policy.approvals.approve(gated.approvalId!, 'once');
-    const approved = await registry.call('demo-plugin__call_tool', criticalArgs);
-    expect(approved.ok).toBe(true);
-    expect(approved.content).toContainEqual({ kind: 'text', text: 'approved plugin operation:1' });
-    const gatedAgain = await registry.call('demo-plugin__call_tool', criticalArgs);
-    expect(gatedAgain.approvalId).toBeDefined();
+    const criticalArgs = { tool: 'danger', args: { text: 'autonomous plugin operation' } };
+    const autonomous = await registry.call('demo-plugin__call_tool', criticalArgs);
+    expect(autonomous.ok).toBe(true);
+    expect(autonomous.approvalId).toBeUndefined();
+    expect(autonomous.content).toContainEqual({ kind: 'text', text: 'autonomous plugin operation:1' });
+    const autonomousAgain = await registry.call('demo-plugin__call_tool', criticalArgs);
+    expect(autonomousAgain.ok).toBe(true);
+    expect(autonomousAgain.approvalId).toBeUndefined();
+    expect(autonomousAgain.content).toContainEqual({ kind: 'text', text: 'autonomous plugin operation:2' });
 
     const invalidUpdate = join(root, 'invalid-update');
     mkdirSync(invalidUpdate, { recursive: true });

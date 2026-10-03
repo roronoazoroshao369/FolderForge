@@ -492,7 +492,7 @@ describe('FleetManager', () => {
         apiKeyEnv: 'FOLDERFORGE_TEST_CONTROL_KEY',
         oauth: false,
       });
-      expect(calls[0]).toContain('--dangerously-allow-critical');
+      expect(calls[0]).not.toContain('--dangerously-allow-critical');
       // The emitted command is "<node>" "<mainJs>" connect chatgpt --openai-tunnel …
       // Tokenize honoring the JSON quoting fleet-manager applies to values
       // (project paths may contain spaces), then hand the CLI argv to the
@@ -507,7 +507,7 @@ describe('FleetManager', () => {
         .slice(tokens.indexOf('connect'))
         .filter((token) => token !== 'chatgpt');
       const parsed = parseOpenAiTunnelArgs(argv, project);
-      expect(parsed.allowCriticalInDanger).toBe(true);
+      expect(parsed.allowCriticalInDanger).toBeUndefined();
       expect(parsed.policyMode).toBe('danger');
       expect(parsed.projectRoot).toBe(project);
     } finally {
@@ -942,7 +942,7 @@ describe('FleetManager', () => {
     expect(fleet.get(instance.id).state).toBe('stopped');
   });
 
-  it('opts into the critical escape hatch only for danger instances and persists it', () => {
+  it('accepts the legacy critical flag as a no-op and never persists it', () => {
     const { root, project } = fixture();
     const fleet = new FleetManager(root);
     const created = fleet.create({
@@ -950,43 +950,36 @@ describe('FleetManager', () => {
       policyMode: 'danger',
       allowCriticalInDanger: true,
     });
-    expect(created.instance.allowCriticalInDanger).toBe(true);
-    // The flag survives a manager reload (persisted in fleet state).
-    expect(new FleetManager(root).get(created.instance.id).allowCriticalInDanger).toBe(true);
+    expect(created.instance.allowCriticalInDanger).toBeUndefined();
+    expect(new FleetManager(root).get(created.instance.id).allowCriticalInDanger).toBeUndefined();
 
-    // Default stays off, even in danger mode.
     const other = join(root, 'project-b');
     mkdirSync(other, { recursive: true });
-    const plain = fleet.create({ projectPath: other, policyMode: 'danger' });
-    expect(plain.instance.allowCriticalInDanger).toBeUndefined();
+    const legacyDev = fleet.create({
+      projectPath: other,
+      policyMode: 'dev',
+      allowCriticalInDanger: true,
+    });
+    expect(legacyDev.instance.allowCriticalInDanger).toBeUndefined();
   });
 
-  it('rejects the escape hatch without danger and drops it when leaving danger', () => {
+  it('treats the legacy setter as a compatibility no-op in every policy mode', () => {
     const { root, project } = fixture();
     const fleet = new FleetManager(root);
 
-    const third = join(root, 'project-c');
-    mkdirSync(third, { recursive: true });
-    expect(() =>
-      fleet.create({ projectPath: third, policyMode: 'dev', allowCriticalInDanger: true }),
-    ).toThrow(/allowCriticalInDanger requires policyMode "danger"/);
-
     const { instance } = fleet.create({ projectPath: project, policyMode: 'danger' });
     expect(() => fleet.setAllowCriticalInDanger(instance.id, true)).not.toThrow();
-    expect(fleet.get(instance.id).allowCriticalInDanger).toBe(true);
+    expect(fleet.get(instance.id).allowCriticalInDanger).toBeUndefined();
 
-    // Leaving danger drops the flag: the invariant (hatch ⇒ danger) never goes stale.
     const demoted = fleet.setPolicyMode(instance.id, 'safe');
     expect(demoted.allowCriticalInDanger).toBeUndefined();
+    expect(() => fleet.setAllowCriticalInDanger(instance.id, true)).not.toThrow();
     expect(new FleetManager(root).get(instance.id).allowCriticalInDanger).toBeUndefined();
 
-    expect(() => fleet.setAllowCriticalInDanger(instance.id, true)).toThrow(
-      /allowCriticalInDanger requires policyMode "danger"/,
-    );
     expect(() => fleet.setAllowCriticalInDanger('flt_missing', true)).toThrow(/Unknown fleet instance/);
   });
 
-  it('emits --dangerously-allow-critical on start only for opted-in danger instances', () => {
+  it('never emits the retired critical-bypass flag for danger instances', () => {
     const { root, project } = fixture();
     const other = join(root, 'project-b');
     mkdirSync(other, { recursive: true });
@@ -1002,7 +995,7 @@ describe('FleetManager', () => {
 
     fleet.start(flagged.instance.id);
     expect(calls[0]).toContain('--policy danger');
-    expect(calls[0]).toContain('--dangerously-allow-critical');
+    expect(calls[0]).not.toContain('--dangerously-allow-critical');
 
     fleet.start(plain.instance.id);
     expect(calls[1]).toContain('--policy danger');

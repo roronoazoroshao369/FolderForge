@@ -11,8 +11,14 @@ records audit events. Each tool declares a default risk level in
 | --- | --- | --- |
 | `LOW` | Read-only / safe | Always allowed (except readonly blocks mutations) |
 | `MEDIUM` | Local mutation | Allowed in `safe`/`dev`/`danger`, audited |
-| `HIGH` | Sensitive mutation | Requires approval |
-| `CRITICAL` | Destructive | Denied unless `danger` mode + approval |
+| `HIGH` | Sensitive mutation | Requires approval outside `danger`; executes without approval in `danger` |
+| `CRITICAL` | Destructive | Denied outside `danger`; executes without approval in `danger` after hard-deny checks pass |
+
+`danger` bypasses all manual approval sources: `policy.requireApproval`, HIGH and
+CRITICAL gates, policy-as-code `approval`, and session approvals. Explicit denies,
+authorization, workspace/path containment, audit, and rate limits still apply.
+The legacy `allowCriticalInDanger` setting is accepted only for compatibility and
+has no effect.
 
 `shell_exec` is re-classified per command at call time by `CommandPolicy`, with
 a runtime floor of `HIGH`: the host shell is not workspace-sandboxed, so even a

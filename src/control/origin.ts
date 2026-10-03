@@ -95,12 +95,6 @@ export function installOrigin(
       exitCode: 1,
     };
   }
-  if (options.allowCritical === true && options.policyMode !== 'danger') {
-    return {
-      output: '--dangerously-allow-critical requires --policy danger.\n',
-      exitCode: 1,
-    };
-  }
   let token = options.token;
   if (token === undefined && options.tokenEnv !== undefined) {
     token = deps.getEnv(options.tokenEnv);
@@ -163,7 +157,6 @@ export function installOrigin(
     '--no-dashboard',
     ...(options.toolsPreset !== undefined ? ['--tools-preset', options.toolsPreset] : []),
     ...(options.policyMode !== undefined ? ['--policy', options.policyMode] : []),
-    ...(options.allowCritical === true ? ['--dangerously-allow-critical'] : []),
     '--auth',
     options.authMode,
   ];
@@ -258,7 +251,7 @@ const ORIGIN_HELP = [
   '  --host <addr>          Bind address (default 127.0.0.1)',
   '  --tools-preset <id>    Tool preset (default: server default)',
   '  --policy <mode>        Policy mode (readonly|safe|dev|danger)',
-  '  --dangerously-allow-critical  Allow CRITICAL without approval (requires --policy danger)',
+  '  --dangerously-allow-critical  Deprecated no-op; danger mode already bypasses approvals',
   '  --auth <mode>          none|token|api-key (default token)',
   '  --token <value>        Bearer token — stored 0600, never in the unit or argv',
   '  --token-env <NAME>     Read the token from this environment variable instead',

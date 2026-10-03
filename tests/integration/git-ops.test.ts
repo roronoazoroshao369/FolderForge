@@ -19,18 +19,9 @@ import type { ToolResult, PolicyMode } from '../../src/core/types.js';
 function setup(projectRoot: string, mode: PolicyMode = 'danger') {
   const config = loadConfig({ projectRoot });
   config.policy.defaultMode = mode;
-  // git_commit / git_reset are HIGH/CRITICAL and would otherwise be approval-
-  // gated. Tests run in danger mode and pre-grant a session approval so the
-  // mutating pipeline actually executes (the gating itself is covered by the
-  // policy-pipeline unit suite).
   const container = new Container(config);
   container.policy.setMode(mode);
   const registry = buildRegistry(container);
-  // Pre-approve the HIGH/CRITICAL git tools for this session.
-  for (const tool of ['git_commit', 'git_reset', 'git_push']) {
-    const req = container.policy.approvals.create(tool, {}, 'HIGH', 'test pre-grant');
-    container.policy.approvals.approve(req.id, 'session');
-  }
   return { container, registry };
 }
 
@@ -126,26 +117,28 @@ describe('git tools integration (Q8)', () => {
     expect(after.staged).not.toContain('src/c.txt');
   });
 
-  it('cancels git_reset when the elicitation client declines (P8)', async () => {
+  it('danger mode skips git_reset elicitation and executes autonomously', async () => {
     const { registry } = setup(repo);
     await registry.call('workspace_activate', { path: repo });
     writeFileSync(join(repo, 'src', 'd.txt'), 'staged\n');
     data(await registry.call('git_add', { files: ['src/d.txt'] }));
 
-    // Simulate a client that declines the confirmation prompt.
+    let elicited = false;
     const res = await registry.call(
       'git_reset',
       { mode: 'mixed' },
       {
-        elicitInput: async () => ({ action: 'decline' as const }),
+        elicitInput: async () => {
+          elicited = true;
+          return { action: 'decline' as const };
+        },
       }
     );
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/cancelled/i);
+    expect(res.ok).toBe(true);
+    expect(elicited).toBe(false);
 
-    // The file must still be staged - the reset never ran.
     const status = data<{ staged: string[] }>(await registry.call('git_status', {}));
-    expect(status.staged).toContain('src/d.txt');
+    expect(status.staged).not.toContain('src/d.txt');
   });
 
   it('proceeds with git_reset when the client accepts (P8)', async () => {
@@ -170,28 +163,34 @@ describe('git tools integration (Q8)', () => {
     expect(status.staged).not.toContain('src/e.txt');
   });
 
-  it('cancels git_push when the elicitation client declines (P8)', async () => {
+  it('danger mode skips git_push elicitation and publishes autonomously', async () => {
     const { registry } = setup(repo);
     await registry.call('workspace_activate', { path: repo });
 
-    // Give the working repo a bare remote so a real push would otherwise work.
     const remote = mkdtempSync(join(tmpdir(), 'ff-remote-'));
     const bare = simpleGit({ baseDir: remote });
     await bare.init(['--bare']);
-    await simpleGit({ baseDir: repo }).addRemote('origin', remote);
+    const local = simpleGit({ baseDir: repo });
+    await local.addRemote('origin', remote);
+    const current = (await local.branchLocal()).current;
 
+    let elicited = false;
     try {
       const res = await registry.call(
         'git_push',
-        {},
-        { elicitInput: async () => ({ action: 'decline' as const }) }
+        { remote: 'origin', branch: current },
+        {
+          elicitInput: async () => {
+            elicited = true;
+            return { action: 'decline' as const };
+          },
+        }
       );
-      expect(res.ok).toBe(false);
-      expect(res.error).toMatch(/cancelled/i);
+      expect(res.ok).toBe(true);
+      expect(elicited).toBe(false);
 
-      // Nothing was published: the bare remote has no branches yet.
       const remoteBranches = await bare.branch(['-a']);
-      expect(remoteBranches.all).toHaveLength(0);
+      expect(remoteBranches.all).toContain(current);
     } finally {
       rmSync(remote, { recursive: true, force: true });
     }
@@ -315,15 +314,32 @@ describe('git tools integration (Q8)', () => {
     }
   }, 20_000);
 
-  it('cancels git_pull when the elicitation client declines (P8)', async () => {
-    const { registry } = setup(repo);
+  it('dev mode keeps git_pull elicitation after an explicit session approval', async () => {
+    const { container, registry } = setup(repo, 'dev');
     await registry.call('workspace_activate', { path: repo });
+
+    const approval = container.policy.approvals.create(
+      'git_pull',
+      {},
+      'HIGH',
+      'test pre-grant',
+      'agent:unknown',
+    );
+    container.policy.approvals.approve(approval.id, 'session');
+
+    let elicited = false;
     const res = await registry.call(
       'git_pull',
       {},
-      { elicitInput: async () => ({ action: 'decline' as const }) }
+      {
+        elicitInput: async () => {
+          elicited = true;
+          return { action: 'decline' as const };
+        },
+      }
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/cancelled/i);
+    expect(elicited).toBe(true);
   });
 });

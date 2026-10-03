@@ -159,7 +159,7 @@ describe('origin service', () => {
     );
     expect(noToken.exitCode).toBe(1);
     expect(noToken.output).toContain('--auth token requires');
-    const badCombo = installOrigin(
+    const legacyFlag = installOrigin(
       {
         project,
         port: 3112,
@@ -171,8 +171,8 @@ describe('origin service', () => {
       },
       deps,
     );
-    expect(badCombo.exitCode).toBe(1);
-    expect(badCombo.output).toContain('requires --policy danger');
+    expect(legacyFlag.exitCode).toBe(0);
+    expect(unitText(project)).not.toContain('--dangerously-allow-critical');
     const badPort = installOrigin(
       { project, port: 80, authMode: 'none', enable: false, replace: false, mainJs: MAIN_JS },
       deps,
@@ -329,7 +329,7 @@ describe('origin service', () => {
     ).toBe(expected);
   });
 
-  it('executeOriginCli parses install flags end to end (preset/policy/allow-critical/token-env)', () => {
+  it('executeOriginCli accepts the legacy allow-critical flag without persisting it', () => {
     const project = makeProject();
     const { deps } = makeDeps(join(project, 'xdg'));
     const result = executeOriginCli(
@@ -353,7 +353,8 @@ describe('origin service', () => {
     );
     expect(result.exitCode).toBe(0);
     const unit = unitText(project);
-    expect(unit).toContain('--tools-preset full --policy danger --dangerously-allow-critical --auth token');
+    expect(unit).toContain('--tools-preset full --policy danger --auth token');
+    expect(unit).not.toContain('--dangerously-allow-critical');
     expect(unit).not.toContain('env-token-123');
   });
 

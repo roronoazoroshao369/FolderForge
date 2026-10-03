@@ -1,6 +1,6 @@
 import { readFileSync, lstatSync } from 'node:fs';
 import { relative } from 'node:path';
-import fg from 'fast-glob';
+import { glob as globFiles } from 'tinyglobby';
 import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
 
@@ -21,12 +21,13 @@ export function searchTools(): ToolDefinition[] {
       },
       handler: async (args, ctx) => {
         const pattern = String(args.glob);
-        const matches = await fg(pattern, {
+        const matches = await globFiles(pattern, {
           cwd: ctx.projectRoot,
           dot: false,
           ignore: ['**/node_modules/**', '**/.git/**'],
           onlyFiles: true,
           followSymbolicLinks: false,
+          expandDirectories: false,
         });
         const safeMatches = matches.filter((match) => {
           try {
@@ -93,12 +94,13 @@ export function searchTools(): ToolDefinition[] {
             return { ok: false, error: `path must be a directory inside the workspace: ${String(args.path)}` };
           }
         }
-        const files = await fg(glob, {
+        const files = await globFiles(glob, {
           cwd: searchRoot,
           ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**'],
           onlyFiles: true,
           absolute: true,
           followSymbolicLinks: false,
+          expandDirectories: false,
         });
         const results: Array<{ file: string; line: number; text: string }> = [];
         for (const file of files) {
@@ -171,12 +173,13 @@ export function searchTools(): ToolDefinition[] {
           { kind: 'method', re: new RegExp(`^\\s*(?:public|private|protected|static|async|\\s)*\\b(${escaped})\\s*\\(`) },
         ].filter((p) => !kindFilter || p.kind === kindFilter);
 
-        const files = await fg(glob, {
+        const files = await globFiles(glob, {
           cwd: ctx.projectRoot,
           ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
           onlyFiles: true,
           absolute: true,
           followSymbolicLinks: false,
+          expandDirectories: false,
         });
 
         const results: Array<{ file: string; line: number; kind: string; text: string }> = [];

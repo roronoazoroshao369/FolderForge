@@ -118,7 +118,7 @@ export function provisionTools(): ToolDefinition[] {
           allowCriticalInDanger: {
             type: 'boolean',
             description:
-              'Opt-in escape hatch: allow CRITICAL tools without per-call approval on this instance. Only valid with policyMode "danger". Default off; applies on next start.',
+              'Deprecated compatibility input; ignored. policyMode "danger" already bypasses approval requirements.',
           },
           authMode: { type: 'string', enum: [...FLEET_AUTH_MODES] },
           apiKey: { type: 'string', description: 'Optional operator-provided API key; omit to generate one.' },
@@ -144,7 +144,7 @@ export function provisionTools(): ToolDefinition[] {
           });
           ctx.container.audit.record({
             type: 'provision_event',
-            summary: `create ${created.instance.id} (${created.instance.projectPath}:${created.instance.port}, auth=${created.instance.authMode}, preset=${created.instance.toolsPreset}, policy=${created.instance.policyMode}${created.instance.allowCriticalInDanger === true ? ', allowCriticalInDanger' : ''})`,
+            summary: `create ${created.instance.id} (${created.instance.projectPath}:${created.instance.port}, auth=${created.instance.authMode}, preset=${created.instance.toolsPreset}, policy=${created.instance.policyMode})`,
           });
           return {
             ok: true,
@@ -309,7 +309,7 @@ export function provisionTools(): ToolDefinition[] {
     defineTool({
       name: 'provision_update',
       description:
-        'Update auto-restart, tools preset, policy mode, and/or the allowCriticalInDanger escape hatch. Preset/policy/hatch apply after restart.',
+        'Update auto-restart, tools preset, or policy mode. Legacy allowCriticalInDanger is accepted as a no-op for compatibility.',
       group: 'provision',
       mutates: true,
       risk: 'MEDIUM',
@@ -323,7 +323,7 @@ export function provisionTools(): ToolDefinition[] {
           allowCriticalInDanger: {
             type: 'boolean',
             description:
-              'Opt-in escape hatch: allow CRITICAL tools without per-call approval on this instance. Only valid with policyMode "danger". Applies on next start.',
+              'Deprecated compatibility input; ignored and removed from persisted Fleet state.',
           },
         },
         required: ['id'],
@@ -347,7 +347,7 @@ export function provisionTools(): ToolDefinition[] {
           const instance = ctx.container.fleet.get(id);
           ctx.container.audit.record({
             type: 'provision_event',
-            summary: `update ${instance.id}${typeof args.allowCriticalInDanger === 'boolean' ? ` (allowCriticalInDanger=${args.allowCriticalInDanger})` : ''}`,
+            summary: `update ${instance.id}`,
           });
           return { ok: true, data: publicInstance(instance) };
         }),

@@ -6,6 +6,12 @@ semantic versioning.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-03
+
+### Changed
+
+- **Breaking security semantics (3.0.0):** `danger` is now a zero-manual-approval mode. Authorized HIGH and CRITICAL calls, `policy.requireApproval`, policy-as-code `approval`, session approvals, and supported git handler confirmations no longer create a manual gate. Explicit deny rules, destructive-command blocks, workspace/path/Capsule containment, admin and OAuth/scope authorization, durable audit, and rate limits still take precedence. The legacy `allowCriticalInDanger` setting remains readable only for migration, is omitted on rewritten Fleet state, and `--dangerously-allow-critical` is a deprecated no-op.
+
 ### Added
 
 - Visual regression suite for the Mission Control SPA (proposal 018): `tests/visual/` boots the real dashboard harness serving the built SPA at `/app/`, drives headless Chromium (cached binary via `playwright-core`, offline), and pixel-diffs all 9 screens at desktop 1280×900 plus Overview/Fleet at 390×844 against committed baselines (`tests/visual/baselines/`, pngjs-based compare — per-channel tolerance 12, fail above 0.2% differing pixels or on dimension mismatch). Animations are disabled before capture, any off-loopback request is aborted and fails the test, baselines regenerate intentionally with `FF_VISUAL_UPDATE=1` (see `tests/visual/README.md`), and the suite self-skips on hosts without a Chromium binary (CI without the cache stays green). `pngjs` and `playwright-core` are pinned as explicit devDependencies (already installed transitives — no new download).

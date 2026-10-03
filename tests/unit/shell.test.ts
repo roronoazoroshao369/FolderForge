@@ -65,10 +65,10 @@ describe('cross-platform shell invocation', () => {
     expect(quoteShellArg('/bin/bash', "a'b", 'linux')).toBe("'a'\\''b'");
   });
 
-  it('keeps login-command semantics for POSIX and Git Bash shells', () => {
-    expect(shellCommandArgs('/bin/bash', 'echo hello', 'linux')).toEqual(['-lc', 'echo hello']);
+  it('preserves the inherited environment for POSIX and Git Bash shells', () => {
+    expect(shellCommandArgs('/bin/bash', 'echo hello', 'linux')).toEqual(['-c', 'echo hello']);
     expect(shellCommandArgs('C:\\Program Files\\Git\\bin\\bash.exe', 'echo hello', 'win32')).toEqual([
-      '-lc',
+      '-c',
       'echo hello',
     ]);
   });

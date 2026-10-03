@@ -52,7 +52,7 @@ describe('package and CI compatibility contract', () => {
       overrides?: Record<string, string>;
     };
     expect(pkg.overrides?.['@hono/node-server']).toBe('2.0.11');
-    expect(pkg.overrides?.['fast-uri']).toBe('4.1.4');
+    expect(pkg.overrides?.['fast-uri']).toBe('4.2.1');
     expect(pkg.overrides?.['qs']).toBe('6.16.0');
   });
 

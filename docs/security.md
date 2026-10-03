@@ -13,7 +13,16 @@ Set at startup via `policy.defaultMode` or changed at runtime through the dashbo
 | `readonly` | denied | denied | denied |
 | `safe` | allowed (LOW/MEDIUM) | approval | denied |
 | `dev` | allowed | approval | denied |
-| `danger` | allowed | approval | approval |
+| `danger` | allowed | allowed without approval | allowed without approval |
+
+`danger` is an explicit zero-manual-approval posture. After authorization and
+hard-deny/containment checks pass, it bypasses `policy.requireApproval`, HIGH and
+CRITICAL approval gates, policy-as-code `approval`, and session approvals.
+Policy-as-code `deny`, blocked commands, path/workspace boundaries, denied globs,
+Capsule containment, admin-only authorization, OAuth/scope checks, audit, and
+rate limits remain enforced. The legacy `allowCriticalInDanger` setting is read
+for compatibility but has no effect; `--dangerously-allow-critical` is a
+deprecated no-op.
 
 The decision logic lives in `PolicyEngine.evaluate` (`src/policy/policy-engine.ts`).
 Use the `policy_explain` tool to dry-run any call and see the decision
@@ -147,9 +156,13 @@ evidence. See [Verified marketplace](marketplace.md).
 
 ## Approvals
 
-HIGH/CRITICAL actions (and tools listed in `policy.requireApproval`) create a
-pending `ApprovalRequest` (`src/policy/approvals.ts`). Agent-facing MCP clients
-may create and inspect requests but cannot approve, deny, or elevate policy.
+In `safe` and `dev`, HIGH actions and tools listed in
+`policy.requireApproval` create a pending `ApprovalRequest`
+(`src/policy/approvals.ts`); CRITICAL actions remain denied. In `danger`, once
+hard-deny and authorization checks pass, all approval requirements are bypassed,
+including policy-as-code `approval`, and no `ApprovalRequest` is created.
+Agent-facing MCP clients may create and inspect requests but cannot approve,
+deny, or elevate policy.
 Resolution is restricted to the dashboard admin endpoints
 `POST /approvals/:id/approve|deny`.
 

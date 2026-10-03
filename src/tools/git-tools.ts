@@ -133,7 +133,7 @@ export function gitTools(): ToolDefinition[] {
 
     defineTool({
       name: 'git_commit',
-      description: 'Commit staged files. Requires approval.',
+      description: 'Commit staged files. Approval-gated outside danger mode.',
       group: 'git',
       mutates: true,
       inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] },
@@ -145,7 +145,7 @@ export function gitTools(): ToolDefinition[] {
 
     defineTool({
       name: 'git_push',
-      description: 'Push commits. CRITICAL; denied unless danger mode + approval. Force push disabled.',
+      description: 'Push commits. CRITICAL; allowed without approval in danger mode. Force push remains disabled.',
       group: 'git',
       mutates: true,
       inputSchema: { type: 'object', properties: { remote: { type: 'string' }, branch: { type: 'string' } } },
@@ -153,12 +153,10 @@ export function gitTools(): ToolDefinition[] {
         const remote = String(args.remote ?? 'origin');
         const branch = args.branch ? String(args.branch) : undefined;
 
-        // P8 - elicitation: pushing is irreversible from the local side
-        // (publishes commits to a shared remote). When the client supports
-        // interactive input, confirm the exact remote/branch before pushing.
-        // Clients without the capability see `elicitInput === undefined` and
-        // the push proceeds (policy/approval already gate it upstream).
-        if (ctx.control?.elicitInput) {
+        // Outside danger mode, retain the interactive confirmation for clients
+        // that support elicitation. Danger mode is explicitly autonomous and
+        // must not introduce a second manual gate after policy evaluation.
+        if (ctx.container.policy.getMode() !== 'danger' && ctx.control?.elicitInput) {
           const status = await git(ctx).status();
           const target = branch ?? status.current ?? 'current branch';
           const ahead = status.ahead ?? 0;
@@ -201,11 +199,9 @@ export function gitTools(): ToolDefinition[] {
           return { ok: false, error: 'Hard reset is disabled by configuration.' };
         }
 
-        // P8 - elicitation: when the connected client supports it, confirm this
-        // destructive reset interactively before touching the index. Clients
-        // without the capability see `elicitInput === undefined` and the reset
-        // proceeds non-interactively (policy/approval already gate it upstream).
-        if (ctx.control?.elicitInput) {
+        // Retain confirmation outside danger mode. Danger mode is autonomous and
+        // therefore must not prompt after the policy layer has allowed the call.
+        if (ctx.container.policy.getMode() !== 'danger' && ctx.control?.elicitInput) {
           const status = await git(ctx).status();
           const res = await ctx.control.elicitInput({
             message: `Reset (--${mode}) will unstage ${status.staged.length} file(s) on branch ${status.current}. Continue?`,
@@ -287,10 +283,9 @@ export function gitTools(): ToolDefinition[] {
         const branch = args.branch ? String(args.branch) : undefined;
         const rebase = args.rebase === true;
 
-        // P8 - elicitation: a pull can overwrite local files and create
-        // conflicts, so confirm before integrating when the client supports it.
-        // Clients without the capability proceed (policy/approval gate upstream).
-        if (ctx.control?.elicitInput) {
+        // Pull confirmation is retained outside danger mode. In danger mode the
+        // caller explicitly selected autonomous execution, so do not elicit.
+        if (ctx.container.policy.getMode() !== 'danger' && ctx.control?.elicitInput) {
           const status = await git(ctx).status();
           const target = branch ?? status.tracking ?? status.current ?? 'upstream';
           const dirty = !status.isClean();

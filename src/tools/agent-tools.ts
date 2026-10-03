@@ -526,7 +526,13 @@ async function projectVerify(
   const stopOnFailure = args.stopOnFailure !== false;
   const timeout = Math.min(
     30 * 60 * 1000,
-    Math.max(1000, Number(args.timeoutMs ?? ctx.config.terminal.defaultTimeoutMs))
+    Math.max(
+      1000,
+      Number(
+        args.timeoutMs ??
+          Math.max(ctx.config.terminal.defaultTimeoutMs, 10 * 60 * 1000),
+      ),
+    )
   );
   const maxOutput = Math.min(
     ctx.config.terminal.maxOutputBytes,

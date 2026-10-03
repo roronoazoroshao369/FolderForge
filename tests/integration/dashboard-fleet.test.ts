@@ -149,9 +149,8 @@ describe('dashboard fleet endpoints', () => {
       policyMode: 'dev',
       allowCriticalInDanger: true,
     });
-    expect(refused.status).toBe(409);
-    expect(refused.json.ok).toBe(false);
-    expect(refused.json.error).toMatch(/requires policyMode "danger"/);
+    expect(refused.status).toBe(200);
+    expect(refused.json.ok).toBe(true);
 
     const applied = await postJson(`${harness.baseUrl}/fleet/${id}/policy`, {
       policyMode: 'danger',

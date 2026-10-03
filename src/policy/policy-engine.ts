@@ -72,7 +72,7 @@ export class PolicyEngine {
   describe() {
     return {
       mode: this.mode,
-      allowCriticalInDanger: this.config.policy.allowCriticalInDanger,
+      dangerBypassesApprovals: this.mode === 'danger',
       requireApproval: [...this.requireApproval],
       blockedCommands: this.config.policy.blockedCommands,
       allowedDirectories: this.config.workspace.allowedDirectories,
@@ -98,8 +98,13 @@ export class PolicyEngine {
   ): Decision {
     const principal = normalizePrincipal(requester);
 
-    // Baseline hard-deny boundaries are evaluated before project policy. Policy
-    // files are intentionally unable to weaken either rule.
+    // Hard boundaries are evaluated before mode-specific approval behavior.
+    // Danger mode bypasses approvals, not explicit containment or destructive
+    // command denies.
+    const commandDeny = this.commandDeny(toolName, args);
+    if (commandDeny) {
+      return { kind: 'deny', risk, reason: commandDeny };
+    }
     if (risk === 'CRITICAL' && this.mode !== 'danger') {
       return { kind: 'deny', risk, reason: `CRITICAL action blocked in ${this.mode} mode.` };
     }
@@ -118,20 +123,15 @@ export class PolicyEngine {
       return { kind: 'deny', risk, reason: policyRule.reason };
     }
 
-    let needsApproval = false;
-    let approvalReason = '';
-
-    if (risk === 'CRITICAL') {
-      needsApproval = !this.config.policy.allowCriticalInDanger;
-      approvalReason = 'CRITICAL action requires explicit approval.';
-    } else {
-      const baselineApproval =
-        this.requireApproval.has(toolName) || RISK_ORDER[risk] >= RISK_ORDER.HIGH;
-      // Danger mode preserves the historical bypass for baseline non-CRITICAL
-      // gates. An explicit policy-as-code approval rule below still wins.
-      needsApproval = baselineApproval && this.mode !== 'danger';
-      approvalReason = `${toolName} (${risk}) requires approval.`;
+    // Danger is the explicit autonomous execution posture: once hard denies
+    // above have passed, no approval source may create a manual gate.
+    if (this.mode === 'danger') {
+      return { kind: 'allow', risk };
     }
+
+    let needsApproval =
+      this.requireApproval.has(toolName) || RISK_ORDER[risk] >= RISK_ORDER.HIGH;
+    let approvalReason = `${toolName} (${risk}) requires approval.`;
 
     if (policyRule?.effect === 'approval') {
       needsApproval = true;
@@ -153,6 +153,22 @@ export class PolicyEngine {
       approvalReason,
       principal
     );
+  }
+
+  private commandDeny(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): string | undefined {
+    if (
+      (toolName === 'shell_exec' || toolName === 'process_start') &&
+      typeof args.command === 'string'
+    ) {
+      const classification = this.command.classify(args.command);
+      if (classification.blockedReason) {
+        return `Blocked destructive command: ${classification.blockedReason}`;
+      }
+    }
+    return undefined;
   }
 
   private toApproval(
@@ -190,6 +206,19 @@ export class PolicyEngine {
   } {
     const principal = normalizePrincipal(requester);
     const factors: string[] = [];
+
+    const commandDeny = this.commandDeny(toolName, _args);
+    if (commandDeny) {
+      factors.push('command matches a hard destructive-command deny');
+      return {
+        decision: 'deny',
+        risk,
+        reason: commandDeny,
+        mode: this.mode,
+        mutates,
+        factors,
+      };
+    }
 
     if (risk === 'CRITICAL' && this.mode !== 'danger') {
       factors.push('risk is CRITICAL', `mode is ${this.mode}`);
@@ -238,30 +267,32 @@ export class PolicyEngine {
       };
     }
 
-    let needsApproval = false;
-    let reason = `${toolName} (${risk}) is allowed.`;
-    if (risk === 'CRITICAL') {
-      factors.push('risk is CRITICAL');
-      needsApproval = !this.config.policy.allowCriticalInDanger;
-      reason = needsApproval
-        ? 'CRITICAL action requires explicit approval.'
-        : 'CRITICAL action is allowed by the danger-mode autonomous-agent escape hatch.';
-      if (!needsApproval) factors.push('allowCriticalInDanger is enabled');
-    } else {
-      const onApprovalList = this.requireApproval.has(toolName);
-      const highRisk = RISK_ORDER[risk] >= RISK_ORDER.HIGH;
-      if (onApprovalList) factors.push('tool is in requireApproval list');
-      if (highRisk) factors.push(`risk is ${risk} (>= HIGH)`);
-      const baselineApproval = onApprovalList || highRisk;
-      needsApproval = baselineApproval && this.mode !== 'danger';
-      if (needsApproval) reason = `${toolName} (${risk}) requires approval.`;
-      else if (baselineApproval) {
-        reason = `${toolName} (${risk}) is allowed in danger mode.`;
-        factors.push('danger mode bypasses the baseline non-CRITICAL approval gate');
-      } else {
-        factors.push(`risk is ${risk} and allowed in ${this.mode} mode`);
+    if (this.mode === 'danger') {
+      if (this.requireApproval.has(toolName)) factors.push('tool is in requireApproval list');
+      if (RISK_ORDER[risk] >= RISK_ORDER.HIGH) factors.push(`risk is ${risk} (>= HIGH)`);
+      if (policyRule?.effect === 'approval') {
+        factors.push('policy-as-code approval is bypassed in danger mode');
       }
+      factors.push('danger mode bypasses all approval requirements');
+      return {
+        decision: 'allow',
+        risk,
+        reason: `${toolName} (${risk}) is allowed in danger mode without approval.`,
+        mode: this.mode,
+        mutates,
+        factors,
+      };
     }
+
+    const onApprovalList = this.requireApproval.has(toolName);
+    const highRisk = RISK_ORDER[risk] >= RISK_ORDER.HIGH;
+    if (onApprovalList) factors.push('tool is in requireApproval list');
+    if (highRisk) factors.push(`risk is ${risk} (>= HIGH)`);
+    let needsApproval = onApprovalList || highRisk;
+    let reason = needsApproval
+      ? `${toolName} (${risk}) requires approval.`
+      : `${toolName} (${risk}) is allowed.`;
+    if (!needsApproval) factors.push(`risk is ${risk} and allowed in ${this.mode} mode`);
 
     if (policyRule?.effect === 'approval') {
       needsApproval = true;

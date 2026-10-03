@@ -171,7 +171,7 @@ export interface PolicyConfig {
   blockedCommands: string[];
   /** Lifetime of a pending approval before it expires. */
   approvalTtlMs: number;
-  /** Explicit autonomous-agent escape hatch for isolated environments. */
+  /** @deprecated Legacy compatibility field. Danger mode bypasses approvals regardless. */
   allowCriticalInDanger: boolean;
   /** Additional project-relative policy files or directories. */
   files?: string[];

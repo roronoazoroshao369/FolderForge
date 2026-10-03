@@ -88,11 +88,10 @@ export interface FleetInstance {
   toolsPreset: string;
   policyMode: string;
   /**
-   * Opt-in escape hatch: only valid with policyMode "danger". When set, the
-   * spawned instance runs CRITICAL tools without per-call approval. Absent =
-   * off; dropped automatically when the policy mode leaves danger.
+   * @deprecated Legacy Fleet state accepted for compatibility. It is ignored
+   * and stripped on load/persist; danger mode itself bypasses approvals.
    */
-  allowCriticalInDanger?: boolean;
+  allowCriticalInDanger?: boolean | undefined;
   /** Operator-facing auth mode. `api-key` maps to core static-token auth + apiKeys. */
   authMode: FleetAuthMode;
   /** Non-secret OAuth resource-server configuration. */
@@ -233,13 +232,16 @@ function cloneInstance(instance: FleetInstance): FleetInstance {
  * stripped (they stay in the 0600 fleet state only).
  */
 export function publicFleetInstance(instance: FleetInstance): FleetInstance {
+  const compatibility = instance.policyMode === 'danger'
+    ? { allowCriticalInDanger: true as const }
+    : {};
   if (!instance.openAiTunnel?.apiKey && !instance.openAiTunnel?.apiKeyFile) {
-    return { ...instance };
+    return { ...instance, ...compatibility };
   }
   const publicTunnel = { ...instance.openAiTunnel };
   delete publicTunnel.apiKey;
   delete publicTunnel.apiKeyFile;
-  return { ...instance, openAiTunnel: publicTunnel };
+  return { ...instance, ...compatibility, openAiTunnel: publicTunnel };
 }
 
 function normalizeUrl(value: string, label: string): string {
@@ -437,7 +439,7 @@ export class FleetManager {
     port?: number;
     toolsPreset?: string;
     policyMode?: string;
-    /** Opt-in: allow CRITICAL tools without approval on the instance. Requires policyMode "danger". */
+    /** @deprecated Compatibility input; ignored because danger mode is autonomous. */
     allowCriticalInDanger?: boolean;
     authMode?: FleetAuthMode;
     apiKey?: string;
@@ -464,9 +466,8 @@ export class FleetManager {
     if (!(FLEET_POLICY_MODES as readonly string[]).includes(policyMode)) {
       throw new Error(`Unknown policy mode: ${policyMode} (allowed: ${FLEET_POLICY_MODES.join(', ')})`);
     }
-    if (input.allowCriticalInDanger === true && policyMode !== 'danger') {
-      throw new Error('allowCriticalInDanger requires policyMode "danger".');
-    }
+    // Legacy allowCriticalInDanger input is intentionally ignored. Danger mode
+    // now defines the autonomous approval-bypass contract by itself.
     const authMode = input.authMode ?? 'token';
     if (!(FLEET_AUTH_MODES as readonly string[]).includes(authMode)) {
       throw new Error(`Unknown auth mode: ${authMode} (allowed: ${FLEET_AUTH_MODES.join(', ')})`);
@@ -495,7 +496,6 @@ export class FleetManager {
       port,
       toolsPreset,
       policyMode,
-      ...(input.allowCriticalInDanger === true ? { allowCriticalInDanger: true } : {}),
       authMode,
       ...(oauth ? { oauth } : {}),
       ...(credential ? { tokenSha256: sha256(credential) } : {}),
@@ -857,30 +857,20 @@ export class FleetManager {
     }
     const record = this.mutable(id);
     record.policyMode = mode;
-    if (mode !== 'danger') {
-      // The escape hatch is only meaningful for danger mode: never let a
-      // stale flag survive a mode switch.
-      delete record.allowCriticalInDanger;
-    }
+    // Strip the retired escape hatch whenever the record is touched.
+    delete record.allowCriticalInDanger;
     this.touch(record);
     this.persist();
     return cloneInstance(record);
   }
 
   /**
-   * Opt-in escape hatch toggle: allow CRITICAL tools without per-call
-   * approval on this instance. Only valid while policyMode is "danger".
+   * @deprecated Compatibility no-op. Touching this setting removes any legacy
+   * persisted field; danger mode itself controls autonomous execution.
    */
-  setAllowCriticalInDanger(id: string, allow: boolean): FleetInstance {
+  setAllowCriticalInDanger(id: string, _allow: boolean): FleetInstance {
     const record = this.mutable(id);
-    if (allow && record.policyMode !== 'danger') {
-      throw new Error('allowCriticalInDanger requires policyMode "danger".');
-    }
-    if (allow) {
-      record.allowCriticalInDanger = true;
-    } else {
-      delete record.allowCriticalInDanger;
-    }
+    delete record.allowCriticalInDanger;
     this.touch(record);
     this.persist();
     return cloneInstance(record);
@@ -1144,16 +1134,14 @@ export class FleetManager {
       JSON.stringify(record.projectPath),
       '--config',
       JSON.stringify(this.configPathFor(record.id)),
+      '--http',
+      '--port',
+      String(record.port),
       '--no-dashboard',
       '--policy',
       record.policyMode,
       '--tools-preset',
       record.toolsPreset,
-      // Opt-in escape hatch: only ever emitted together with --policy danger,
-      // mirroring the CLI guard in main.ts.
-      ...(record.policyMode === 'danger' && record.allowCriticalInDanger === true
-        ? ['--dangerously-allow-critical']
-        : []),
     ].join(' ');
   }
 
@@ -1181,9 +1169,6 @@ export class FleetManager {
       record.policyMode,
       '--tools-preset',
       record.toolsPreset,
-      ...(record.policyMode === 'danger' && record.allowCriticalInDanger === true
-        ? ['--dangerously-allow-critical']
-        : []),
       tunnel.oauth ? '--oauth' : '--no-oauth',
     ].join(' ');
   }
@@ -1233,6 +1218,8 @@ export class FleetManager {
         state: normalizeRestartState(instance.state),
       };
       if (instance.oauth) normalized.oauth = cloneOauth(instance.oauth)!;
+      // Accept legacy state but ensure JSON persistence omits the retired field.
+      normalized.allowCriticalInDanger = undefined;
       // Sessions belong to the previous plane process and are never actionable.
       delete normalized.sessionId;
       if (wasActive) {

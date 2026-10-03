@@ -279,16 +279,13 @@ behavior and are reported as `source=custom`.
 
 ## Security notes for autonomous HTTP mode
 
-`--policy danger` does not automatically approve CRITICAL actions. With
-`--no-dashboard`, approval-gated actions have no dashboard approval channel. A
-fully autonomous development invocation therefore requires both:
+`--policy danger` bypasses all manual approval requirements for authorized tools,
+including CRITICAL actions. With `--no-dashboard`, no approval channel is needed
+in danger mode; explicit denies, destructive-command blocks, containment,
+authorization, audit, and rate limits remain enforced. The legacy
+`--dangerously-allow-critical` flag is a deprecated no-op.
 
-```bash
---policy danger --dangerously-allow-critical
-```
-
-Use that combination only on an isolated or tightly controlled development
-machine. It materially weakens safeguards.
+Use danger mode only on an isolated or tightly controlled development machine.
 
 `authMode=none` on a loopback address prevents remote network binding, but it does
 not prove every local process is trusted. For autonomous danger mode, use token
@@ -296,7 +293,7 @@ authentication even on loopback:
 
 ```bash
 folderforge --http --auth token --require-auth --token "<strong-random-token>" \
-  --policy danger --dangerously-allow-critical --no-dashboard
+  --policy danger --no-dashboard
 ```
 
 Keep `vibe-lite` when a capped coding/browser surface is desired. Use `full` only
