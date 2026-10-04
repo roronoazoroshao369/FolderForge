@@ -77,6 +77,18 @@ terminal:
   maxOutputBytes: 200000
   # redact | passthrough
   envPolicy: redact
+  # Danger-mode commands fail closed unless docker/podman is configured.
+  sandbox:
+    mode: docker
+    image: registry.example/folderforge-terminal@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    shell: /bin/sh
+    network: none
+    readOnlyRoot: true
+    memoryMb: 512
+    cpus: 1
+    pidsLimit: 128
+    tmpfsMb: 64
+    requireInDanger: true
 
 git:
   # approval | allow | deny

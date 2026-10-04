@@ -54,6 +54,18 @@ export function normalizeBetaEvidence(raw) {
     receivedAt: new Date().toISOString(),
   };
   if (normalized.commit.length < 7) throw new Error('commit must contain at least 7 characters.');
+  if (raw.firstTask !== undefined) {
+    if (!raw.firstTask || typeof raw.firstTask !== 'object' || Array.isArray(raw.firstTask)) throw new Error('firstTask must be an object.');
+    normalized.firstTask = {
+      attempted: bool(raw.firstTask.attempted, 'firstTask.attempted'),
+      success: bool(raw.firstTask.success, 'firstTask.success'),
+      durationMs: metric(raw.firstTask.durationMs, 'firstTask.durationMs'),
+      maintainerIntervention: bool(raw.firstTask.maintainerIntervention, 'firstTask.maintainerIntervention'),
+    };
+    if (!normalized.firstTask.attempted && normalized.firstTask.success) {
+      throw new Error('firstTask.success cannot be true when firstTask.attempted is false.');
+    }
+  }
   if (raw.externalPlugin !== undefined) {
     if (!raw.externalPlugin || typeof raw.externalPlugin !== 'object' || Array.isArray(raw.externalPlugin)) throw new Error('externalPlugin must be an object.');
     normalized.externalPlugin = {
@@ -124,6 +136,29 @@ export function betaReport(project) {
   const blockersWithoutRegression = evidence.filter((item) => item.issue?.releaseBlocking && !item.issue.regressionTestAdded);
   const final = evidence.filter((item) => item.finalCohort);
   const finalSuccessRate = final.length ? final.filter((item) => item.success).length / final.length : 0;
+  const firstTaskByInstallation = new Map();
+  for (const item of [...evidence].sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)))) {
+    if (
+      item.attemptType === 'clean-install' &&
+      item.firstTask?.attempted === true &&
+      !firstTaskByInstallation.has(item.installationHash)
+    ) {
+      firstTaskByInstallation.set(item.installationHash, item.firstTask);
+    }
+  }
+  const firstTasks = [...firstTaskByInstallation.values()];
+  const firstTaskSuccesses = firstTasks.filter((item) => item.success).length;
+  const firstTaskUnaidedWithinFiveMinutes = firstTasks.filter(
+    (item) => item.success && !item.maintainerIntervention && item.durationMs <= 300_000,
+  ).length;
+  const firstTaskSuccessRate = firstTasks.length ? firstTaskSuccesses / firstTasks.length : 0;
+  const firstTaskUnaidedWithinFiveMinutesRate = firstTasks.length
+    ? firstTaskUnaidedWithinFiveMinutes / firstTasks.length
+    : 0;
+  const firstTaskDurations = firstTasks.map((item) => item.durationMs).sort((a, b) => a - b);
+  const medianFirstTaskMs = firstTaskDurations.length
+    ? firstTaskDurations[Math.floor((firstTaskDurations.length - 1) / 2)]
+    : null;
   const externalDocs = evidence.some((item) => item.docsExercisedByExternal === true);
   const gates = {
     installations: completed.size >= 30,
@@ -132,6 +167,7 @@ export function betaReport(project) {
     externalPlugins: plugins.size >= 5,
     noSevereOpenIssues: unresolvedSevere.length === 0,
     finalCohortSuccess: final.length > 0 && finalSuccessRate >= 0.95,
+    firstTaskSuccess: firstTasks.length >= 10 && firstTaskUnaidedWithinFiveMinutesRate >= 0.80,
     regressionCoverage: blockersWithoutRegression.length === 0,
     externalDocsExercise: externalDocs,
   };
@@ -146,6 +182,14 @@ export function betaReport(project) {
     unresolvedSevereIssues: unresolvedSevere.length,
     releaseBlockersWithoutRegression: blockersWithoutRegression.length,
     finalCohort: { attempts: final.length, successRate: finalSuccessRate },
+    firstTask: {
+      attempts: firstTasks.length,
+      successes: firstTaskSuccesses,
+      successRate: firstTaskSuccessRate,
+      unaidedWithinFiveMinutes: firstTaskUnaidedWithinFiveMinutes,
+      unaidedWithinFiveMinutesRate: firstTaskUnaidedWithinFiveMinutesRate,
+      medianDurationMs: medianFirstTaskMs,
+    },
     gates,
     graduated: Object.values(gates).every(Boolean),
   };

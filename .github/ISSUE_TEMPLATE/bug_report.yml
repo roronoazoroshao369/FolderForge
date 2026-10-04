@@ -26,3 +26,28 @@ body:
     id: actual
     attributes: {label: Actual behavior and redacted diagnostics}
     validations: {required: true}
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Data loss, security boundary, or secret exposure
+        - Core workflow blocked with no workaround
+        - Core workflow blocked with a workaround
+        - Degraded UX, performance, or documentation
+    validations: {required: true}
+  - type: input
+    id: last_known_good
+    attributes: {label: Last known good version or commit, description: Leave "unknown" if not known.}
+    validations: {required: true}
+  - type: textarea
+    id: minimal_reproduction
+    attributes: {label: Minimal reproduction project or command, description: Do not include secrets or proprietary source.}
+    validations: {required: true}
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed tokens, credentials, proprietary source, screenshots, and unredacted audit logs.
+          required: true

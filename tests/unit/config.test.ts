@@ -54,6 +54,22 @@ describe('config loading + validation', () => {
     }
   });
 
+  it('defaults danger command execution to fail-closed process mode', () => {
+    const cfg = defaultConfig(TS_FIXTURE);
+    expect(cfg.terminal.sandbox).toEqual({ mode: 'process', requireInDanger: true });
+  });
+
+  it('rejects mutable or under-resourced terminal sandbox configuration', () => {
+    const cfg = defaultConfig(TS_FIXTURE);
+    cfg.terminal.sandbox = {
+      mode: 'docker',
+      image: 'example/terminal:latest',
+      requireInDanger: true,
+      memoryMb: 1,
+    };
+    expect(() => validateConfig(cfg)).toThrow(/pinned|memoryMb/);
+  });
+
   it('keeps the Playwright adapter isolated but disabled by default', () => {
     const cfg = defaultConfig(TS_FIXTURE);
     expect(cfg.adapters.playwright?.enabled).toBe(false);

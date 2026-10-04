@@ -1,5 +1,6 @@
 import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
+import { buildSandboxedShellLaunch } from '../sandbox/launcher.js';
 
 export function processTools(): ToolDefinition[] {
   return [
@@ -22,7 +23,21 @@ export function processTools(): ToolDefinition[] {
         const cwd = args.cwd
           ? ctx.container.policy.path.resolveSafe(String(args.cwd), ctx.projectRoot)
           : ctx.projectRoot;
-        const session = ctx.container.processes.start(command, cwd, ctx.config.terminal.shell);
+        const launch = buildSandboxedShellLaunch(
+          ctx.config.terminal.sandbox,
+          ctx.config.terminal.shell,
+          ctx.projectRoot,
+          cwd,
+          command,
+        );
+        const session = launch.sandboxMode === 'process'
+          ? ctx.container.processes.start(command, cwd, ctx.config.terminal.shell)
+          : ctx.container.processes.startArgv(
+              launch.command,
+              launch.args,
+              launch.cwd,
+              command,
+            );
         ctx.container.audit.record({ type: 'process_event', summary: `start ${session.sessionId}: ${command}` });
         return { ok: true, data: session };
       },

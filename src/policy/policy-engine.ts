@@ -159,13 +159,20 @@ export class PolicyEngine {
     toolName: string,
     args: Record<string, unknown>,
   ): string | undefined {
-    if (
-      (toolName === 'shell_exec' || toolName === 'process_start') &&
-      typeof args.command === 'string'
-    ) {
-      const classification = this.command.classify(args.command);
-      if (classification.blockedReason) {
-        return `Blocked destructive command: ${classification.blockedReason}`;
+    if (toolName === 'shell_exec' || toolName === 'process_start') {
+      const sandbox = this.config.terminal.sandbox;
+      if (
+        this.mode === 'danger' &&
+        sandbox?.requireInDanger !== false &&
+        (!sandbox || sandbox.mode === 'process')
+      ) {
+        return 'Danger command execution requires terminal.sandbox.mode docker or podman.';
+      }
+      if (typeof args.command === 'string') {
+        const classification = this.command.classify(args.command);
+        if (classification.blockedReason) {
+          return `Blocked destructive command: ${classification.blockedReason}`;
+        }
       }
     }
     return undefined;
@@ -209,7 +216,11 @@ export class PolicyEngine {
 
     const commandDeny = this.commandDeny(toolName, _args);
     if (commandDeny) {
-      factors.push('command matches a hard destructive-command deny');
+      factors.push(
+        commandDeny.startsWith('Danger command execution requires')
+          ? 'danger command execution requires an enforced container sandbox'
+          : 'command matches a hard destructive-command deny',
+      );
       return {
         decision: 'deny',
         risk,

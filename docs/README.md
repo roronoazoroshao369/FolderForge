@@ -47,6 +47,7 @@ repository, CI, release, or verification evidence.
 | [Benchmark protocol](../benchmarks/README.md) | Contributor / Maintainer | Neutral tasks, immutable result validation, and publication rules. |
 | [Benchmark operations](benchmark-operations.md) | Contributor / Maintainer | No-shell harness execution, evidence, environment isolation, and result creation. |
 | [Production-readiness action plan](production-readiness-action-plan.md) | Maintainer / Contributor | Approved epics, dependencies, proof gates, and 30/60/90-day execution sequence. |
+| [Stability and regression policy](stability-policy.md) | Maintainer / Contributor | Feature-freeze scope, bug definition of done, severity, and regression-test requirements. |
 
 ## Reference
 

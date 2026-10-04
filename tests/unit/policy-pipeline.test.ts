@@ -45,9 +45,12 @@ afterAll(() => {
   for (const root of isolatedRoots) rmSync(root, { recursive: true, force: true });
 });
 
-function setup(mode: PolicyMode) {
+function setup(mode: PolicyMode, allowHostDangerTerminal = false) {
   const config = loadConfig({ projectRoot: isolatedProjectRoot() });
   config.policy.defaultMode = mode;
+  if (allowHostDangerTerminal) {
+    config.terminal.sandbox = { mode: 'process', requireInDanger: false };
+  }
   const container = new Container(config);
   container.policy.setMode(mode);
   const registry = buildRegistry(container);
@@ -99,7 +102,7 @@ describe('policy pipeline: approval gating', () => {
   });
 
   it('danger mode bypasses HIGH and CRITICAL approval gates without creating requests', async () => {
-    const { container, registry } = setup('danger');
+    const { container, registry } = setup('danger', true);
     const before = container.policy.approvals.all().length;
 
     const high = await registry.call('shell_exec', { command: 'echo danger-ok' });
@@ -126,8 +129,22 @@ describe('policy pipeline: approval gating', () => {
     expect(explanation.factors).toContain('danger mode bypasses all approval requirements');
   });
 
+  it('danger mode fails closed for host command execution when a container sandbox is required', async () => {
+    const { container, registry } = setup('danger');
+    const res = await registry.call('shell_exec', { command: 'echo must-not-run-on-host' });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/requires terminal\.sandbox\.mode docker or podman/i);
+    expect(res.approvalId).toBeUndefined();
+    expect(container.policy.explain('shell_exec', 'HIGH', true, { command: 'echo x' }))
+      .toMatchObject({
+        decision: 'deny',
+        mode: 'danger',
+        factors: ['danger command execution requires an enforced container sandbox'],
+      });
+  });
+
   it('danger mode still hard-denies destructive blocked commands', async () => {
-    const { registry } = setup('danger');
+    const { registry } = setup('danger', true);
     const res = await registry.call('shell_exec', { command: 'git push --force origin main' });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/Blocked destructive command/i);

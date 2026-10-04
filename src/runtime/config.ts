@@ -238,6 +238,10 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
       defaultTimeoutMs: 120000,
       maxOutputBytes: 200000,
       envPolicy: 'redact',
+      sandbox: {
+        mode: 'process',
+        requireInDanger: true,
+      },
     },
     git: {
       allowCommit: 'approval',
@@ -527,6 +531,43 @@ export function validateConfig(cfg: FolderForgeConfig): void {
   }
   if (!['redact', 'passthrough'].includes(cfg.terminal.envPolicy)) {
     errors.push(`terminal.envPolicy must be "redact" or "passthrough" (got "${cfg.terminal.envPolicy}")`);
+  }
+  const terminalSandbox = cfg.terminal.sandbox;
+  if (terminalSandbox) {
+    if (!['process', 'docker', 'podman'].includes(terminalSandbox.mode)) {
+      errors.push('terminal.sandbox.mode must be process, docker, or podman');
+    }
+    if (typeof terminalSandbox.requireInDanger !== 'boolean') {
+      errors.push('terminal.sandbox.requireInDanger must be a boolean');
+    }
+    if (terminalSandbox.mode !== 'process') {
+      if (!terminalSandbox.image || /\s|\0/.test(terminalSandbox.image)) {
+        errors.push('terminal.sandbox.image is required and must not contain whitespace');
+      } else if (
+        terminalSandbox.requireImageDigest !== false &&
+        !/@sha256:[a-f0-9]{64}$/i.test(terminalSandbox.image)
+      ) {
+        errors.push('terminal.sandbox.image must be pinned with @sha256:<64 hex> unless requireImageDigest=false');
+      }
+    }
+    for (const [label, value, min, max] of [
+      ['memoryMb', terminalSandbox.memoryMb, 64, 65_536],
+      ['pidsLimit', terminalSandbox.pidsLimit, 16, 4096],
+      ['tmpfsMb', terminalSandbox.tmpfsMb, 8, 4096],
+    ] as const) {
+      if (value !== undefined && (!Number.isSafeInteger(value) || value < min || value > max)) {
+        errors.push(`terminal.sandbox.${label} must be an integer from ${min} to ${max}`);
+      }
+    }
+    if (
+      terminalSandbox.cpus !== undefined &&
+      (!Number.isFinite(terminalSandbox.cpus) || terminalSandbox.cpus < 0.1 || terminalSandbox.cpus > 64)
+    ) {
+      errors.push('terminal.sandbox.cpus must be from 0.1 to 64');
+    }
+    if (terminalSandbox.network !== undefined && !['none', 'bridge'].includes(terminalSandbox.network)) {
+      errors.push('terminal.sandbox.network must be none or bridge');
+    }
   }
   if (cfg.rateLimit.enabled) {
     const rules: Array<[string, { maxCalls: number; windowMs: number; dailyQuota?: number }]> = [

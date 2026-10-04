@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { applySandboxLaunch, sandboxSummary } from '../../src/sandbox/launcher.js';
+import {
+  applySandboxLaunch,
+  buildSandboxedShellLaunch,
+  sandboxSummary,
+} from '../../src/sandbox/launcher.js';
 import type { AdapterDef } from '../../src/core/types.js';
+import { resolve } from 'node:path';
 
 const digest = 'sha256:' + 'a'.repeat(64);
 
@@ -75,6 +80,49 @@ describe('container child sandbox launcher', () => {
     resources.sandbox = { ...resources.sandbox!, memoryMb: 1 };
     expect(() => applySandboxLaunch(resources, { command: 'node', args: [], source: 'custom' }))
       .toThrow(/memoryMb/);
+  });
+
+  it('builds a pinned, workspace-scoped terminal container launch', () => {
+    const root = process.cwd();
+    const launch = buildSandboxedShellLaunch(
+      {
+        mode: 'podman',
+        image: `example/terminal@${digest}`,
+        requireInDanger: true,
+      },
+      '/bin/bash',
+      root,
+      root,
+      'npm test',
+    );
+    expect(launch).toMatchObject({
+      command: 'podman',
+      cwd: root,
+      sandboxMode: 'podman',
+      sandboxImage: `example/terminal@${digest}`,
+    });
+    expect(launch.args).toEqual(expect.arrayContaining([
+      '--pull=never', '--network=none', '--cap-drop=ALL', '--read-only',
+      '--workdir', '/workspace', `example/terminal@${digest}`, '/bin/sh', '-lc', 'npm test',
+    ]));
+    expect(launch.args.some((value) => value.includes(`src=${root},dst=/workspace`))).toBe(true);
+  });
+
+  it('rejects terminal cwd escapes and mutable terminal images', () => {
+    expect(() => buildSandboxedShellLaunch(
+      { mode: 'docker', image: 'example/terminal:latest', requireInDanger: true },
+      '/bin/sh',
+      process.cwd(),
+      process.cwd(),
+      'true',
+    )).toThrow(/pinned.*sha256/i);
+    expect(() => buildSandboxedShellLaunch(
+      { mode: 'docker', image: `example/terminal@${digest}`, requireInDanger: true },
+      '/bin/sh',
+      process.cwd(),
+      resolve(process.cwd(), '..'),
+      'true',
+    )).toThrow(/inside the workspace root/i);
   });
 
   it('preserves process-mode launches for trusted adapters', () => {

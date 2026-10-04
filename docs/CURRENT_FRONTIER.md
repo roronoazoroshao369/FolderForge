@@ -46,7 +46,7 @@ A stale `fast-uri` exact-version assertion was updated from `4.1.4` to the packa
 
 Node 22 `npm run verify`, `npm run quality:check`, `docs:check`, `smoke:package`, `smoke:stdio`, and authenticated `smoke:http` all pass. Production/full dependency audits are clean.
 
-`npm run release:check` remains a post-commit gate because its preflight requires the candidate HEAD to match `origin/main` and tag `v3.0.0` to point at that exact commit.
+`npm run release:check` remains a post-commit gate because its preflight requires the candidate HEAD to match `origin/main` and tag `v3.0.1` to point at that exact commit.
 
 ## P1 — Commit and certify the 3.0.0 checkpoint
 

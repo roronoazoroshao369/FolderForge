@@ -177,11 +177,31 @@ export interface PolicyConfig {
   files?: string[];
 }
 
+export interface TerminalSandboxConfig {
+  mode: "process" | "docker" | "podman";
+  /** Pre-existing image; container backends never pull automatically. */
+  image?: string;
+  /** Shell used inside the container. Defaults to /bin/sh. */
+  shell?: string;
+  network?: "none" | "bridge";
+  readOnlyRoot?: boolean;
+  memoryMb?: number;
+  cpus?: number;
+  pidsLimit?: number;
+  tmpfsMb?: number;
+  /** Require image@sha256:... pinning. Defaults true. */
+  requireImageDigest?: boolean;
+  /** Fail closed for shell_exec/process_start in danger mode unless containerized. Defaults true. */
+  requireInDanger?: boolean;
+}
+
 export interface TerminalConfig {
   shell: string;
   defaultTimeoutMs: number;
   maxOutputBytes: number;
   envPolicy: "redact" | "passthrough";
+  /** Isolation boundary for shell_exec and process_start. */
+  sandbox?: TerminalSandboxConfig;
 }
 
 export interface GitConfig {

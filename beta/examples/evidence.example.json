@@ -9,6 +9,12 @@
   "attemptType": "clean-install",
   "success": true,
   "finalCohort": false,
+  "firstTask": {
+    "attempted": true,
+    "success": true,
+    "durationMs": 180000,
+    "maintainerIntervention": false
+  },
   "docsExercisedByExternal": true,
   "metrics": {
     "timeToFirstToolMs": 45000,

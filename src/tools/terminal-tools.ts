@@ -4,6 +4,7 @@ import type { ToolDefinition } from '../core/types.js';
 import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
 import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 import { armTreeKillTimeout } from '../core/process-tree.js';
+import { buildSandboxedShellLaunch } from '../sandbox/launcher.js';
 import type { ChildProcess } from 'node:child_process';
 
 export function terminalTools(): ToolDefinition[] {
@@ -38,18 +39,26 @@ export function terminalTools(): ToolDefinition[] {
 
         const started = Date.now();
         try {
-          const child = execa(
+          const launch = buildSandboxedShellLaunch(
+            ctx.config.terminal.sandbox,
             ctx.config.terminal.shell,
-            shellCommandArgs(ctx.config.terminal.shell, command),
+            ctx.projectRoot,
+            cwd,
+            command,
+          );
+          const processMode = launch.sandboxMode === 'process';
+          const child = execa(
+            launch.command,
+            processMode ? shellCommandArgs(ctx.config.terminal.shell, command) : launch.args,
             {
-              cwd,
+              cwd: launch.cwd,
               reject: false,
               all: false,
               maxBuffer: maxBytes * 4,
               // Detached on POSIX so a timeout can reap the whole process
               // group, not just the direct shell child (proposal 008).
               ...(process.platform !== 'win32' ? { detached: true as const } : {}),
-              ...shellSpawnOptions(ctx.config.terminal.shell),
+              ...(processMode ? shellSpawnOptions(ctx.config.terminal.shell) : {}),
             }
           );
           // A natural timeout must reap the whole tree: execa's own timeout

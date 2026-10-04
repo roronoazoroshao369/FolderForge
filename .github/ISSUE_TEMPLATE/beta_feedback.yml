@@ -35,6 +35,29 @@ body:
     validations:
       required: true
   - type: dropdown
+    id: first_task_outcome
+    attributes:
+      label: First-task outcome
+      description: For a fresh clean install, use the predefined beta task and report the first attempt only.
+      options: [Succeeded, Failed, Not attempted, Not a fresh clean install]
+    validations:
+      required: true
+  - type: input
+    id: first_task_duration
+    attributes:
+      label: First-task elapsed time in seconds
+      description: Use 0 when not attempted. Stop measurement at five minutes.
+      placeholder: "180"
+    validations:
+      required: true
+  - type: dropdown
+    id: first_task_intervention
+    attributes:
+      label: Did a maintainer intervene during the first task?
+      options: [No, Yes, Not applicable]
+    validations:
+      required: true
+  - type: dropdown
     id: area
     attributes:
       label: Area

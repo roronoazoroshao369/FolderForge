@@ -31,6 +31,45 @@ are inherited by the container runtime at execution time and are not embedded in
 logged arguments. Mount sources must be absolute host paths and mount targets
 must be absolute POSIX paths without `..` or duplicate targets.
 
+## Terminal command sandbox
+
+`terminal.sandbox` governs `shell_exec` and `process_start`. The default is
+`mode: process` with `requireInDanger: true`: safe/dev preserve approval-gated
+host execution, while danger fails closed instead of silently running a command
+on the host. Configure a pre-existing digest-pinned image to enable danger
+commands:
+
+```yaml
+terminal:
+  shell: /bin/bash
+  defaultTimeoutMs: 120000
+  maxOutputBytes: 200000
+  envPolicy: redact
+  sandbox:
+    mode: docker # or podman
+    image: registry.example/folderforge-terminal@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    shell: /bin/sh
+    network: none
+    readOnlyRoot: true
+    memoryMb: 512
+    cpus: 1
+    pidsLimit: 128
+    tmpfsMb: 64
+    requireInDanger: true
+```
+
+FolderForge mounts only the active project root, read-write, at `/workspace` and
+maps the requested cwd beneath it. The root filesystem remains read-only and host
+environment variables are not forwarded into the container. A cwd escape,
+mutable image tag, missing runtime/image, or invalid resource contract fails the
+call; it never falls back to process mode.
+
+A trusted local operator may explicitly set `requireInDanger: false` with
+`mode: process` for backward compatibility. That opts back into commands running
+with the FolderForge user's host privileges. Destructive-command blocks,
+workspace policy for native tools, authorization, audit, and rate limits still
+apply; the opt-out is not a general hard-deny bypass.
+
 ## Plugin manifest
 
 A local plugin can request a sandbox inside `runtime`:

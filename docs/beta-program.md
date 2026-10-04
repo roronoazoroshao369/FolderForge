@@ -10,6 +10,7 @@ required CI matrix.
 The beta is intended to validate real usage rather than maximize sign-ups:
 
 - installation and first MCP connection on Ubuntu, macOS, and Windows;
+- at least 80% of fresh participants complete a defined first task within five minutes without maintainer intervention;
 - compatibility with at least three independent MCP clients;
 - recovery from child MCP failures and approval interruptions;
 - plugin manifest authoring, sandbox setup, and diagnostics;
@@ -48,9 +49,12 @@ source. Use disposable or approved test projects. Security findings follow
 
 Collect version/commit, operating system, Node version, MCP client, configuration
 shape, reproduction steps, expected/actual behavior, redacted doctor output, and
-whether a safe workaround exists. Optional metrics include time-to-first-tool,
-tool discovery count, approval interruptions, child recovery time, and artifact
-size. Do not collect tokens, credentials, source files, audit logs, screenshots,
+whether a safe workaround exists. For each fresh clean install, record exactly one
+`firstTask` result: whether it was attempted, whether it succeeded, elapsed
+milliseconds from task presentation to completion, and whether a maintainer
+intervened. Use the same predefined task and stop the timer at five minutes.
+Optional metrics include time-to-first-tool, approval interruptions, and child
+recovery time. Do not collect tokens, credentials, source files, audit logs, screenshots,
 or personal data unless the participant deliberately attaches a reviewed and
 redacted sample.
 
@@ -62,6 +66,7 @@ Beta can graduate only after:
 - at least five external plugin packages complete validation and sandbox review;
 - no unresolved critical/high vulnerability or data-loss report;
 - at least 95% successful clean-install and upgrade attempts in the final cohort;
+- at least 10 unique fresh-install first-task attempts, with at least 80% completed successfully within five minutes and without maintainer intervention;
 - every reproducible release-blocking failure has a regression test;
 - support, migration, and rollback documentation has been exercised by someone
   other than the primary maintainer.
@@ -96,7 +101,9 @@ The intake tool:
 The report sets `graduated=true` only when every exit gate has evidence: at least
 30 successful unique installations, Ubuntu/macOS/Windows coverage, at least three
 independent clients, five validated+sandbox-reviewed external plugins, no open
-high/critical/data-loss issue, at least 95% final-cohort success, regression tests
-for every release blocker, and documentation exercised by an external person.
+high/critical/data-loss issue, at least 95% final-cohort success, at least 10
+unique first-task attempts with 80% unaided completion within five minutes,
+regression tests for every release blocker, and documentation exercised by an
+external person.
 Code cannot manufacture these external facts; public recruitment and evidence
 collection remain operator-controlled.

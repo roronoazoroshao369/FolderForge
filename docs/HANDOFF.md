@@ -30,7 +30,7 @@ Current frontier:
 
 1. commit and push the coherent 3.0.0 candidate;
 2. obtain exact-candidate Ubuntu/macOS/Windows × Node 22/24 CI evidence;
-3. create and verify `v3.0.0` on that exact SHA;
+3. create and verify `v3.0.1` on that exact SHA (`v3.0.0` is abandoned; do not retag or publish it);
 4. retain a genuine 24-hour soak separately; short soak smoke and volume simulation do not satisfy that production-evidence requirement.
 
 ## Verification evidence from the latest resume
@@ -47,7 +47,7 @@ Current frontier:
 - production and full dependency audits: **0 vulnerabilities**;
 - 3.0.0 danger semantics: zero manual approval after hard-deny/authorization checks; policy-as-code deny still wins; legacy `allowCriticalInDanger` is ignored and not persisted;
 - full Node 22 and Node 24 `npm run verify`: **PASS**;
-- `npm run release:check`: post-commit gate requiring candidate HEAD = `origin/main` and `v3.0.0` on the same exact SHA.
+- `npm run release:check`: post-commit gate requiring candidate HEAD = `origin/main` and `v3.0.1` on the same exact SHA.
 
 Historical external CI for committed HEAD had platform failures. The current uncommitted candidate has no exact-SHA cross-platform evidence yet.
 

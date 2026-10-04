@@ -16,6 +16,17 @@
     "attemptType": { "enum": ["clean-install", "upgrade"] },
     "success": { "type": "boolean" },
     "finalCohort": { "type": "boolean" },
+    "firstTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempted", "success", "durationMs", "maintainerIntervention"],
+      "properties": {
+        "attempted": { "type": "boolean" },
+        "success": { "type": "boolean" },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "maintainerIntervention": { "type": "boolean" }
+      }
+    },
     "externalPlugin": {
       "type": "object",
       "additionalProperties": false,

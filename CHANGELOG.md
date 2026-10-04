@@ -4,7 +4,17 @@ All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
-## [Unreleased]
+## [3.0.1] - 2026-10-04
+
+### Security
+
+- **`v3.0.0` is abandoned and must not be released or published.** The public `v3.0.0` tag (commit `953e827a4095d52e0b9d2d001e86d13eb98fcd32`) predates the terminal sandbox hardening below: it runs `shell_exec` and `process_start` on the host shell in `danger` mode. It is left untouched (no retag or deletion); `3.0.1` supersedes it and carries the 3.0.0 zero-approval semantics together with fail-closed command containment.
+
+### Added
+
+- Danger-mode command containment: `shell_exec` and `process_start` now fail closed by default unless `terminal.sandbox` uses Docker or Podman. Container launches use a pre-existing digest-pinned image, no pull, dropped capabilities, no-new-privileges, read-only root, bounded resources, no network by default, and a single workspace mount. Trusted-host compatibility requires an explicit `requireInDanger: false` opt-out.
+- External beta evidence now records first-task attempt, success, duration, and maintainer intervention, and reports a unique-installation gate requiring at least 10 attempts with 80% completed unaided within five minutes.
+- Formal proposal 023 and a repository-wide stability policy record Danger Mode council findings, the pending human-ratification boundary, the feature freeze, and the requirement that every reproducible bug gain regression coverage.
 
 ## [3.0.0] - 2026-10-03
 

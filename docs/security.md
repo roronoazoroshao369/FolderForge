@@ -72,11 +72,17 @@ external OS/container boundary or descriptor-relative filesystem primitives.
 For `shell_exec`, the classifier result has a runtime floor of **HIGH**. A host
 shell is not a filesystem sandbox: an apparently benign command, script, or
 interpreter can access paths outside `workspace.allowedDirectories` using the
-FolderForge process user's OS permissions. Consequently every shell invocation
-requires approval in `safe`/`dev`; known destructive patterns remain CRITICAL.
-`danger` mode is an explicit trusted-environment bypass, not workspace isolation.
-Use native file/build/git tools where possible, or external OS/container sandboxing
-when untrusted commands must execute.
+FolderForge process user's OS permissions. Consequently every host-shell
+invocation requires approval in `safe`/`dev`; known destructive patterns remain
+hard denied.
+
+In `danger`, `shell_exec` and `process_start` fail closed by default unless
+`terminal.sandbox.mode` is `docker` or `podman`. The container uses a digest-pinned
+pre-existing image, a read-only root, dropped capabilities, no-new-privileges,
+resource limits, no network by default, and only the active workspace mounted
+read-write at `/workspace`. `terminal.sandbox.requireInDanger: false` is an
+explicit trusted-host compatibility escape hatch; it restores host execution but
+does not bypass blocked commands or other hard boundaries. See [Sandboxing](sandbox.md).
 
 Config `policy.blockedCommands` adds project-specific substring/wildcard rules
 on top of the built-in regex set.

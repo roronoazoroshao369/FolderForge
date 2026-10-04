@@ -20,6 +20,7 @@ describe('terminal tool diagnostics', () => {
   it('preserves a useful primary error and structured output on non-zero exit', async () => {
     const config = defaultConfig(root);
     config.policy.defaultMode = 'danger';
+    config.terminal.sandbox = { mode: 'process', requireInDanger: false };
     config.rateLimit.enabled = false;
     const registry = buildRegistry(new Container(config));
 
@@ -44,6 +45,7 @@ describe('terminal tool diagnostics', () => {
     if (process.platform === 'win32') return; // POSIX group-kill proof
     const config = defaultConfig(root);
     config.policy.defaultMode = 'danger';
+    config.terminal.sandbox = { mode: 'process', requireInDanger: false };
     config.rateLimit.enabled = false;
     const registry = buildRegistry(new Container(config));
 

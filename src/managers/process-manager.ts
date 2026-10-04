@@ -46,22 +46,40 @@ export class ProcessManager {
   private exitListeners = new Map<string, Set<() => void>>();
 
   start(command: string, cwd: string, shell: string, env?: Record<string, string>): ProcessSession {
-    const sessionId = `proc_${randomUUID().slice(0, 8)}`;
-    const child = spawn(shell, shellCommandArgs(shell, command), {
+    return this.startArgv(
+      shell,
+      shellCommandArgs(shell, command),
       cwd,
-      // Optional per-session env overlay (e.g. a pasted OpenAI tunnel key):
-      // merged over the process env, never placed in the command string.
-      env: env ? { ...process.env, ...env } : process.env,
+      command,
+      env,
+      true,
+      shellSpawnOptions(shell),
+    );
+  }
+
+  startArgv(
+    executable: string,
+    args: string[],
+    cwd: string,
+    displayCommand: string,
+    env?: Record<string, string>,
+    inheritEnv = true,
+    spawnOptions: Record<string, unknown> = {},
+  ): ProcessSession {
+    const sessionId = `proc_${randomUUID().slice(0, 8)}`;
+    const child = spawn(executable, args, {
+      cwd,
+      env: inheritEnv ? (env ? { ...process.env, ...env } : process.env) : (env ?? {}),
       // POSIX: one process group per session so tree-kill can target -pid.
       // Windows keeps its own console semantics; taskkill /T covers the tree.
       detached: process.platform !== 'win32',
-      ...shellSpawnOptions(shell),
+      ...spawnOptions,
     }) as ChildProcessWithoutNullStreams;
 
     const session: InternalSession = {
       sessionId,
       pid: child.pid,
-      command,
+      command: displayCommand,
       cwd,
       status: 'running',
       exitCode: null,

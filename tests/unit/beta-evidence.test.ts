@@ -19,6 +19,12 @@ function record(overrides = {}) {
     attemptType: 'clean-install',
     success: true,
     finalCohort: true,
+    firstTask: {
+      attempted: true,
+      success: true,
+      durationMs: 120_000,
+      maintainerIntervention: false,
+    },
     notes: 'OPENAI_API_KEY=secret',
     ...overrides,
   };
@@ -46,6 +52,33 @@ describe('beta evidence intake and graduation gates', () => {
       completedInstallations: 1,
       graduated: false,
       gates: { installations: false, osCoverage: false, clients: false, externalPlugins: false },
+    });
+  });
+
+  it('measures unique unaided first-task success within five minutes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-beta-'));
+    roots.push(root);
+    for (let index = 0; index < 10; index += 1) {
+      ingestBetaEvidence(root, record({
+        installationId: `participant-${String(index).padStart(8, '0')}`,
+        firstTask: {
+          attempted: true,
+          success: index !== 8,
+          durationMs: index === 9 ? 90_000 : 120_000,
+          maintainerIntervention: index === 9,
+        },
+      }));
+    }
+    expect(betaReport(root)).toMatchObject({
+      firstTask: {
+        attempts: 10,
+        successes: 9,
+        successRate: 0.9,
+        unaidedWithinFiveMinutes: 8,
+        unaidedWithinFiveMinutesRate: 0.8,
+        medianDurationMs: 120_000,
+      },
+      gates: { firstTaskSuccess: true },
     });
   });
 

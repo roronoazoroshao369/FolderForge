@@ -7,10 +7,10 @@ _Last verified: 2026-10-03 against the live repository and public distribution s
 - Repository: `/home/devops/FolderForge`
 - Branch: `main`
 - Release candidate SHA: the commit containing this document; exact-SHA CI records the immutable identifier.
-- Target package version: `3.0.0` (breaking security semantics).
+- Target package version: `3.0.1` (breaking security semantics inherited from the abandoned 3.0.0 candidate).
 - npm `latest` before this release: `2.9.0`.
 - Previous npm/tag commit: `v2.9.0` at `b0f720a225598e4fc314cbd86b6ea2d94ae7cae5`.
-- Target tag: `v3.0.0` after exact-SHA CI passes.
+- Target tag: `v3.0.1` after exact-SHA CI and a completed 24-hour soak on the same SHA. `v3.0.0` is public but abandoned (its source lacks terminal sandbox hardening); never retag or publish it.
 
 ## Working tree
 

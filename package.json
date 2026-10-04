@@ -1,6 +1,6 @@
 {
   "name": "@musashishao/folderforge",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "FolderForge - the all-in-one MCP-native local development control plane for AI coding agents.",
   "keywords": [
     "mcp",

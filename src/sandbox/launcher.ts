@@ -1,5 +1,10 @@
-import { isAbsolute, resolve } from 'node:path';
-import type { AdapterDef, ChildSandboxConfig, ChildSandboxMount } from '../core/types.js';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import type {
+  AdapterDef,
+  ChildSandboxConfig,
+  ChildSandboxMount,
+  TerminalSandboxConfig,
+} from '../core/types.js';
 import type { ResolvedAdapterLaunch } from '../adapters/child-mcp/resolve.js';
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -123,6 +128,86 @@ export function applySandboxLaunch(
     command: sandbox.mode,
     args,
     sandboxMode: sandbox.mode,
+    sandboxImage: image,
+  };
+}
+
+export interface SandboxedShellLaunch {
+  command: string;
+  args: string[];
+  cwd: string;
+  sandboxMode: 'process' | 'docker' | 'podman';
+  sandboxImage?: string;
+}
+
+/** Build a host-shell or fail-closed container launch for terminal commands. */
+export function buildSandboxedShellLaunch(
+  sandbox: TerminalSandboxConfig | undefined,
+  hostShell: string,
+  projectRoot: string,
+  cwd: string,
+  command: string,
+): SandboxedShellLaunch {
+  const mode = sandbox?.mode ?? 'process';
+  if (mode === 'process') {
+    return {
+      command: hostShell,
+      args: [],
+      cwd,
+      sandboxMode: 'process',
+    };
+  }
+  if (!['docker', 'podman'].includes(mode)) {
+    throw new Error(`Unsupported terminal sandbox mode: ${String(mode)}`);
+  }
+
+  const image = String(sandbox?.image ?? '').trim();
+  if (!image || /\s|\0/.test(image)) {
+    throw new Error('terminal.sandbox.image is required and must not contain whitespace.');
+  }
+  if (sandbox?.requireImageDigest !== false && !DIGEST_PIN.test(image)) {
+    throw new Error('terminal.sandbox.image must be pinned with @sha256:<64 hex> unless requireImageDigest=false is explicit.');
+  }
+  const containerShell = validateContainerPath(sandbox?.shell ?? '/bin/sh', 'terminal.sandbox.shell');
+  const root = resolve(projectRoot);
+  if (root.includes('\0') || root.includes(',')) {
+    throw new Error('terminal sandbox workspace path must not contain NUL or commas.');
+  }
+  const resolvedCwd = resolve(cwd);
+  const relativeCwd = relative(root, resolvedCwd);
+  if (relativeCwd === '..' || relativeCwd.startsWith(`..${sep}`) || isAbsolute(relativeCwd)) {
+    throw new Error('terminal sandbox cwd must remain inside the workspace root.');
+  }
+  const containerCwd = relativeCwd
+    ? `/workspace/${relativeCwd.split(sep).join('/')}`
+    : '/workspace';
+  const memoryMb = boundedInteger(sandbox?.memoryMb, 512, 64, 65_536, 'terminal.sandbox.memoryMb');
+  const cpus = boundedNumber(sandbox?.cpus, 1, 0.1, 64, 'terminal.sandbox.cpus');
+  const pidsLimit = boundedInteger(sandbox?.pidsLimit, 128, 16, 4096, 'terminal.sandbox.pidsLimit');
+  const tmpfsMb = boundedInteger(sandbox?.tmpfsMb, 64, 8, 4096, 'terminal.sandbox.tmpfsMb');
+  const network = sandbox?.network ?? 'none';
+  if (!['none', 'bridge'].includes(network)) throw new Error('terminal.sandbox.network must be none or bridge.');
+
+  const args = [
+    'run', '--rm', '-i', '--init', '--pull=never', `--network=${network}`,
+    '--cap-drop=ALL', '--security-opt=no-new-privileges',
+    `--pids-limit=${pidsLimit}`, `--memory=${memoryMb}m`, `--cpus=${cpus}`,
+    '--tmpfs', `/tmp:rw,noexec,nosuid,size=${tmpfsMb}m`,
+  ];
+  if (sandbox?.readOnlyRoot !== false) args.push('--read-only');
+  if (typeof process.getuid === 'function' && typeof process.getgid === 'function') {
+    args.push('--user', `${process.getuid()}:${process.getgid()}`);
+  }
+  args.push(
+    '--mount', `type=bind,src=${root},dst=/workspace`,
+    '--workdir', containerCwd,
+    image, containerShell, '-lc', command,
+  );
+  return {
+    command: mode,
+    args,
+    cwd: root,
+    sandboxMode: mode,
     sandboxImage: image,
   };
 }
