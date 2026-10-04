@@ -30,14 +30,18 @@ MCP process restarted even when the public URL stayed the same.
 Every governed mutating tool result includes an `operationId` and one execution
 state:
 
-- `executed`: the handler started and returned a terminal result;
+- `executed`: the operation completed successfully;
+- `failed`: the operation started and returned a known failure, such as a non-zero
+  exit code, timeout, or signal;
 - `replayed`: the same JSON-RPC request ID and canonical arguments were already
   handled in the current session, so FolderForge returned the recorded result
   without executing the handler again;
-- `not_started`: policy, approval, quota, cancellation, or required pre-execution
-  evidence prevented handler execution;
-- `outcome_uncertain`: handler execution started, but required terminal audit
-  evidence could not be persisted. Do not retry automatically.
+- `not_started`: policy, approval, quota, cancellation, preflight validation, a
+  missing execution runtime, or required pre-execution evidence prevented the
+  operation from starting;
+- `outcome_uncertain`: execution may have started, but FolderForge cannot prove a
+  terminal outcome (including required audit persistence failure). Do not retry
+  automatically.
 
 Reusing one request ID for different mutating arguments fails with
 `MCP_REQUEST_ID_CONFLICT`. Numeric and string JSON-RPC IDs are distinct.

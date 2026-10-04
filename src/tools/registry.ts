@@ -640,7 +640,7 @@ export class ToolRegistry {
           summary: result.ok ? "ok" : (result.error ?? "error"),
           detail: identityDetail,
         });
-        return finish(result, "executed");
+        return finish(result, result.execution ?? (result.ok ? "executed" : "failed"));
       } catch (err) {
         if (err instanceof AuditUnavailableError) throw err;
         const message =
@@ -661,7 +661,7 @@ export class ToolRegistry {
           summary: message,
           detail: identityDetail,
         });
-        return finish({ ok: false, error: message }, "executed");
+        return finish({ ok: false, error: message }, "failed");
       }
     } catch (err) {
       if (!(err instanceof AuditUnavailableError)) throw err;

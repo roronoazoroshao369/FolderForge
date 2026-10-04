@@ -32,6 +32,7 @@ describe('terminal tool diagnostics', () => {
     const result = await registry.call('shell_exec', { command });
 
     expect(result.ok).toBe(false);
+    expect(result.execution).toBe('failed');
     expect(result.error).toBe('Command exited with code 7.');
     expect(result.data).toMatchObject({
       exitCode: 7,
@@ -39,6 +40,23 @@ describe('terminal tool diagnostics', () => {
       stderr: expect.stringContaining('diagnostic failure'),
       risk: 'HIGH',
     });
+  });
+
+  it('reports a missing execution runtime as not_started instead of an unknown exit', async () => {
+    const config = defaultConfig(root);
+    config.policy.defaultMode = 'danger';
+    config.terminal.sandbox = { mode: 'process', requireInDanger: false };
+    config.terminal.shell = join(root, 'missing-shell') as typeof config.terminal.shell;
+    config.rateLimit.enabled = false;
+    const registry = buildRegistry(new Container(config));
+
+    const result = await registry.call('shell_exec', { command: 'echo unreachable' });
+
+    expect(result.ok).toBe(false);
+    expect(result.execution).toBe('not_started');
+    expect(result.error).toContain('Command was not started:');
+    expect(result.error).not.toContain('code unknown');
+    expect(result.data).toMatchObject({ exitCode: null });
   });
 
   it('reaps an orphaned grandchild when shell_exec hits its natural timeout', async () => {
@@ -59,6 +77,8 @@ describe('terminal tool diagnostics', () => {
     });
     const elapsedMs = Date.now() - started;
     expect(result.ok).toBe(false);
+    expect(result.execution).toBe('failed');
+    expect(result.error).toBe('Command timed out after 500ms.');
     expect(elapsedMs).toBeLessThan(10_000); // pre-fix the orphan held the pipes ~300s
     const orphans = spawnSync('pgrep', ['-f', marker], { stdio: 'pipe' });
     expect(orphans.status).not.toBe(0); // the grandchild died with the group

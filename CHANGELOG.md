@@ -12,6 +12,7 @@ semantic versioning.
 
 ### Fixed
 
+- **R12:** terminal calls now distinguish `not_started`, `failed`, `executed`, and `outcome_uncertain`; a missing shell/container runtime reports that execution never started, while timeouts, signals, and non-zero exits report actionable failures instead of `Command exited with code unknown.`
 - **R11 (High, found by the new runtime tests):** a `shell_exec` timeout or `process_kill` / shutdown escalation used to kill only the host-side `docker`/`podman` CLI, leaving the container running with workspace write access. Terminal containers now get a unique `--name folderforge-term-<random>` and are force-removed (`<runtime> rm -f`, no shell, bounded 15s) on timeout, signal death, `process_kill` and forced shutdown. The former `it.fails` pins are now ordinary regression tests. Not covered: a hard crash of the FolderForge process itself can still orphan a container (remove with `docker ps` / `docker rm -f`).
 
 ### Added

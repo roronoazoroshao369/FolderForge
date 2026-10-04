@@ -84,13 +84,52 @@ export function terminalTools(): ToolDefinition[] {
             durationMs: Date.now() - started,
             risk: effectiveRisk,
           };
-          return sub.exitCode === 0
-            ? { ok: true, data }
-            : {
-                ok: false,
-                error: `Command exited with code ${sub.exitCode ?? 'unknown'}.`,
-                data,
-              };
+          if (sub.exitCode === 0) return { ok: true, data };
+
+          const notStarted =
+            sub.failed &&
+            sub.exitCode === undefined &&
+            sub.signal === undefined &&
+            !treeTimeout.timedOut;
+          if (notStarted) {
+            const diagnostic = redact(sub.shortMessage || sub.stderr || 'execution runtime unavailable');
+            return {
+              ok: false,
+              execution: 'not_started',
+              error: `Command was not started: ${diagnostic}`,
+              data,
+            };
+          }
+          if (treeTimeout.timedOut) {
+            return {
+              ok: false,
+              execution: 'failed',
+              error: `Command timed out after ${timeout}ms.`,
+              data,
+            };
+          }
+          if (sub.exitCode !== undefined) {
+            return {
+              ok: false,
+              execution: 'failed',
+              error: `Command exited with code ${sub.exitCode}.`,
+              data,
+            };
+          }
+          if (sub.signal !== undefined) {
+            return {
+              ok: false,
+              execution: 'failed',
+              error: `Command failed after starting (signal ${sub.signal}).`,
+              data,
+            };
+          }
+          return {
+            ok: false,
+            execution: 'outcome_uncertain',
+            error: 'Command outcome is uncertain after execution started. Do not retry automatically.',
+            data,
+          };
         } catch (err) {
           return { ok: false, error: `Execution failed: ${String(err)}` };
         }

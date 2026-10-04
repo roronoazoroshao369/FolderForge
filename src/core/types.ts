@@ -519,8 +519,8 @@ export interface ToolResult {
   ok: boolean;
   /** Stable identity for a mutating operation. */
   operationId?: string;
-  /** Whether this response executed, replayed, or did not start the operation. */
-  execution?: 'executed' | 'replayed' | 'not_started' | 'outcome_uncertain';
+  /** Whether this operation succeeded, failed, replayed, did not start, or has an uncertain outcome. */
+  execution?: 'executed' | 'failed' | 'replayed' | 'not_started' | 'outcome_uncertain';
   data?: unknown;
   error?: string;
   diff?: string;
