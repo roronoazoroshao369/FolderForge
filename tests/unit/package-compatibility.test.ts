@@ -91,6 +91,14 @@ describe('package and CI compatibility contract', () => {
     );
   });
 
+  it('runs the pinned third-party MCP probe on Windows and preserves its artifact', () => {
+    const workflowText = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
+    expect(workflowText).toMatch(
+      /- name: Pinned third-party child MCP compatibility\n\s+if: matrix\.node == 22\n/,
+    );
+    expect(workflowText).toContain('name: child-mcp-third-party-${{ matrix.os }}-');
+  });
+
   it('tests both supported LTS lines on Linux, macOS, and Windows', () => {
     const workflow = parseYaml(readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')) as WorkflowMatrix;
     const matrix = workflow.jobs?.compatibility?.strategy?.matrix;

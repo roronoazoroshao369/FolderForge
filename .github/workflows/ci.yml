@@ -144,7 +144,7 @@ jobs:
           path: .folderforge-ci/child-mcp-compatibility.json
 
       - name: Pinned third-party child MCP compatibility
-        if: matrix.node == 22 && matrix.os != 'windows-latest'
+        if: matrix.node == 22
         run: node scripts/child-mcp-third-party.mjs --output .folderforge-ci/child-mcp-third-party.json
 
       - name: Preserve third-party child MCP evidence
