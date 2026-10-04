@@ -232,16 +232,15 @@ function cloneInstance(instance: FleetInstance): FleetInstance {
  * stripped (they stay in the 0600 fleet state only).
  */
 export function publicFleetInstance(instance: FleetInstance): FleetInstance {
-  const compatibility = instance.policyMode === 'danger'
-    ? { allowCriticalInDanger: true as const }
-    : {};
+  const publicInstance = { ...instance };
+  delete publicInstance.allowCriticalInDanger;
   if (!instance.openAiTunnel?.apiKey && !instance.openAiTunnel?.apiKeyFile) {
-    return { ...instance, ...compatibility };
+    return publicInstance;
   }
   const publicTunnel = { ...instance.openAiTunnel };
   delete publicTunnel.apiKey;
   delete publicTunnel.apiKeyFile;
-  return { ...instance, ...compatibility, openAiTunnel: publicTunnel };
+  return { ...publicInstance, openAiTunnel: publicTunnel };
 }
 
 function normalizeUrl(value: string, label: string): string {

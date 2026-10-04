@@ -70,7 +70,7 @@ describe("WorktreeManager", () => {
     rmSync(linkedRoot, { recursive: true, force: true });
     git(root, "worktree", "add", "--detach", linkedRoot, "HEAD");
     try {
-      const canonicalLinkedRoot = realpathSync(linkedRoot);
+      const canonicalLinkedRoot = realpathSync.native(linkedRoot);
       const manager = new WorktreeManager([linkedRoot], linkedRoot);
       expect(manager.available).toBe(true);
       const isolation = manager.create("linked-worktree");
@@ -430,7 +430,7 @@ describe("WorktreeManager", () => {
 
   it("revalidates an untracked target after preflight and blocks a symlink or junction swap", () => {
     const root = repository();
-    const canonicalRoot = realpathSync(root);
+    const canonicalRoot = realpathSync.native(root);
     const outside = mkdtempSync(
       join(tmpdir(), "folderforge-worktree-outside-"),
     );

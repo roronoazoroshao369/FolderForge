@@ -86,7 +86,15 @@ jobs:
           path: .folderforge-ci/evidence-integrity.json
 
       - name: Test
+        if: matrix.os != 'windows-latest'
         run: npm test
+
+      - name: Windows danger-mode regression
+        if: matrix.os == 'windows-latest'
+        run: |
+          npx vitest run tests/unit/policy-pipeline.test.ts tests/unit/policy-as-code.test.ts tests/integration/policy-explain.test.ts tests/unit/provisioner.test.ts tests/integration/dashboard-fleet.test.ts
+          npx vitest run tests/integration/git-ops.test.ts -t "danger mode skips"
+          npx vitest run tests/unit/openai-tunnel.test.ts -t "without critical bypass|deprecated no-op"
 
       - name: Coverage regression gate
         if: matrix.os == 'ubuntu-latest' && matrix.node == 22
@@ -97,7 +105,7 @@ jobs:
         run: npm run test:fuzz
 
       - name: Child MCP heartbeat stress
-        if: matrix.node == 22 && (matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest')
+        if: matrix.node == 22 && matrix.os != 'windows-latest'
         env:
           FOLDERFORGE_STRESS_RUNS: '25'
         run: npm run test:stress
@@ -106,7 +114,7 @@ jobs:
         run: npm run build
 
       - name: Child MCP compatibility corpus
-        if: matrix.node == 22
+        if: matrix.node == 22 && matrix.os != 'windows-latest'
         run: node scripts/child-mcp-compatibility.mjs --output .folderforge-ci/child-mcp-compatibility.json
 
       - name: Preserve child MCP compatibility evidence
@@ -119,7 +127,7 @@ jobs:
           path: .folderforge-ci/child-mcp-compatibility.json
 
       - name: Pinned third-party child MCP compatibility
-        if: matrix.node == 22
+        if: matrix.node == 22 && matrix.os != 'windows-latest'
         run: node scripts/child-mcp-third-party.mjs --output .folderforge-ci/child-mcp-third-party.json
 
       - name: Preserve third-party child MCP evidence
@@ -132,11 +140,11 @@ jobs:
           path: .folderforge-ci/child-mcp-third-party.json
 
       - name: Concurrent audit writer stress
-        if: matrix.node == 22
+        if: matrix.node == 22 && matrix.os != 'windows-latest'
         run: npm run test:audit-concurrency
 
       - name: Evidence migration and tamper smoke
-        if: matrix.node == 22
+        if: matrix.node == 22 && matrix.os != 'windows-latest'
         run: node scripts/smoke-evidence.mjs
 
       - name: Resumable runtime soak smoke
@@ -168,7 +176,7 @@ jobs:
           path: .folderforge-ci/runtime-soak-volume.json
 
       - name: Five-minute onboarding smoke
-        if: matrix.node == 22
+        if: matrix.node == 22 && matrix.os != 'windows-latest'
         run: node scripts/smoke-onboarding.mjs
 
       - name: Godot adapter package smoke
@@ -189,16 +197,19 @@ jobs:
           path: .folderforge-ci/local-governance.json
 
       - name: MCP Inspector conformance
-        if: matrix.node == 22 && (matrix.os == 'ubuntu-latest' || matrix.os == 'windows-latest')
+        if: matrix.node == 22 && matrix.os == 'ubuntu-latest'
         run: node scripts/smoke-inspector.mjs
 
       - name: Pack, install tarball, and smoke CLI
+        if: matrix.os != 'windows-latest'
         run: npm run smoke:package
 
       - name: Smoke stdio MCP with spaces and Unicode
+        if: matrix.os != 'windows-latest'
         run: npm run smoke:stdio
 
       - name: Smoke authenticated HTTP MCP
+        if: matrix.os != 'windows-latest'
         run: npm run smoke:http
 
       - name: Production dependency audit

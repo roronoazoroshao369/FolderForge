@@ -348,6 +348,19 @@ function assertInside(parent, child, label) {
   throw new Error(`${label} resolves outside its installed package root.`);
 }
 
+function findLockEntry(lock, packageName, version) {
+  const direct = lock.packages?.[`node_modules/${packageName}`];
+  if (direct) return direct;
+
+  const suffix = `node_modules/${packageName}`;
+  const candidates = Object.entries(lock.packages ?? {})
+    .filter(([path, entry]) =>
+      path.replaceAll('\\', '/').endsWith(suffix) && entry?.version === version,
+    )
+    .map(([, entry]) => entry);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 function inspectInstalledPackages(manifest, installRoot) {
   const lockPath = join(installRoot, 'package-lock.json');
   if (!existsSync(lockPath)) throw new Error(`Missing package lock at ${lockPath}`);
@@ -373,7 +386,7 @@ function inspectInstalledPackages(manifest, installRoot) {
         `${profile.package} resolved to ${String(packageJson.version)}, expected ${profile.version}.`,
       );
     }
-    const lockEntry = lock.packages?.[`node_modules/${profile.package}`];
+    const lockEntry = findLockEntry(lock, profile.package, profile.version);
     if (!lockEntry) throw new Error(`package-lock.json is missing ${profile.package}.`);
     if (lockEntry.version !== profile.version) {
       throw new Error(`${profile.package} lock version does not match ${profile.version}.`);
@@ -404,7 +417,7 @@ function inspectInstalledPackages(manifest, installRoot) {
   for (const override of manifest.npmOverrides ?? []) {
     const root = packageRoot(installRoot, override.package);
     const packageJsonPath = join(root, 'package.json');
-    const lockEntry = lock.packages?.[`node_modules/${override.package}`];
+    const lockEntry = findLockEntry(lock, override.package, override.version);
     if (!existsSync(packageJsonPath) && !lockEntry) {
       overrides.push({ ...override, installed: false });
       continue;
