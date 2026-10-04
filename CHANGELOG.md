@@ -10,8 +10,13 @@ semantic versioning.
 
 - **`v3.0.0` is abandoned and must not be released or published.** The public `v3.0.0` tag (commit `953e827a4095d52e0b9d2d001e86d13eb98fcd32`) predates the terminal sandbox hardening below: it runs `shell_exec` and `process_start` on the host shell in `danger` mode. It is left untouched (no retag or deletion); `3.0.1` supersedes it and carries the 3.0.0 zero-approval semantics together with fail-closed command containment.
 
+### Known issues
+
+- **R11 (High):** when `shell_exec` times out or a process session is killed with `process_kill` (SIGKILL), the host-side `docker`/`podman` CLI is killed but the container keeps running with write access to the workspace. `process_stop` (SIGTERM) is reaped correctly. Both cases are pinned by `it.fails` regression tests that turn red when fixed. Mitigation: call `process_stop` instead of `process_kill`, use short-lived commands, and remove stray containers with `docker ps` / `docker rm -f`.
+
 ### Added
 
+- Real container-runtime isolation tests (`tests/integration/sandbox-runtime.test.ts`) run `shell_exec` and `process_start` through the full policy pipeline in a real Docker/Podman container and observe isolation from the inside: non-root uid/gid, zero capabilities, no-new-privileges, workspace-only mount, no host paths or environment, no network, read-only root, noexec `/tmp`, pid/memory cgroup limits, `--pull=never`, exit-code propagation, and no host fallback when the runtime is missing. CI runs them on ubuntu / Node 22 against a digest-pinned image with `FOLDERFORGE_REQUIRE_RUNTIME_TESTS=1`, so a missing runtime fails instead of skipping.
 - Danger-mode command containment: `shell_exec` and `process_start` now fail closed by default unless `terminal.sandbox` uses Docker or Podman. Container launches use a pre-existing digest-pinned image, no pull, dropped capabilities, no-new-privileges, read-only root, bounded resources, no network by default, and a single workspace mount. Trusted-host compatibility requires an explicit `requireInDanger: false` opt-out.
 - External beta evidence now records first-task attempt, success, duration, and maintainer intervention, and reports a unique-installation gate requiring at least 10 attempts with 80% completed unaided within five minutes.
 - Formal proposal 023 and a repository-wide stability policy record Danger Mode council findings, the pending human-ratification boundary, the feature freeze, and the requirement that every reproducible bug gain regression coverage.

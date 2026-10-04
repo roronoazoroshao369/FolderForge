@@ -133,6 +133,17 @@ mounted read-only from `tests/fixtures`. Without a valid
 `image@sha256:<digest>` value the suite exits with an explicit prerequisite
 message rather than a runtime failure.
 
+### Terminal (shell_exec / process_start) runtime tests
+`tests/integration/sandbox-runtime.test.ts` runs real commands through the policy pipeline in a real container and checks the isolation from the inside (uid/gid, capabilities, mounts, network, read-only root, cgroup limits, `--pull=never`, no host fallback). Without a prerequisite image the container cases skip; set `FOLDERFORGE_REQUIRE_RUNTIME_TESTS=1` (as CI does) to make a missing runtime a failure:
+
+```bash
+docker pull alpine:3.20
+export FOLDERFORGE_SANDBOX_IMAGE="$(docker inspect --format '{{index .RepoDigests 0}}' alpine:3.20)"
+FOLDERFORGE_REQUIRE_RUNTIME_TESTS=1 npx vitest run tests/integration/sandbox-runtime.test.ts
+```
+
+Known issue R11: a `shell_exec` timeout or `process_kill` (SIGKILL) leaves the container running; `process_stop` reaps it. See the changelog.
+
 ## Boundary
 
 Container mode materially improves filesystem, process, capability, network, and

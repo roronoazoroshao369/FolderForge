@@ -54,6 +54,15 @@ jobs:
       - name: Documentation and version checks
         run: npm run docs:check
 
+      - name: Real container-runtime isolation (Docker, digest-pinned image)
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        env:
+          FOLDERFORGE_SANDBOX_IMAGE: alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+          FOLDERFORGE_REQUIRE_RUNTIME_TESTS: '1'
+        run: |
+          docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"
+          npx vitest run tests/integration/sandbox-runtime.test.ts
+
       - name: Fleet reconnect recovery (orphan reaping, lease fencing)
         run: npx vitest run tests/unit/provisioner.test.ts
 
