@@ -37,6 +37,18 @@ describe('package and CI compatibility contract', () => {
     expect(workflowText).toContain('npm run smoke:stdio');
   });
 
+  it('keeps the container sandbox smoke in CI and the complete release gate', () => {
+    const workflowText = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const publishWorkflowText = readFileSync(join(root, '.github', 'workflows', 'publish-npm.yml'), 'utf8');
+    const releaseCheck = readFileSync(join(root, 'scripts', 'run-release-check.mjs'), 'utf8');
+
+    expect(releaseCheck).toContain("['run', 'smoke:sandbox']");
+    expect(workflowText).toContain('npm run smoke:sandbox');
+    expect(workflowText).toContain('python@sha256:');
+    expect(publishWorkflowText).toContain('FOLDERFORGE_SANDBOX_IMAGE: python@sha256:');
+    expect(publishWorkflowText).toContain('docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"');
+  });
+
   it('runs npm and the installed CLI through Node while still requiring the bin shim', () => {
     const smoke = readFileSync(join(root, 'scripts', 'smoke-package.mjs'), 'utf8');
     expect(smoke).toContain('process.env.npm_execpath');

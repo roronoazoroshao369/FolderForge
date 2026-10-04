@@ -27,6 +27,7 @@ const steps = [
   ['run', 'docs:check'],
   ['audit', '--omit=dev'],
   ['audit'],
+  ['run', 'smoke:sandbox'],
   ['run', 'smoke:package'],
   ['run', 'smoke:stdio'],
   ['run', 'smoke:http'],

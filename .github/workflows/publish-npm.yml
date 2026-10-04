@@ -25,6 +25,7 @@ jobs:
     environment: npm-publish
     env:
       RELEASE_TAG: ${{ inputs.tag }}
+      FOLDERFORGE_SANDBOX_IMAGE: python@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df
     steps:
       - name: Check out exact tag
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -102,6 +103,9 @@ jobs:
             --evidence-dir "${evidence_dir}" \
             --commit "${GITHUB_SHA}" \
             --receipt "${RUNNER_TEMP}/production-soak-verification.json"
+
+      - name: Prepare digest-pinned sandbox smoke image
+        run: docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"
 
       - name: Run complete release gate
         run: npm run release:check

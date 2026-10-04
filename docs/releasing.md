@@ -43,8 +43,11 @@ git diff --check
 `release:check` runs typecheck, lint, unit/integration tests, coverage thresholds,
 property/fuzz checks, repeated child-MCP heartbeat stress, official MCP Inspector
 stdio conformance, build, documentation/version/link checks, production and full
-dependency audits, packed-package installation, CLI/doctor/browser-resolution
-checks, stdio MCP smoke, and authenticated HTTP MCP smoke.
+dependency audits, the containerized child-MCP boundary smoke, packed-package
+installation, CLI/doctor/browser-resolution checks, stdio MCP smoke, and
+authenticated HTTP MCP smoke. Before running it, preload a Python image and set
+`FOLDERFORGE_SANDBOX_IMAGE` to its immutable `python@sha256:...` digest as shown
+in `docs/sandbox.md`; the release workflow does this automatically.
 
 Review `npm pack --json --ignore-scripts` as well. The tarball must contain the
 CLI, production `dist`, dashboard assets, user documentation, examples, license,
