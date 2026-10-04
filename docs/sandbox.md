@@ -142,7 +142,7 @@ export FOLDERFORGE_SANDBOX_IMAGE="$(docker inspect --format '{{index .RepoDigest
 FOLDERFORGE_REQUIRE_RUNTIME_TESTS=1 npx vitest run tests/integration/sandbox-runtime.test.ts
 ```
 
-Known issue R11: a `shell_exec` timeout or `process_kill` (SIGKILL) leaves the container running; `process_stop` reaps it. See the changelog.
+Containers are named `folderforge-term-<random>` and are force-removed on `shell_exec` timeout, `process_kill`, and forced shutdown (R11). A hard crash of the FolderForge process itself can still orphan a container; clean up with `docker ps` / `docker rm -f`.
 
 ## Boundary
 

@@ -10,9 +10,9 @@ semantic versioning.
 
 - **`v3.0.0` is abandoned and must not be released or published.** The public `v3.0.0` tag (commit `953e827a4095d52e0b9d2d001e86d13eb98fcd32`) predates the terminal sandbox hardening below: it runs `shell_exec` and `process_start` on the host shell in `danger` mode. It is left untouched (no retag or deletion); `3.0.1` supersedes it and carries the 3.0.0 zero-approval semantics together with fail-closed command containment.
 
-### Known issues
+### Fixed
 
-- **R11 (High):** when `shell_exec` times out or a process session is killed with `process_kill` (SIGKILL), the host-side `docker`/`podman` CLI is killed but the container keeps running with write access to the workspace. `process_stop` (SIGTERM) is reaped correctly. Both cases are pinned by `it.fails` regression tests that turn red when fixed. Mitigation: call `process_stop` instead of `process_kill`, use short-lived commands, and remove stray containers with `docker ps` / `docker rm -f`.
+- **R11 (High, found by the new runtime tests):** a `shell_exec` timeout or `process_kill` / shutdown escalation used to kill only the host-side `docker`/`podman` CLI, leaving the container running with workspace write access. Terminal containers now get a unique `--name folderforge-term-<random>` and are force-removed (`<runtime> rm -f`, no shell, bounded 15s) on timeout, signal death, `process_kill` and forced shutdown. The former `it.fails` pins are now ordinary regression tests. Not covered: a hard crash of the FolderForge process itself can still orphan a container (remove with `docker ps` / `docker rm -f`).
 
 ### Added
 

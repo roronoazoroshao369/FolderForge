@@ -284,12 +284,9 @@ describe.skipIf(!prerequisites.ready)('real container isolation for shell_exec a
     expect(inspect.status).not.toBe(0);
   });
 
-  // KNOWN DEFECT (risk R11): a natural shell_exec timeout kills only the runtime
-  // CLI process tree on the host; the container keeps running, with write access
-  // to the workspace, after the tool reported failure. `it.fails` keeps CI honest:
-  // it passes while the defect exists and turns red once the defect is fixed,
-  // forcing this marker to be removed.
-  it.fails('reaps the container when shell_exec times out (KNOWN DEFECT R11)', async () => {
+  // Regression (risk R11): a natural shell_exec timeout used to kill only the
+  // runtime CLI on the host while the container kept running with workspace write access.
+  it('reaps the container when shell_exec times out (R11 regression)', async () => {
     const marker = `ffrt-timeout-${Math.random().toString(36).slice(2, 10)}`;
     const started = Date.now();
     const result = await sh(`echo ${marker}; sleep 300`, { timeoutMs: 1_500 });
@@ -298,8 +295,8 @@ describe.skipIf(!prerequisites.ready)('real container isolation for shell_exec a
     expect(await waitFor(() => !containerRunning(marker), 10_000)).toBe(true);
   }, 40_000);
 
-  // KNOWN DEFECT (risk R11): SIGKILL of the runtime CLI (process_kill) orphans the container.
-  it.fails('process_kill (SIGKILL) reaps the container (KNOWN DEFECT R11)', async () => {
+  // Regression (risk R11): process_kill (SIGKILL of the runtime CLI) used to orphan the container.
+  it('process_kill (SIGKILL) reaps the container (R11 regression)', async () => {
     const marker = `ffrt-kill-${Math.random().toString(36).slice(2, 10)}`;
     const started = await registry.call('process_start', { command: `echo ${marker}; sleep 300` });
     expect(started.ok).toBe(true);

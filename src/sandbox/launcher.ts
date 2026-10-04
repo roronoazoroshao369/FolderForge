@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   AdapterDef,
@@ -138,6 +140,31 @@ export interface SandboxedShellLaunch {
   cwd: string;
   sandboxMode: 'process' | 'docker' | 'podman';
   sandboxImage?: string;
+  /** Unique container name (docker/podman only) so the container can be force-removed. */
+  containerName?: string;
+}
+
+const CONTAINER_NAME = /^folderforge-term-[a-f0-9]{16}$/;
+
+/**
+ * Force-remove a sandbox container by name. Killing the `docker run` client
+ * does NOT stop the container (the daemon owns it), so timeout / kill paths
+ * must call this (R11). Never throws, never uses a shell, no-op for process mode.
+ */
+export function removeSandboxContainer(
+  mode: 'process' | 'docker' | 'podman',
+  containerName: string | undefined,
+): Promise<void> {
+  if (mode === 'process' || !containerName || !CONTAINER_NAME.test(containerName)) {
+    return Promise.resolve();
+  }
+  return new Promise((done) => {
+    try {
+      execFile(mode, ['rm', '-f', containerName], { timeout: 15_000, windowsHide: true }, () => done());
+    } catch {
+      done();
+    }
+  });
 }
 
 /** Build a host-shell or fail-closed container launch for terminal commands. */
@@ -188,8 +215,9 @@ export function buildSandboxedShellLaunch(
   const network = sandbox?.network ?? 'none';
   if (!['none', 'bridge'].includes(network)) throw new Error('terminal.sandbox.network must be none or bridge.');
 
+  const containerName = `folderforge-term-${randomBytes(8).toString('hex')}`;
   const args = [
-    'run', '--rm', '-i', '--init', '--pull=never', `--network=${network}`,
+    'run', '--rm', '-i', '--init', '--name', containerName, '--pull=never', `--network=${network}`,
     '--cap-drop=ALL', '--security-opt=no-new-privileges',
     `--pids-limit=${pidsLimit}`, `--memory=${memoryMb}m`, `--cpus=${cpus}`,
     '--tmpfs', `/tmp:rw,noexec,nosuid,size=${tmpfsMb}m`,
@@ -209,6 +237,7 @@ export function buildSandboxedShellLaunch(
     cwd: root,
     sandboxMode: mode,
     sandboxImage: image,
+    containerName,
   };
 }
 

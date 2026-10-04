@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applySandboxLaunch,
   buildSandboxedShellLaunch,
+  removeSandboxContainer,
   sandboxSummary,
 } from '../../src/sandbox/launcher.js';
 import type { AdapterDef } from '../../src/core/types.js';
@@ -106,6 +107,26 @@ describe('container child sandbox launcher', () => {
       '--workdir', '/workspace', `example/terminal@${digest}`, '/bin/sh', '-lc', 'npm test',
     ]));
     expect(launch.args.some((value) => value.includes(`src=${root},dst=/workspace`))).toBe(true);
+  });
+
+  it('names the container uniquely so timeout/kill paths can remove it (R11)', () => {
+    const root = process.cwd();
+    const cfg = { mode: 'docker' as const, image: `example/terminal@${digest}`, requireInDanger: true };
+    const a = buildSandboxedShellLaunch(cfg, '/bin/sh', root, root, 'true');
+    const b = buildSandboxedShellLaunch(cfg, '/bin/sh', root, root, 'true');
+    expect(a.containerName).toMatch(/^folderforge-term-[a-f0-9]{16}$/);
+    expect(a.containerName).not.toBe(b.containerName);
+    const at = a.args.indexOf('--name');
+    expect(at).toBeGreaterThan(-1);
+    expect(a.args[at + 1]).toBe(a.containerName);
+    const host = buildSandboxedShellLaunch(undefined, '/bin/sh', root, root, 'true');
+    expect(host.containerName).toBeUndefined();
+  });
+
+  it('removeSandboxContainer is a safe no-op for process mode and unexpected names', async () => {
+    await expect(removeSandboxContainer('process', 'folderforge-term-0123456789abcdef')).resolves.toBeUndefined();
+    await expect(removeSandboxContainer('docker', undefined)).resolves.toBeUndefined();
+    await expect(removeSandboxContainer('docker', 'not-ours; touch /x')).resolves.toBeUndefined();
   });
 
   it('rejects terminal cwd escapes and mutable terminal images', () => {

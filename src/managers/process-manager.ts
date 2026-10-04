@@ -20,6 +20,8 @@ interface InternalSession extends ProcessSession {
   cursor: number;
   /** Resolvers waiting for new output or exit (long-poll / streaming tail). */
   waiters: Array<() => void>;
+  /** Extra hard-kill hook (e.g. remove a sandbox container the client kill cannot reach). */
+  forceKill?: (() => Promise<void>) | undefined;
 }
 
 function wakeWaiters(session: InternalSession): void {
@@ -65,6 +67,7 @@ export class ProcessManager {
     env?: Record<string, string>,
     inheritEnv = true,
     spawnOptions: Record<string, unknown> = {},
+    hooks: { forceKill?: () => Promise<void> } = {},
   ): ProcessSession {
     const sessionId = `proc_${randomUUID().slice(0, 8)}`;
     const child = spawn(executable, args, {
@@ -88,6 +91,7 @@ export class ProcessManager {
       output: '',
       cursor: 0,
       waiters: [],
+      forceKill: hooks.forceKill,
     };
 
     const append = (chunk: Buffer) => {
@@ -225,6 +229,7 @@ export class ProcessManager {
     if (s.status === 'running') {
       s.status = 'killed';
       terminateChildProcessTree(s.child, true);
+      void s.forceKill?.().catch(() => undefined);
       wakeWaiters(s);
     }
     return this.publicView(s);
@@ -259,6 +264,7 @@ export class ProcessManager {
       terminateChildProcessTree(session.child, true);
     }
     if (stubborn.length > 0) {
+      await Promise.allSettled(stubborn.map((s) => s.forceKill?.()));
       // Give the OS a short, bounded beat to reap SIGKILLed processes before
       // the caller proceeds with shutdown.
       await Promise.race([

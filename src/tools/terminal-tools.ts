@@ -4,7 +4,7 @@ import type { ToolDefinition } from '../core/types.js';
 import { SHELL_EXEC_OUTPUT_SCHEMA } from './output-schemas.js';
 import { shellCommandArgs, shellSpawnOptions } from '../core/shell.js';
 import { armTreeKillTimeout } from '../core/process-tree.js';
-import { buildSandboxedShellLaunch } from '../sandbox/launcher.js';
+import { buildSandboxedShellLaunch, removeSandboxContainer } from '../sandbox/launcher.js';
 import type { ChildProcess } from 'node:child_process';
 
 export function terminalTools(): ToolDefinition[] {
@@ -66,6 +66,10 @@ export function terminalTools(): ToolDefinition[] {
           // holding the stdio pipes and hanging this await past the budget.
           const treeTimeout = armTreeKillTimeout(child as unknown as ChildProcess, timeout);
           const sub = await child.finally(() => treeTimeout.dispose());
+          // Killing the `docker run` client leaves the container running (R11).
+          if (launch.containerName && (treeTimeout.timedOut || sub.exitCode === undefined)) {
+            await removeSandboxContainer(launch.sandboxMode, launch.containerName);
+          }
           const redact = (s: string) =>
             ctx.container.policy.secret.redact((s ?? '').slice(0, maxBytes));
           const data = {

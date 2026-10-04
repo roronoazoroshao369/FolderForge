@@ -1,6 +1,6 @@
 import { defineTool } from './registry.js';
 import type { ToolDefinition } from '../core/types.js';
-import { buildSandboxedShellLaunch } from '../sandbox/launcher.js';
+import { buildSandboxedShellLaunch, removeSandboxContainer } from '../sandbox/launcher.js';
 
 export function processTools(): ToolDefinition[] {
   return [
@@ -37,6 +37,10 @@ export function processTools(): ToolDefinition[] {
               launch.args,
               launch.cwd,
               command,
+              undefined,
+              true,
+              {},
+              { forceKill: () => removeSandboxContainer(launch.sandboxMode, launch.containerName) },
             );
         ctx.container.audit.record({ type: 'process_event', summary: `start ${session.sessionId}: ${command}` });
         return { ok: true, data: session };
