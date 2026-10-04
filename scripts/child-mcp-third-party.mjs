@@ -348,17 +348,22 @@ function assertInside(parent, child, label) {
   throw new Error(`${label} resolves outside its installed package root.`);
 }
 
-function findLockEntry(lock, packageName, version) {
-  const direct = lock.packages?.[`node_modules/${packageName}`];
-  if (direct) return direct;
+function findLockPackage(lock, packageName, version) {
+  const directPath = `node_modules/${packageName}`;
+  const direct = lock.packages?.[directPath];
+  if (direct) return { path: directPath, entry: direct };
 
   const suffix = `node_modules/${packageName}`;
   const candidates = Object.entries(lock.packages ?? {})
     .filter(([path, entry]) =>
       path.replaceAll('\\', '/').endsWith(suffix) && entry?.version === version,
     )
-    .map(([, entry]) => entry);
+    .map(([path, entry]) => ({ path: path.replaceAll('\\', '/'), entry }));
   return candidates.length === 1 ? candidates[0] : null;
+}
+
+function findLockEntry(lock, packageName, version) {
+  return findLockPackage(lock, packageName, version)?.entry ?? null;
 }
 
 function inspectInstalledPackages(manifest, installRoot) {
@@ -415,9 +420,12 @@ function inspectInstalledPackages(manifest, installRoot) {
 
   const overrides = [];
   for (const override of manifest.npmOverrides ?? []) {
-    const root = packageRoot(installRoot, override.package);
+    const lockPackage = findLockPackage(lock, override.package, override.version);
+    const root = lockPackage
+      ? resolve(installRoot, ...lockPackage.path.split('/'))
+      : packageRoot(installRoot, override.package);
     const packageJsonPath = join(root, 'package.json');
-    const lockEntry = findLockEntry(lock, override.package, override.version);
+    const lockEntry = lockPackage?.entry;
     if (!existsSync(packageJsonPath) && !lockEntry) {
       overrides.push({ ...override, installed: false });
       continue;
@@ -425,6 +433,7 @@ function inspectInstalledPackages(manifest, installRoot) {
     if (!existsSync(packageJsonPath) || !lockEntry) {
       throw new Error(`Override installation is incomplete for ${override.package}.`);
     }
+    assertInside(installRoot, root, `${override.package} override`);
     const packageJson = readJson(packageJsonPath);
     if (packageJson.version !== override.version || lockEntry.version !== override.version) {
       throw new Error(`${override.package} override did not resolve to ${override.version}.`);
