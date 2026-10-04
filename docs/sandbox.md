@@ -142,7 +142,7 @@ export FOLDERFORGE_SANDBOX_IMAGE="$(docker inspect --format '{{index .RepoDigest
 FOLDERFORGE_REQUIRE_RUNTIME_TESTS=1 npx vitest run tests/integration/sandbox-runtime.test.ts
 ```
 
-Containers are named `folderforge-term-<random>` and are force-removed on `shell_exec` timeout, `process_kill`, and forced shutdown (R11). A hard crash of the FolderForge process itself can still orphan a container; clean up with `docker ps` / `docker rm -f`.
+Containers are named `folderforge-term-<host>-<pid>-<random>` and are force-removed on `shell_exec` timeout, `process_kill`, and forced shutdown (R11). If FolderForge itself hard-crashes, the next startup in the same Docker/Podman mode scans only these names and force-removes same-host containers whose owner PID is no longer alive (R14). Containers from live owners, other hosts, or malformed/legacy names are left untouched.
 
 ## Boundary
 

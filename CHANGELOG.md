@@ -12,9 +12,10 @@ semantic versioning.
 
 ### Fixed
 
+- **R14 (High):** terminal container names now encode a hashed host identity and owner PID. On startup, Docker/Podman mode reconciles only same-host `folderforge-term-*` containers whose owner PID is no longer alive, so a prior FolderForge hard crash no longer leaves workspace-mounted containers running. Active owners, foreign hosts, malformed names, and unavailable runtimes are left untouched.
 - **R13:** `smoke:sandbox` is now mandatory in Ubuntu/Node 22 CI and `release:check`; CI and the publish workflow preload the same digest-pinned Python image so the child-MCP container boundary cannot silently regress.
 - **R12:** terminal calls now distinguish `not_started`, `failed`, `executed`, and `outcome_uncertain`; a missing shell/container runtime reports that execution never started, while timeouts, signals, and non-zero exits report actionable failures instead of `Command exited with code unknown.`
-- **R11 (High, found by the new runtime tests):** a `shell_exec` timeout or `process_kill` / shutdown escalation used to kill only the host-side `docker`/`podman` CLI, leaving the container running with workspace write access. Terminal containers now get a unique `--name folderforge-term-<random>` and are force-removed (`<runtime> rm -f`, no shell, bounded 15s) on timeout, signal death, `process_kill` and forced shutdown. The former `it.fails` pins are now ordinary regression tests. Not covered: a hard crash of the FolderForge process itself can still orphan a container (remove with `docker ps` / `docker rm -f`).
+- **R11 (High, found by the new runtime tests):** a `shell_exec` timeout or `process_kill` / shutdown escalation used to kill only the host-side `docker`/`podman` CLI, leaving the container running with workspace write access. Terminal containers now get a unique owner-scoped `--name folderforge-term-<host>-<pid>-<random>` and are force-removed (`<runtime> rm -f`, no shell, bounded 15s) on timeout, signal death, `process_kill` and forced shutdown. The former `it.fails` pins are now ordinary regression tests; R14 adds hard-crash recovery on the next startup.
 
 ### Added
 

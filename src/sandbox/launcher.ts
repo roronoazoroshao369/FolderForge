@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { hostname } from 'node:os';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   AdapterDef,
@@ -144,7 +145,79 @@ export interface SandboxedShellLaunch {
   containerName?: string;
 }
 
-const CONTAINER_NAME = /^folderforge-term-[a-f0-9]{16}$/;
+const CONTAINER_NAME = /^folderforge-term-([a-f0-9]{12})-([1-9][0-9]*)-[a-f0-9]{16}$/;
+type ContainerRuntime = 'docker' | 'podman';
+type RuntimeCommand = (mode: ContainerRuntime, args: string[]) => Promise<string>;
+
+function terminalHostId(hostName = hostname()): string {
+  return createHash('sha256').update(hostName).digest('hex').slice(0, 12);
+}
+
+function ownerPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function runRuntimeCommand(mode: ContainerRuntime, args: string[]): Promise<string> {
+  return new Promise((resolveCommand, rejectCommand) => {
+    try {
+      execFile(mode, args, { timeout: 15_000, windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout) => {
+        if (error) rejectCommand(error);
+        else resolveCommand(String(stdout));
+      });
+    } catch (error) {
+      rejectCommand(error);
+    }
+  });
+}
+
+export interface SandboxReaperOptions {
+  hostName?: string;
+  pidAlive?: (pid: number) => boolean;
+  run?: RuntimeCommand;
+}
+
+/**
+ * Reconcile terminal containers left by an ungraceful FolderForge exit.
+ * Ownership is encoded in the generated name. Only same-host containers whose
+ * recorded owner PID is definitely dead are removed; malformed, foreign-host,
+ * and live-owner containers are left untouched.
+ */
+export async function reapOrphanedSandboxContainers(
+  mode: ContainerRuntime,
+  options: SandboxReaperOptions = {},
+): Promise<{ inspected: number; removed: number }> {
+  const run = options.run ?? runRuntimeCommand;
+  const isAlive = options.pidAlive ?? ownerPidAlive;
+  const hostId = terminalHostId(options.hostName);
+  let output: string;
+  try {
+    output = await run(mode, ['ps', '-a', '--filter', 'name=folderforge-term-', '--format', '{{.Names}}']);
+  } catch {
+    return { inspected: 0, removed: 0 };
+  }
+
+  let inspected = 0;
+  let removed = 0;
+  for (const name of output.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)) {
+    const match = CONTAINER_NAME.exec(name);
+    if (!match || match[1] !== hostId) continue;
+    const ownerPid = Number(match[2]);
+    inspected += 1;
+    if (!Number.isSafeInteger(ownerPid) || ownerPid < 1 || isAlive(ownerPid)) continue;
+    try {
+      await run(mode, ['rm', '-f', name]);
+      removed += 1;
+    } catch {
+      // Best effort: startup must remain available when the runtime races or is unhealthy.
+    }
+  }
+  return { inspected, removed };
+}
 
 /**
  * Force-remove a sandbox container by name. Killing the `docker run` client
@@ -215,7 +288,7 @@ export function buildSandboxedShellLaunch(
   const network = sandbox?.network ?? 'none';
   if (!['none', 'bridge'].includes(network)) throw new Error('terminal.sandbox.network must be none or bridge.');
 
-  const containerName = `folderforge-term-${randomBytes(8).toString('hex')}`;
+  const containerName = `folderforge-term-${terminalHostId()}-${process.pid}-${randomBytes(8).toString('hex')}`;
   const args = [
     'run', '--rm', '-i', '--init', '--name', containerName, '--pull=never', `--network=${network}`,
     '--cap-drop=ALL', '--security-opt=no-new-privileges',

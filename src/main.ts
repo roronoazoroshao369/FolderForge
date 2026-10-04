@@ -41,6 +41,7 @@ import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
 import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
 import { ensureRuntimeNodeOnPath } from "./runtime/node-path.js";
+import { reapOrphanedSandboxContainers } from "./sandbox/launcher.js";
 
 ensureRuntimeNodeOnPath();
 
@@ -587,6 +588,17 @@ async function main(): Promise<void> {
   }
   applyHttpAuthDefaults(config);
   validateConfig(config);
+
+  const terminalSandboxMode = config.terminal.sandbox?.mode;
+  if (terminalSandboxMode === "docker" || terminalSandboxMode === "podman") {
+    const reconciliation = await reapOrphanedSandboxContainers(terminalSandboxMode);
+    if (reconciliation.inspected > 0) {
+      logger.info(
+        { runtime: terminalSandboxMode, ...reconciliation },
+        "Reconciled terminal sandbox containers from prior processes",
+      );
+    }
+  }
 
   const container = new Container(config);
   const registry = buildRegistry(container);

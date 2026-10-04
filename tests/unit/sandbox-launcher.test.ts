@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   applySandboxLaunch,
   buildSandboxedShellLaunch,
+  reapOrphanedSandboxContainers,
   removeSandboxContainer,
   sandboxSummary,
 } from '../../src/sandbox/launcher.js';
 import type { AdapterDef } from '../../src/core/types.js';
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 
 const digest = 'sha256:' + 'a'.repeat(64);
@@ -109,18 +111,41 @@ describe('container child sandbox launcher', () => {
     expect(launch.args.some((value) => value.includes(`src=${root},dst=/workspace`))).toBe(true);
   });
 
-  it('names the container uniquely so timeout/kill paths can remove it (R11)', () => {
+  it('names the container with host and owner metadata so timeout/kill and startup paths can remove it', () => {
     const root = process.cwd();
     const cfg = { mode: 'docker' as const, image: `example/terminal@${digest}`, requireInDanger: true };
     const a = buildSandboxedShellLaunch(cfg, '/bin/sh', root, root, 'true');
     const b = buildSandboxedShellLaunch(cfg, '/bin/sh', root, root, 'true');
-    expect(a.containerName).toMatch(/^folderforge-term-[a-f0-9]{16}$/);
+    expect(a.containerName).toMatch(/^folderforge-term-[a-f0-9]{12}-[1-9][0-9]*-[a-f0-9]{16}$/);
     expect(a.containerName).not.toBe(b.containerName);
     const at = a.args.indexOf('--name');
     expect(at).toBeGreaterThan(-1);
     expect(a.args[at + 1]).toBe(a.containerName);
     const host = buildSandboxedShellLaunch(undefined, '/bin/sh', root, root, 'true');
     expect(host.containerName).toBeUndefined();
+  });
+
+  it('reaps only same-host terminal containers whose owner PID is dead', async () => {
+    const hostName = 'test-host';
+    const hostId = createHash('sha256').update(hostName).digest('hex').slice(0, 12);
+    const dead = `folderforge-term-${hostId}-4101-0123456789abcdef`;
+    const live = `folderforge-term-${hostId}-4102-fedcba9876543210`;
+    const foreign = 'folderforge-term-ffffffffffff-4103-aaaaaaaaaaaaaaaa';
+    const calls: string[][] = [];
+    const result = await reapOrphanedSandboxContainers('docker', {
+      hostName,
+      pidAlive: (pid) => pid === 4102,
+      run: async (_mode, args) => {
+        calls.push(args);
+        return args[0] === 'ps' ? `${dead}\n${live}\n${foreign}\nnot-ours\n` : '';
+      },
+    });
+
+    expect(result).toEqual({ inspected: 2, removed: 1 });
+    expect(calls).toEqual([
+      ['ps', '-a', '--filter', 'name=folderforge-term-', '--format', '{{.Names}}'],
+      ['rm', '-f', dead],
+    ]);
   });
 
   it('removeSandboxContainer is a safe no-op for process mode and unexpected names', async () => {

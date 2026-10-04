@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
 import { buildRegistry } from '../../src/tools/index.js';
+import { reapOrphanedSandboxContainers } from '../../src/sandbox/launcher.js';
 
 /**
  * Real container-runtime isolation proof for danger-mode command execution.
@@ -305,6 +307,26 @@ describe.skipIf(!prerequisites.ready)('real container isolation for shell_exec a
 
     const killed = await registry.call('process_kill', { sessionId });
     expect(killed.ok).toBe(true);
+    expect(await waitFor(() => !containerRunning(marker), 10_000)).toBe(true);
+  }, 40_000);
+
+  it('startup reconciliation reaps a same-host container whose owner PID has exited', async () => {
+    const marker = `ffrt-crash-${Math.random().toString(36).slice(2, 10)}`;
+    const exitedOwner = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    expect(exitedOwner.status).toBe(0);
+    expect(exitedOwner.pid).toBeGreaterThan(0);
+    const hostId = createHash('sha256').update(hostname()).digest('hex').slice(0, 12);
+    const name = `folderforge-term-${hostId}-${exitedOwner.pid}-0123456789abcdef`;
+    const started = spawnSync(
+      RUNTIME,
+      ['run', '-d', '--name', name, IMAGE, '/bin/sh', '-lc', `echo ${marker}; sleep 300`],
+      { stdio: 'pipe', encoding: 'utf8', timeout: 30_000 },
+    );
+    expect(started.status).toBe(0);
+    expect(await waitFor(() => containerRunning(marker), 10_000)).toBe(true);
+
+    const result = await reapOrphanedSandboxContainers(RUNTIME);
+    expect(result).toEqual(expect.objectContaining({ removed: 1 }));
     expect(await waitFor(() => !containerRunning(marker), 10_000)).toBe(true);
   }, 40_000);
 
