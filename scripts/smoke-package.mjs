@@ -119,18 +119,24 @@ function freePort() {
   });
 }
 
+function parsePackReport(stdout) {
+  const jsonEnd = stdout.lastIndexOf(']');
+  if (jsonEnd < 0) throw new Error(`npm pack did not return JSON:\n${stdout}`);
+  for (let jsonStart = stdout.lastIndexOf('[', jsonEnd); jsonStart >= 0; jsonStart = stdout.lastIndexOf('[', jsonStart - 1)) {
+    try {
+      const report = JSON.parse(stdout.slice(jsonStart, jsonEnd + 1));
+      if (report[0]?.filename && Array.isArray(report[0].files)) return report;
+    } catch {
+      // Prepack output can contain ANSI control-sequence brackets before npm's JSON report.
+    }
+  }
+  throw new Error(`npm pack report is missing valid filename/files JSON metadata:\n${stdout}`);
+}
+
 try {
   const packed = runNpm(['pack', '--json', '--ignore-scripts']);
-  const jsonStart = packed.stdout.indexOf('[');
-  const jsonEnd = packed.stdout.lastIndexOf(']');
-  if (jsonStart < 0 || jsonEnd < jsonStart) {
-    throw new Error(`npm pack did not return JSON:\n${packed.stdout}`);
-  }
-  const packReport = JSON.parse(packed.stdout.slice(jsonStart, jsonEnd + 1));
+  const packReport = parsePackReport(packed.stdout);
   const entry = packReport[0];
-  if (!entry?.filename || !Array.isArray(entry.files)) {
-    throw new Error('npm pack report is missing filename/files metadata.');
-  }
 
   tarballPath = join(root, entry.filename);
   const packagedFiles = new Set(entry.files.map((file) => file.path));

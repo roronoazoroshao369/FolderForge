@@ -348,18 +348,26 @@ function assertInside(parent, child, label) {
   throw new Error(`${label} resolves outside its installed package root.`);
 }
 
-function findLockPackage(lock, packageName, version) {
+function findLockPackage(lock, packageName, version, integrity) {
   const directPath = `node_modules/${packageName}`;
   const direct = lock.packages?.[directPath];
-  if (direct) return { path: directPath, entry: direct };
+  if (
+    direct?.version === version &&
+    (integrity === undefined || direct.integrity === integrity)
+  ) {
+    return { path: directPath, entry: direct };
+  }
 
   const suffix = `node_modules/${packageName}`;
   const candidates = Object.entries(lock.packages ?? {})
     .filter(([path, entry]) =>
-      path.replaceAll('\\', '/').endsWith(suffix) && entry?.version === version,
+      path.replaceAll('\\', '/').endsWith(suffix) &&
+      entry?.version === version &&
+      (integrity === undefined || entry.integrity === integrity),
     )
-    .map(([path, entry]) => ({ path: path.replaceAll('\\', '/'), entry }));
-  return candidates.length === 1 ? candidates[0] : null;
+    .map(([path, entry]) => ({ path: path.replaceAll('\\', '/'), entry }))
+    .sort((left, right) => left.path.length - right.path.length || left.path.localeCompare(right.path));
+  return candidates[0] ?? null;
 }
 
 function findLockEntry(lock, packageName, version) {
@@ -420,7 +428,12 @@ function inspectInstalledPackages(manifest, installRoot) {
 
   const overrides = [];
   for (const override of manifest.npmOverrides ?? []) {
-    const lockPackage = findLockPackage(lock, override.package, override.version);
+    const lockPackage = findLockPackage(
+      lock,
+      override.package,
+      override.version,
+      override.integrity,
+    );
     const root = lockPackage
       ? resolve(installRoot, ...lockPackage.path.split('/'))
       : packageRoot(installRoot, override.package);
