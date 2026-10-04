@@ -426,11 +426,18 @@ function inspectInstalledPackages(manifest, installRoot) {
       : packageRoot(installRoot, override.package);
     const packageJsonPath = join(root, 'package.json');
     const lockEntry = lockPackage?.entry;
-    if (!existsSync(packageJsonPath) && !lockEntry) {
-      overrides.push({ ...override, installed: false });
+    if (!existsSync(packageJsonPath)) {
+      if (!lockEntry) {
+        overrides.push({ ...override, installed: false });
+        continue;
+      }
+      if (lockEntry.version !== override.version || lockEntry.integrity !== override.integrity) {
+        throw new Error(`${override.package} lock-only override does not match the pinned manifest.`);
+      }
+      overrides.push({ ...override, installed: false, resolvedInLock: true });
       continue;
     }
-    if (!existsSync(packageJsonPath) || !lockEntry) {
+    if (!lockEntry) {
       throw new Error(`Override installation is incomplete for ${override.package}.`);
     }
     assertInside(installRoot, root, `${override.package} override`);
@@ -441,7 +448,7 @@ function inspectInstalledPackages(manifest, installRoot) {
     if (lockEntry.integrity !== override.integrity) {
       throw new Error(`${override.package} override integrity does not match the pinned manifest value.`);
     }
-    overrides.push({ ...override, installed: true });
+    overrides.push({ ...override, installed: true, resolvedInLock: true });
   }
 
   return {
