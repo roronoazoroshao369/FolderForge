@@ -451,6 +451,11 @@ function inspectInstalledPackages(manifest, installRoot) {
       continue;
     }
     if (!lockEntry) {
+      const unrelatedPackage = readJson(packageJsonPath);
+      if (unrelatedPackage.version !== override.version) {
+        overrides.push({ ...override, installed: false });
+        continue;
+      }
       throw new Error(`Override installation is incomplete for ${override.package}.`);
     }
     assertInside(installRoot, root, `${override.package} override`);
