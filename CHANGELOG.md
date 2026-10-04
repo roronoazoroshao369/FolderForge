@@ -12,7 +12,7 @@ semantic versioning.
 
 ### Fixed
 
-- **R15:** the pinned third-party child-MCP compatibility probe now runs on Windows/Node 22 as well as Ubuntu and macOS, producing the Windows artifact already required by the maturity criteria instead of an empty upload warning.
+- **R15:** Windows/Node 22 runs the pinned third-party child-MCP probe and retains its artifact. npm is launched through Node plus `npm-cli.js` (or `npm_execpath` when that entry is JavaScript). `spawnSync('npm.cmd')` is refused because current Node returns EINVAL and never starts the install.
 - **R14 (High):** terminal container names now encode a hashed host identity and owner PID. On startup, Docker/Podman mode reconciles only same-host `folderforge-term-*` containers whose owner PID is no longer alive, so a prior FolderForge hard crash no longer leaves workspace-mounted containers running. Active owners, foreign hosts, malformed names, and unavailable runtimes are left untouched.
 - **R13:** `smoke:sandbox` is now mandatory in Ubuntu/Node 22 CI and `release:check`; CI and the publish workflow preload the same digest-pinned Python image so the child-MCP container boundary cannot silently regress.
 - **R12:** terminal calls now distinguish `not_started`, `failed`, `executed`, and `outcome_uncertain`; a missing shell/container runtime reports that execution never started, while timeouts, signals, and non-zero exits report actionable failures instead of `Command exited with code unknown.`

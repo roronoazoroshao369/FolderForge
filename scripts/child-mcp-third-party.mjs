@@ -301,8 +301,38 @@ function runCommand(command, args, options = {}) {
   );
 }
 
-function npmCommand() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+function resolveNpmLaunch(options = {}) {
+  const env = options.env ?? process.env;
+  const execPath = options.execPath ?? process.execPath;
+  const platform = options.platform ?? process.platform;
+  const fileExists = options.fileExists ?? existsSync;
+  const fromNpm = env.npm_execpath;
+  if (
+    typeof fromNpm === 'string' &&
+    fromNpm.length > 0 &&
+    !/\.(?:cmd|bat)$/i.test(fromNpm) &&
+    fileExists(fromNpm)
+  ) {
+    return { command: execPath, args: [fromNpm] };
+  }
+  const candidates = [
+    join(dirname(execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(dirname(execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  for (const candidate of candidates) {
+    if (fileExists(candidate)) return { command: execPath, args: [candidate] };
+  }
+  if (platform === 'win32') {
+    throw new Error(
+      'Refusing to spawn npm.cmd: Node spawnSync returns EINVAL for Windows batch files. Set npm_execpath to npm-cli.js or install npm beside node.',
+    );
+  }
+  return { command: 'npm', args: [] };
+}
+
+function runNpm(args, options = {}) {
+  const launch = resolveNpmLaunch();
+  return runCommand(launch.command, [...launch.args, ...args], options);
 }
 
 function gitMetadata() {
@@ -505,8 +535,7 @@ function installPackages(manifest, installRoot, skipInstall) {
     );
     const specs = manifest.profiles.map((profile) => `${profile.package}@${profile.version}`);
     const startedAt = performance.now();
-    const installed = runCommand(
-      npmCommand(),
+    const installed = runNpm(
       [
         'install',
         '--ignore-scripts',
@@ -542,8 +571,7 @@ function installPackages(manifest, installRoot, skipInstall) {
 }
 
 function auditInstall(installRoot) {
-  const executed = runCommand(
-    npmCommand(),
+  const executed = runNpm(
     ['audit', '--omit=dev', '--json', '--prefix', installRoot],
     { cwd: process.cwd(), timeoutMs: 180_000 },
   );
@@ -837,7 +865,21 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(`Third-party child MCP compatibility failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+function invokedAsCli() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedAsCli()) {
+  main().catch((error) => {
+    process.stderr.write(`Third-party child MCP compatibility failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
+
+export { resolveNpmLaunch };

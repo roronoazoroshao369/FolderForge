@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resolveNpmLaunch } from '../../scripts/child-mcp-third-party.mjs';
 
 interface ValidationReport {
   mode: string;
@@ -117,5 +118,58 @@ describe('third-party child MCP compatibility manifest', () => {
 
     expect(executed.status).not.toBe(0);
     expect(executed.stderr).toMatch(/npmOverrides\[0\]\.version.*exact pinned version/i);
+  });
+});
+
+describe('third-party npm launch', () => {
+  it('launches Windows npm through node and npm-cli.js instead of npm.cmd', () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-npm-launch-'));
+    try {
+      const execPath = join(root, 'node.exe');
+      const cli = join(root, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      mkdirSync(join(root, 'node_modules', 'npm', 'bin'), { recursive: true });
+      writeFileSync(execPath, '');
+      writeFileSync(cli, '');
+      expect(
+        resolveNpmLaunch({
+          env: {},
+          execPath,
+          platform: 'win32',
+        }),
+      ).toEqual({ command: execPath, args: [cli] });
+      expect(readFileSync(SCRIPT, 'utf8')).not.toContain("win32' ? 'npm.cmd'");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a Windows batch npm entry because spawnSync returns EINVAL', () => {
+    expect(() =>
+      resolveNpmLaunch({
+        env: { npm_execpath: 'C:\\Program Files\\nodejs\\npm.cmd' },
+        execPath: join(tmpdir(), 'missing-node.exe'),
+        platform: 'win32',
+        fileExists: () => false,
+      }),
+    ).toThrow(/EINVAL|npm\.cmd/i);
+  });
+
+  it('prefers a JavaScript npm_execpath over a batch shim', () => {
+    const root = mkdtempSync(join(tmpdir(), 'folderforge-npm-execpath-'));
+    const cli = join(root, 'npm-cli.js');
+    const execPath = join(root, 'node');
+    writeFileSync(cli, '');
+    try {
+      expect(
+        resolveNpmLaunch({
+          env: { npm_execpath: cli },
+          execPath,
+          platform: 'win32',
+          fileExists: (candidate) => candidate === cli,
+        }),
+      ).toEqual({ command: execPath, args: [cli] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
