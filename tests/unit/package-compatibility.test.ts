@@ -44,6 +44,9 @@ describe('package and CI compatibility contract', () => {
 
     expect(releaseCheck).toContain("['run', 'smoke:sandbox']");
     expect(workflowText).toContain('npm run smoke:sandbox');
+    expect(workflowText.indexOf('npm run smoke:sandbox')).toBeGreaterThan(
+      workflowText.indexOf('npm run build'),
+    );
     expect(workflowText).toContain('python@sha256:');
     expect(publishWorkflowText).toContain('FOLDERFORGE_SANDBOX_IMAGE: python@sha256:');
     expect(publishWorkflowText).toContain('docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"');

@@ -63,14 +63,6 @@ jobs:
           docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"
           npx vitest run tests/integration/sandbox-runtime.test.ts
 
-      - name: Containerized child MCP boundary smoke
-        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
-        env:
-          FOLDERFORGE_SANDBOX_IMAGE: python@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df
-        run: |
-          docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"
-          npm run smoke:sandbox
-
       - name: Fleet reconnect recovery (orphan reaping, lease fencing)
         run: npx vitest run tests/unit/provisioner.test.ts
 
@@ -129,6 +121,14 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Containerized child MCP boundary smoke
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        env:
+          FOLDERFORGE_SANDBOX_IMAGE: python@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df
+        run: |
+          docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"
+          npm run smoke:sandbox
 
       - name: Child MCP compatibility corpus
         if: matrix.node == 22 && matrix.os != 'windows-latest'
