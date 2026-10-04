@@ -120,6 +120,10 @@ try {
       {
         workspace: { defaultProject: project, allowedDirectories: [project] },
         policy: { defaultMode: 'danger' },
+        // This throwaway loopback fixture exercises wire-level error evidence of a
+        // host command, so it opts into the explicit trusted-host escape hatch.
+        // Real deployments must use terminal.sandbox.mode docker or podman.
+        terminal: { sandbox: { mode: 'process', requireInDanger: false } },
         tools: { preset: 'vibe-lite', enabled: ['pkg_audit', 'shell_exec'] },
         adapters: {
           serena: { enabled: false },
