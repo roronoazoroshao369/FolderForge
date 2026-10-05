@@ -6,7 +6,7 @@ This frontier is derived from live git, GitHub Actions, and the current release 
 
 ## P0 — Exact-main CI — CLOSED
 
-Main SHA `f9a6e32a6ab48db929682bc1662232021df5c96e` has green `ci.yml` run `37272090032`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully.
+Main SHA `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed` has green `ci.yml` run `37275833749`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully.
 
 The Windows/Node 22 pinned third-party child-MCP regression is closed on main. Successful matrix jobs prove only the steps that ran; skipped platform-specific checks are not evidence.
 
@@ -16,17 +16,19 @@ Danger mode bypasses manual approval but not hard denies, authorization, path an
 
 Current CI provides applicable Linux/Docker containment evidence. It does not establish Podman, macOS container-runtime, or Windows container-runtime parity.
 
-## P1 — Reconcile governance documentation — ACTIVE GOAL
+## P1 — Reconcile governance documentation — BASELINE REFRESHED
 
-Update `docs/project/PROJECT_STATE.md`, `docs/PROJECT_STATUS.md`, `docs/CURRENT_FRONTIER.md`, and `docs/HANDOFF.md` so they identify the green main SHA and run while preserving the evidence boundaries above.
+PR #29 is merged. The verified main baseline is now recorded above; future commits must not self-attest their own CI or pretend the baseline SHA is their eventual merge SHA.
 
-Exit condition: the documentation-only PR passes local repository gates and exact-head CI, then merges normally without bypassing checks.
+## P1 — Podman smoke selection — ACTIVE GOAL
 
-## P1 — Audit Podman and portability claims — NEXT CANDIDATE
+The child-MCP sandbox smoke previously hardcoded Docker when Podman was requested. The scoped fix now validates the existing selector and aligns generated config, prerequisites, and reported engine. Local verification passed; exact-head CI and safe delivery are still required.
 
-After documentation reconciliation, compare every current Podman and cross-platform sandbox claim with executable tests and CI evidence. Select one reproducible gap and close it without adding a public tool, command, route, or MCP API.
+Acceptance names the environment: Linux/Node 22 with Docker present and Podman absent must reject requested Podman without falling back to Docker. Real Docker smoke must still pass. Routing-only protocol mocks are not Podman containment evidence.
 
-A useful acceptance check must name the environment, command, exact SHA, exit code or run id, and artifact. Docker success must not be reused as Podman proof.
+## P1 — Real Podman and portability evidence — STILL OPEN
+
+Run both child-MCP boundary smoke and terminal runtime tests in a real, explicitly recorded Podman deployment. Record exact SHA, runtime version, rootless/rootful mode, UID mappings, mounts, cgroups, command, exit code, and artifact. Docker success must not be reused as Podman proof. macOS/Windows VM mount semantics remain environment-specific.
 
 ## P2 — External release evidence
 

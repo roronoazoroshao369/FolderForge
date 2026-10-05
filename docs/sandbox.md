@@ -128,6 +128,31 @@ export FOLDERFORGE_SANDBOX_IMAGE="$(docker inspect --format '{{index .RepoDigest
 npm run smoke:sandbox
 ```
 
+Docker is the default. Set the existing runtime-test selector explicitly to test
+Podman; it is used for both the child adapter configuration and the smoke JSON's
+`runtime` field. Only `docker` and `podman` are accepted. Unsupported selections
+fail before launch, and unavailable engines never fall back to Docker or the host:
+
+```bash
+podman pull python:3.12-alpine
+export FOLDERFORGE_SANDBOX_RUNTIME=podman
+export FOLDERFORGE_SANDBOX_IMAGE="$(podman image inspect --format '{{index .RepoDigests 0}}' python:3.12-alpine)"
+npm run smoke:sandbox
+```
+
+The pull above is an explicit operator preparation step, not an action performed
+by the smoke. Run `npm run build` first when testing a source checkout. Preparation
+must use the same engine and storage/user context as the smoke invocation.
+
+The selection regression suite (`tests/unit/smoke-sandbox.test.ts`) uses mocked MCP
+protocol responses and verifies generated config, reported engine, early rejection,
+and cleanup. It runs in every OS/Node CI job, but proves **routing only**, not
+Podman isolation. The real boundary CI smoke still runs Docker on Ubuntu/Node 22.
+Real Podman acceptance requires both this child smoke and the terminal tests below
+on the exact revision in the target Podman environment. Record runtime version,
+rootless/rootful mode, UID mappings, mounts/cgroups, command, exit, and artifacts.
+macOS/Windows VM-backed container mounts also need deployment-specific validation.
+
 The image only needs a `python` interpreter on `PATH`; the fixture server is
 mounted read-only from `tests/fixtures`. Without a valid
 `image@sha256:<digest>` value the suite exits with an explicit prerequisite

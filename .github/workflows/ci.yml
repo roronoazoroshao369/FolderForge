@@ -63,6 +63,9 @@ jobs:
           docker pull --quiet "$FOLDERFORGE_SANDBOX_IMAGE"
           npx vitest run tests/integration/sandbox-runtime.test.ts
 
+      - name: Sandbox smoke runtime selection (routing-only, not containment evidence)
+        run: npx vitest run tests/unit/smoke-sandbox.test.ts
+
       - name: Fleet reconnect recovery (orphan reaping, lease fencing)
         run: npx vitest run tests/unit/provisioner.test.ts
 

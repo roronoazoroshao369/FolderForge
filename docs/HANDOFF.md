@@ -8,11 +8,11 @@ Use this file only as resume context. Inspect live git and GitHub Actions before
 
 - Repository: `roronoazoroshao369/FolderForge`
 - Default branch: `main`
-- Main SHA: `f9a6e32a6ab48db929682bc1662232021df5c96e`
+- Main SHA: `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed`
 - Package version: `3.0.1`
-- Main CI: run `37272090032` completed success for all six Ubuntu/macOS/Windows × Node 22/24 jobs.
+- Main CI: run `37275833749` completed success for all six Ubuntu/macOS/Windows × Node 22/24 jobs.
 - PR #28 is merged; the Windows/Node 22 pinned third-party child-MCP regression is fixed on main.
-- Current council goal: reconcile stale project-state documents on branch `docs/reconcile-green-main`.
+- PR #29 is merged. Current council goal: correct explicit Podman selection in `smoke:sandbox` on branch `council/podman-smoke-selection`.
 
 ## Read first
 
@@ -25,13 +25,13 @@ Historical roadmap and implementation-log files do not override live repository 
 
 ## Evidence boundaries
 
-Run `37272090032` proves the checks that actually ran on its exact SHA. Do not cite skipped platform-specific steps as passes. Docker isolation evidence does not prove Podman, macOS, or Windows container-runtime behavior. Short soak smoke is not a 24-hour soak.
+Run `37275833749` proves the checks that actually ran on its exact SHA. Do not cite skipped platform-specific steps as passes. Docker isolation evidence does not prove Podman, macOS, or Windows container-runtime behavior. Short soak smoke is not a 24-hour soak.
 
 Danger mode remains zero manual approval after hard denies; authorization, workspace/Capsule containment, policy deny, audit, rate limits, and fail-closed sandboxing remain mandatory.
 
 ## Immediate next action
 
-Resume the documentation reconciliation PR if it exists. Verify its exact head with local gates and `ci.yml`; merge only if every relevant gate is green. If it has already merged safely, confirm main and select the Podman/cross-platform sandbox evidence audit as the next single goal.
+Inspect the smoke-selection goal in `docs/project/PROJECT_STATE.md`. Verify the explicit Docker/Podman routing, engine-specific prerequisite errors, and missing-Podman no-fallback acceptance check. Require exact-head CI before any merge. Real Podman containment remains unverified.
 
 ## Human gates still closed
 
