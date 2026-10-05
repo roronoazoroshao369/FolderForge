@@ -87,7 +87,7 @@ CI/release and documentation-drift lenses require correction now. Security vetoe
 
 ## Verification evidence for this goal
 
-Local gates on branch `docs/reconcile-green-main`: `typecheck` exit 0; `lint` exit 0; `architecture:check` exit 0 (`files=135`, `cycles=0`, `violations=0`); `docs:check` exit 0 (102 Markdown files); clean-env `npm run verify` exit 0 (145 test files, 1190 passed, 14 skipped); `npm audit --audit-level=high` exit 0 with 0 vulnerabilities. Exact-PR-head CI is still pending. Main baseline: run `37272090032` completed success at `f9a6e32a6ab48db929682bc1662232021df5c96e` with six successful matrix jobs.
+Local gates on branch `docs/reconcile-green-main`: `typecheck` exit 0; `lint` exit 0; `architecture:check` exit 0 (`files=135`, `cycles=0`, `violations=0`); `docs:check` exit 0 (102 Markdown files); clean-env `npm run verify` exit 0 (145 test files, 1190 passed, 14 skipped); `npm audit --audit-level=high` exit 0 with 0 vulnerabilities. Before merge, GitHub Actions must show `ci.yml` completed success for the current PR head; the committed file cannot self-attest a future run for its own SHA. Main baseline: run `37272090032` completed success at `f9a6e32a6ab48db929682bc1662232021df5c96e` with six successful matrix jobs.
 
 ## Next candidate goal
 
