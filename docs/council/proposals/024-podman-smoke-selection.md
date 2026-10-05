@@ -2,7 +2,7 @@
 
 - Author role: Architect
 - Date: 2026-10-05
-- Status: approved
+- Status: implemented
 - Classification: bug / compatibility / test / docs
 
 ## Problem
@@ -35,3 +35,7 @@ Revert the scoped commit (or close the PR before merge). No data migration or re
 ## Local implementation evidence
 
 E2: unchanged baseline explicit-Podman smoke exited 0 with Docker evidence; red regression suite exited 1 (5 failed, 3 passed); fixed suite exited 0 (8 passed). Linux/Node 22.23.0, Docker available / Podman absent: fixed explicit-Podman smoke exited 1 with `spawn podman ENOENT`; default and explicit Docker boundary smoke each exited 0. Real Docker terminal suite: 18 passed. Clean-env verify: 146 files, 1198 passed, 14 skipped, exit 0. Typecheck/lint/architecture/docs/stdio/HTTP/audit all exited 0. Logs and exact image digests are recorded in PROJECT_STATE. Exact-head CI is pending at commit time; real Podman containment remains unverified.
+
+## Delivery
+
+PR #30 merged normally at `27fc3e0aa7c79228f84a1f9b351c46c2af27713d` after exact-head run `37278290277` succeeded on `816a98aedd55538d8315036b1c6ada486a754bd6` (all six jobs and routing-only steps). Main merge run `37279062422` must be inspected live; no future documentation SHA is self-certified here. R16/R17 remain open.

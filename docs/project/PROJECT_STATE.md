@@ -1,6 +1,6 @@
 # PROJECT STATE
 
-_Last updated: 2026-10-05T07:26:02Z_
+_Last updated: 2026-10-05T07:42:58Z_
 
 ## Product and repository
 
@@ -9,8 +9,8 @@ _Last updated: 2026-10-05T07:26:02Z_
 - Verified main baseline SHA: `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed`.
 - Baseline main CI: run `37275833749` completed success on that exact SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
 - PR #29 is merged; its head `5d901a99fba690bec7ffafad5cebd115b98a2c6f` is an ancestor of main. The clean local checkout was still on its branch at resume; no unexpected changes were present.
-- Council branch: `council/podman-smoke-selection`, created from `origin/main` without touching old branches or worktrees.
-- Phase: PR/exact-head CI; verdict: IN_PROGRESS. Resolve the current goal PR with `gh pr list --head council/podman-smoke-selection`; no merge is attested by this pre-merge record.
+- Implementation branch: `council/podman-smoke-selection`; post-merge documentation branch: `council/podman-smoke-handoff`, based on the implementation merge without touching old branches/worktrees.
+- Phase: engineering goal merged / post-merge handoff; overall verdict: IN_PROGRESS because R16/R17/R19 remain open. PR #30 is merged; resolve any documentation follow-up and latest main CI live before resuming.
 
 ## Verification truth
 
@@ -29,7 +29,7 @@ Environment inspected: Linux, Node `22.23.0`, Docker available; Podman absent fr
 | R15 | High | Fixed | Windows/Node 22 third-party child-MCP step succeeded in baseline run `37275833749`. |
 | R16 | Medium | Open | Real Podman runtime evidence absent; rootless UID/mount/cgroup behavior and VM-host portability unverified. |
 | R17 | External | Open | Exact-release-SHA 24-hour soak, protection/environment confirmation, human Danger Mode sign-off, and beta evidence incomplete. |
-| R18 | Medium | Fixed locally / CI pending | Wrong-runtime selection reproduced before fix; eight routing regressions now pass and actual absent-Podman invocation fails with ENOENT rather than Docker success. Exact-head CI still required. |
+| R18 | Medium | Fixed | PR #30 merged after run `37278290277` passed all six jobs on head `816a98aedd55538d8315036b1c6ada486a754bd6`; routing step succeeded in all six. Actual absent-Podman invocation fails with ENOENT rather than Docker success. This does not close R16. |
 | R19 | Low | Open / backlog | `docs/compatibility.md` says every matrix job runs full tests and package/stdio/HTTP smoke; `ci.yml` skips these on Windows. Out of this smoke-selection goal; no Windows full-suite claim is accepted. |
 
 ## Primary goal contract
@@ -82,7 +82,7 @@ These are role/hat reviews by one agent, not independent human ratification.
 
 E1: repository/code/workflow inspection. E2: unchanged smoke ignores requested Podman (exit 0, Docker result). E3: baseline main run `37275833749`, not future branch proof.
 
-Red suite exited 1 with 5 failed / 3 passed (8 total); log `.folderforge-ci/podman-smoke-selection/red.log`. The smallest fix now validates the selector and uses it for config/report/guidance. Ordered local verification is complete. Next: scoped commit/PR, exact-head CI, conditional merge, and final state handoff. No new goal in this run.
+Red suite exited 1 with 5 failed / 3 passed (8 total); log `.folderforge-ci/podman-smoke-selection/red.log`. The smallest fix validates the selector and uses it for config/report/guidance. Ordered local verification and exact-head CI passed; the implementation is merged. Next: verify the implementation merge run, safely deliver this documentation-only handoff, emit NEXT_RUN_PROMPT, and stop. Do not start another engineering goal in this run. No new goal in this run.
 
 ## Local verification for this goal (E2, pre-commit tree)
 
@@ -109,3 +109,20 @@ Blast-radius review: `scripts/run-release-check.mjs` invokes the same smoke; CI 
 ## Delivery boundary
 
 The committed state cannot attest a future CI run for its own content or know its future merge SHA. The exact PR head and eventual main SHA/run must be inspected live before merge/resume; the chat handoff records the observed delivery result. Baseline SHA above is intentionally labeled a verified baseline, not a claim that it will remain current main.
+
+## Post-merge update
+
+- PR #30: `https://github.com/roronoazoroshao369/FolderForge/pull/30`, merged normally at `2026-10-05T07:40:28Z` under the user's conditional safe-merge authorization. No admin/bypass flag was used.
+- Accepted implementation head: `816a98aedd55538d8315036b1c6ada486a754bd6`; exact-head run `37278290277` completed success for all six jobs, including the routing-only step in each job (E3).
+- Inspected implementation merge baseline: `27fc3e0aa7c79228f84a1f9b351c46c2af27713d`; its exact-SHA main run is `37279062422`.
+- At this post-merge state write (2026-10-05T07:42:58Z), that main run was `in_progress` / `no conclusion yet`. This is a timestamped observation, not a current-status claim; inspect the run before proceeding. Never infer merge-SHA success from the PR run.
+
+This follow-up changes only durable documentation, not the tested runtime/script/workflow. Its exact pushed head must also pass CI before normal merge. The latest `main` may contain that later documentation merge; do not mistake either recorded baseline for an immutable current-main pointer. Inspect live `origin/main`, match its run by exact SHA, and treat skipped checks as NOT_RUN.
+
+## NEXT_RUN_PROMPT
+
+Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read PROJECT_STATE, PROJECT_STATUS, CURRENT_FRONTIER, CHANGELOG, sandbox/compatibility docs, and ci.yml; inspect clean/dirty git status, fetch origin/main, and match CI to the exact live SHA before editing. PR #30 fixed R18; implementation head/run and merge/run are listed above. A documentation-only follow-up may have advanced main; verify its actual state instead of assuming it is open or merged.
+
+R11–R15 and R18 are fixed. R16 (real Podman and deployment-specific containment), R17 (external release/human gates), and R19 (Windows compatibility-document drift) remain open. Select ONE reproducible evidence gap: prefer real Podman acceptance when a target engine/image/user context is available; otherwise reconcile the existing Windows workflow claims without expanding/skipping gates. Record exact environment, runtime/user/cgroups/mount context, command, SHA, exit and artifact. Docker or protocol mocks cannot prove Podman/VM-host parity.
+
+Do not install/change host runtimes, tag, publish, release, retag/delete v3.0.0, change protection/secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY WITH ACCEPTANCE AND EXACT-SHA CI GREEN → UPDATE STATE → emit new NEXT_RUN_PROMPT → stop.
