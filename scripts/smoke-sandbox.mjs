@@ -6,6 +6,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const runtime = String(process.env.FOLDERFORGE_SANDBOX_RUNTIME ?? 'docker').trim();
+if (!['docker', 'podman'].includes(runtime)) {
+  console.error('FOLDERFORGE_SANDBOX_RUNTIME must be docker or podman; no host or alternate-runtime fallback is permitted.');
+  process.exit(1);
+}
 const image = String(process.env.FOLDERFORGE_SANDBOX_IMAGE ?? '').trim();
 if (!/@sha256:[a-f0-9]{64}$/i.test(image)) {
   console.error(
@@ -15,8 +20,8 @@ if (!/@sha256:[a-f0-9]{64}$/i.test(image)) {
       'This is an environment prerequisite, not a code failure.',
       '',
       'Set it up with:',
-      '  docker pull <image>:<tag>',
-      "  export FOLDERFORGE_SANDBOX_IMAGE=\"$(docker inspect --format '{{index .RepoDigests 0}}' <image>:<tag>)\"",
+      `  ${runtime} pull <image>:<tag>`,
+      `  export FOLDERFORGE_SANDBOX_IMAGE="$(${runtime} image inspect --format '{{index .RepoDigests 0}}' <image>:<tag>)"`,
       '  npm run smoke:sandbox',
       '',
       `Received: ${image === '' ? '<unset>' : 'a value without an @sha256:<64-hex> digest suffix'}`,
@@ -51,7 +56,7 @@ try {
             env: { SANDBOX_ALLOWED: 'visible-inside-container' },
             inheritEnv: false,
             sandbox: {
-              mode: 'docker',
+              mode: runtime,
               image,
               command: 'python',
               args: ['/plugin/sandbox-mcp-server.py'],
@@ -145,7 +150,7 @@ try {
     JSON.stringify(
       {
         ok: true,
-        runtime: 'docker',
+        runtime,
         image,
         tool: 'serena__inspect_boundary',
         network: 'none',

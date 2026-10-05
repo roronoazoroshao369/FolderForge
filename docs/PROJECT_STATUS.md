@@ -6,22 +6,22 @@ _Last verified: 2026-10-05 against live git and GitHub Actions._
 
 - Repository: `/home/devops/FolderForge`
 - Default branch: `main`
-- Main SHA: `f9a6e32a6ab48db929682bc1662232021df5c96e`
+- Main SHA: `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed`
 - Package: `@musashishao/folderforge` `3.0.1`
-- Main CI: `ci.yml` run `37272090032` completed **success** on the exact main SHA.
+- Main CI: `ci.yml` run `37275833749` completed **success** on the exact main SHA.
 - Matrix result: all six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully.
 - `v3.0.0` remains public and abandoned; never retag, delete, or publish it.
 - `v3.0.1` is not tagged or published by this status update.
 
 ## Working tree and delivery state
 
-Main was clean and matched `origin/main` at resume. PR #28 is merged. The Windows third-party child-MCP path-separator regression is fixed on main, and the Windows/Node 22 check succeeded in run `37272090032`.
+Main was clean and matched `origin/main` at resume. PR #28 is merged. The Windows third-party child-MCP path-separator regression is fixed on main, and the Windows/Node 22 check succeeded in run `37275833749`.
 
 Automated dependency PRs remain open but are unrelated to the release-candidate hardening goal. They must be evaluated independently and must not be treated as already verified by the main run.
 
 ## Verification truth
 
-Run `37272090032` is exact-SHA evidence for the jobs and steps that actually ran. It proves the repository matrix completed successfully on Ubuntu, macOS, and Windows with Node 22 and 24.
+Run `37275833749` is exact-SHA evidence for the jobs and steps that actually ran. It proves the repository matrix completed successfully on Ubuntu, macOS, and Windows with Node 22 and 24.
 
 It does **not** turn skipped platform-specific steps into passes. Container-runtime isolation ran only where the workflow enabled it; Docker evidence is not macOS, Windows, or Podman evidence. Short runtime-soak checks and sample-volume gates are not a completed 24-hour soak.
 

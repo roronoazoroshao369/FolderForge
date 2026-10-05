@@ -12,6 +12,7 @@ semantic versioning.
 
 ### Fixed
 
+- **R18:** `smoke:sandbox` now honors `FOLDERFORGE_SANDBOX_RUNTIME=docker|podman` for both the child adapter and its evidence report. Previously an explicit Podman request silently exercised Docker in the inspected 3.0.1 candidate. Docker remains the default; unsupported selections fail before launch. Routing-only regressions run in every CI matrix job and do not certify real Podman isolation (R16 remains open).
 - **R15:** Windows/Node 22 runs the pinned third-party child-MCP probe and retains its artifact. npm is launched through Node plus `npm-cli.js` (or `npm_execpath` when that entry is JavaScript). `spawnSync('npm.cmd')` is refused because current Node returns EINVAL and never starts the install.
 - **R14 (High):** terminal container names now encode a hashed host identity and owner PID. On startup, Docker/Podman mode reconciles only same-host `folderforge-term-*` containers whose owner PID is no longer alive, so a prior FolderForge hard crash no longer leaves workspace-mounted containers running. Active owners, foreign hosts, malformed names, and unavailable runtimes are left untouched.
 - **R13:** `smoke:sandbox` is now mandatory in Ubuntu/Node 22 CI and `release:check`; CI and the publish workflow preload the same digest-pinned Python image so the child-MCP container boundary cannot silently regress.
