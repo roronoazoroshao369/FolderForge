@@ -12,6 +12,7 @@ semantic versioning.
 
 ### Fixed
 
+- **R19:** Compatibility docs now match `ci.yml`. Windows jobs do not run the full test suite, package smoke, stdio smoke, authenticated HTTP smoke, heartbeat stress, or MCP Inspector. Those checks stay required on the operating systems where the workflow already enables them. No CI condition was removed or weakened. A unit test fails if the documented Windows contract drifts or if an existing Windows gate stops running.
 - **R18:** `smoke:sandbox` now honors `FOLDERFORGE_SANDBOX_RUNTIME=docker|podman` for both the child adapter and its evidence report. Previously an explicit Podman request silently exercised Docker in the inspected 3.0.1 candidate. Docker remains the default; unsupported selections fail before launch. Routing-only regressions run in every CI matrix job and do not certify real Podman isolation (R16 remains open).
 - **R15:** Windows/Node 22 runs the pinned third-party child-MCP probe and retains its artifact. npm is launched through Node plus `npm-cli.js` (or `npm_execpath` when that entry is JavaScript). `spawnSync('npm.cmd')` is refused because current Node returns EINVAL and never starts the install.
 - **R14 (High):** terminal container names now encode a hashed host identity and owner PID. On startup, Docker/Podman mode reconciles only same-host `folderforge-term-*` containers whose owner PID is no longer alive, so a prior FolderForge hard crash no longer leaves workspace-mounted containers running. Active owners, foreign hosts, malformed names, and unavailable runtimes are left untouched.
