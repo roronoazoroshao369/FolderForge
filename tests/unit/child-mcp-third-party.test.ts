@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { resolveNpmLaunch } from '../../scripts/child-mcp-third-party.mjs';
+import {
+  includesExpectedText,
+  resolveNpmLaunch,
+} from '../../scripts/child-mcp-third-party.mjs';
 
 interface ValidationReport {
   mode: string;
@@ -118,6 +121,17 @@ describe('third-party child MCP compatibility manifest', () => {
 
     expect(executed.status).not.toBe(0);
     expect(executed.stderr).toMatch(/npmOverrides\[0\]\.version.*exact pinned version/i);
+  });
+});
+
+describe('third-party expected-text matching', () => {
+  it('treats only slash direction as equivalent for portable path evidence', () => {
+    const expected = 'C:\\Users\\runner\\AppData\\Local/Temp/folderforge/filesystem-root';
+    const actual = 'Allowed directories:\nC:\\Users\\runner\\AppData\\Local\\Temp\\folderforge\\filesystem-root';
+
+    expect(includesExpectedText(actual, expected)).toBe(true);
+    expect(includesExpectedText(actual, 'C:/different/filesystem-root')).toBe(false);
+    expect(includesExpectedText('folderforge-third-party-compatibility', 'folderforge-third-party-compatibility')).toBe(true);
   });
 });
 

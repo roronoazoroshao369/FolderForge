@@ -254,6 +254,12 @@ function replacePlaceholders(value, roots) {
   return value;
 }
 
+function includesExpectedText(actual, expected) {
+  if (actual.includes(expected)) return true;
+  if (!/[\\/]/.test(expected)) return false;
+  return actual.replaceAll('\\', '/').includes(expected.replaceAll('\\', '/'));
+}
+
 function normalizeEvidenceText(value, roots) {
   let output = String(value ?? '');
   const replacements = [
@@ -690,7 +696,7 @@ async function runProfile(profile, packageInfo, installRoot, workRoot) {
               .map((entry) => entry.text)
               .join('\n')
           : '';
-        if (!actual.includes(expected)) {
+        if (!includesExpectedText(actual, expected)) {
           throw new Error(
             `${profile.id} safe probe ${profile.safeCall.tool} did not contain the expected text.`,
           );
@@ -882,4 +888,4 @@ if (invokedAsCli()) {
   });
 }
 
-export { resolveNpmLaunch };
+export { includesExpectedText, resolveNpmLaunch };
