@@ -1,14 +1,14 @@
 # PROJECT STATE
 
-_Last updated: 2026-10-05T09:10:45Z_
+_Last updated: 2026-10-05T13:34:32Z_
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Verified main SHA: `3b1889e42cd236d80fd57f3cb6521ccc7700ef84`.
-- Exact-SHA main CI: run `37287594297` completed success; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
-- PR #32 merged normally at `2026-10-05T09:04:02Z`. Accepted head: `bda17ce160e93587043f5b95c814b0a3f0f0373e`; exact-head run `37286780402` completed success for all six jobs. Merge commit is the verified main SHA above. No admin or bypass flag was used.
+- Verified main SHA: `940f4eb0cd2889e010ae9d4aeac600c46ac1f4f2`.
+- Exact-SHA main CI: run `37289371720` completed success; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- PR #33 merged the documentation handoff normally at the verified main SHA above. No admin or bypass flag was used.
 - Overall verdict: IN_PROGRESS because R16 and R17 remain open. R19 is fixed on this main SHA.
 - This handoff does not self-certify a later documentation commit. Inspect live `origin/main` and match its run by exact SHA before the next goal.
 
@@ -32,7 +32,7 @@ On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode reg
 | R14 | High | Fixed | Orphan recovery and Windows npm launch fixes remain on main. |
 | R15 | High | Fixed | Windows/Node 22 third-party child-MCP step succeeded again in run `37286780402`. |
 | R16 | Medium | Open | Real Podman runtime evidence absent. Rootless UID/mount/cgroup behavior and VM-host portability unverified. Docker success and routing mocks are not Podman proof. |
-| R17 | External | Open | Exact-release-SHA 24-hour soak, protection/environment confirmation, human Danger Mode sign-off, and beta evidence incomplete. |
+| R17 | External | Open | At `2026-10-05T13:34:32Z`, the GitHub `main` branch protection API returned HTTP 404 `Branch not protected`, and repository rulesets were `[]`; the protection gate is unmet. Exact-release-SHA 24-hour soak, protected npm-publish environment, human Danger Mode sign-off, beta evidence, and explicit release approval remain incomplete. No settings were changed. |
 | R18 | Medium | Fixed | PR #30 merged after run `37278290277` passed all six jobs on head `816a98aedd55538d8315036b1c6ada486a754bd6`. Absent Podman fails with ENOENT rather than Docker success. This does not close R16. |
 | R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
 
@@ -85,12 +85,14 @@ These are role/hat reviews by one agent, not independent human ratification.
 
 ## External human gates still closed
 
-24-hour exact-release-SHA soak; branch protection; protected npm-publish environment; Danger Mode sign-off; beta evidence; explicit `v3.0.1` tag/npm publish/GitHub Release approval. Never retag or delete `v3.0.0`.
+At `2026-10-05T13:34:32Z`, `GET /repos/roronoazoroshao369/FolderForge/branches/main/protection` returned HTTP 404 `Branch not protected`, and `GET /repos/roronoazoroshao369/FolderForge/rulesets?includes_parents=true` returned `[]` in the authenticated API context. This confirms that the R17 protection gate is unmet; it is not authorization to change repository settings. No settings were changed.
+
+The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mode sign-off, beta evidence, and explicit `v3.0.1` tag/npm publish/GitHub Release approval also remain outstanding. Never retag or delete `v3.0.0`.
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read PROJECT_STATE, PROJECT_STATUS, CURRENT_FRONTIER, CHANGELOG, sandbox/compatibility docs, and ci.yml. Inspect git status, fetch origin/main, and match CI to the exact live SHA before editing. A documentation handoff may have advanced main after `3b1889e42cd236d80fd57f3cb6521ccc7700ef84`; do not assume this file's SHA is still current.
+Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read PROJECT_STATE, PROJECT_STATUS, CURRENT_FRONTIER, CHANGELOG, sandbox/compatibility docs, and ci.yml. Inspect git status, fetch `origin/main`, and match CI to the exact live SHA before editing. A documentation-only branch-protection audit may have advanced main after `940f4eb0cd2889e010ae9d4aeac600c46ac1f4f2`; do not assume this file's SHA is still current.
 
-R11–R15, R18, and R19 are fixed. R16 (real Podman and deployment-specific containment) and R17 (external release/human gates) remain open. Windows full-suite, package, stdio, HTTP, heartbeat, and Inspector checks remain NOT_RUN; do not reopen R19 unless the document and workflow diverge again. Select ONE gap: real Podman acceptance only when a target engine, image, user, mount, and cgroup context are actually available. Otherwise do not install a runtime and do not expand or skip CI gates. Record environment, engine/user/mount/cgroup context, exact SHA, command, exit, and artifact. Docker or routing mocks do not prove Podman/VM-host parity. Skipped checks are NOT_RUN.
+R11–R15, R18, and R19 are fixed. R16 and R17 remain open. The `main` branch-protection API returned HTTP 404 `Branch not protected` and repository rulesets were `[]` at `2026-10-05T13:34:32Z`; this confirms the protection gate is unmet and does not authorize a settings change. Windows full-suite, package, stdio, HTTP, heartbeat, and Inspector checks remain NOT_RUN; do not reopen R19 unless `docs/compatibility.md` and `ci.yml` diverge. Select ONE remaining gap: run real Podman acceptance only when a target engine, digest-pinned image, user, mount, and cgroup context exist; otherwise select one separately authorized R17 evidence gap. Do not install a runtime, substitute Docker/mocks, expand or skip CI gates, or repeat the branch-protection audit without new evidence.
 
-Do not tag, publish, release, retag/delete v3.0.0, change protection or secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY WITH ACCEPTANCE AND EXACT-SHA CI GREEN → UPDATE PROJECT_STATE → emit NEXT_RUN_PROMPT → stop.
+Do not tag, publish, release, retag/delete `v3.0.0`, change protection or secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY WITH ACCEPTANCE AND EXACT-SHA CI GREEN → UPDATE PROJECT_STATE → emit NEXT_RUN_PROMPT → stop.
