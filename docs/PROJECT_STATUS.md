@@ -6,16 +6,16 @@ _Last verified: 2026-10-05 against live git and GitHub Actions._
 
 - Repository: `/home/devops/FolderForge`
 - Default branch: `main`
-- Main SHA: `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed`
+- Last verified pre-goal main baseline SHA: `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed`
 - Package: `@musashishao/folderforge` `3.0.1`
-- Main CI: `ci.yml` run `37275833749` completed **success** on the exact main SHA.
+- Baseline main CI: `ci.yml` run `37275833749` completed **success** on that exact baseline SHA.
 - Matrix result: all six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully.
 - `v3.0.0` remains public and abandoned; never retag, delete, or publish it.
 - `v3.0.1` is not tagged or published by this status update.
 
 ## Working tree and delivery state
 
-Main was clean and matched `origin/main` at resume. PR #28 is merged. The Windows third-party child-MCP path-separator regression is fixed on main, and the Windows/Node 22 check succeeded in run `37275833749`.
+The baseline checkout was clean and matched the merged history at resume. PR #30 subsequently merged the smoke-selection fix at `27fc3e0aa7c79228f84a1f9b351c46c2af27713d`, after exact-head run `37278290277` succeeded. Its merge run is `37279062422`; verify its live conclusion, and any later documentation merge, before declaring latest-main readiness. PR #28 is merged. The Windows third-party child-MCP path-separator regression is fixed on main, and the Windows/Node 22 check succeeded in run `37275833749`.
 
 Automated dependency PRs remain open but are unrelated to the release-candidate hardening goal. They must be evaluated independently and must not be treated as already verified by the main run.
 

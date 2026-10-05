@@ -4,9 +4,9 @@ _Last verified: 2026-10-05._
 
 This frontier is derived from live git, GitHub Actions, and the current release contract. Repository evidence overrides historical roadmap text.
 
-## P0 — Exact-main CI — CLOSED
+## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Main SHA `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed` has green `ci.yml` run `37275833749`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully.
+Pre-goal baseline SHA `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed` has green `ci.yml` run `37275833749`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully.
 
 The Windows/Node 22 pinned third-party child-MCP regression is closed on main. Successful matrix jobs prove only the steps that ran; skipped platform-specific checks are not evidence.
 
@@ -20,9 +20,9 @@ Current CI provides applicable Linux/Docker containment evidence. It does not es
 
 PR #29 is merged. The verified main baseline is now recorded above; future commits must not self-attest their own CI or pretend the baseline SHA is their eventual merge SHA.
 
-## P1 — Podman smoke selection — ACTIVE GOAL
+## P1 — Podman smoke selection — IMPLEMENTED AND MERGED
 
-The child-MCP sandbox smoke previously hardcoded Docker when Podman was requested. The scoped fix now validates the existing selector and aligns generated config, prerequisites, and reported engine. Local verification passed; exact-head CI and safe delivery are still required.
+The child-MCP sandbox smoke previously hardcoded Docker when Podman was requested. The scoped fix now validates the existing selector and aligns generated config, prerequisites, and reported engine. Local verification and exact-head CI run `37278290277` passed. PR #30 merged at `27fc3e0aa7c79228f84a1f9b351c46c2af27713d`; match its main run `37279062422` and any subsequent documentation-only merge to live main before readiness claims.
 
 Acceptance names the environment: Linux/Node 22 with Docker present and Podman absent must reject requested Podman without falling back to Docker. Real Docker smoke must still pass. Routing-only protocol mocks are not Podman containment evidence.
 
