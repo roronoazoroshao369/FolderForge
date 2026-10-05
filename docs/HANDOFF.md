@@ -8,11 +8,11 @@ Use this file only as resume context. Inspect live git and GitHub Actions before
 
 - Repository: `roronoazoroshao369/FolderForge`
 - Default branch: `main`
-- Pre-goal verified main baseline SHA: `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed`
+- Verified main SHA: `3b1889e42cd236d80fd57f3cb6521ccc7700ef84`
 - Package version: `3.0.1`
-- Baseline main CI: run `37275833749` completed success for all six Ubuntu/macOS/Windows × Node 22/24 jobs.
-- PR #28 is merged; the Windows/Node 22 pinned third-party child-MCP regression is fixed on main.
-- PR #29 and implementation PR #30 are merged. R18 is fixed. PR #30 head/run: `816a98aedd55538d8315036b1c6ada486a754bd6` / `37278290277` (six jobs success). Implementation merge/run: `27fc3e0aa7c79228f84a1f9b351c46c2af27713d` / `37279062422` (check live). A documentation-only follow-up may advance main.
+- Exact-SHA main CI: run `37287594297` completed success for all six Ubuntu/macOS/Windows × Node 22/24 jobs.
+- PR #32 is merged. Head/run: `bda17ce160e93587043f5b95c814b0a3f0f0373e` / `37286780402`. R19 is fixed as a documentation contract, not as Windows full-suite evidence.
+- R16 and R17 remain open. A documentation handoff after this SHA must be inspected live.
 
 ## Read first
 
@@ -25,13 +25,13 @@ Historical roadmap and implementation-log files do not override live repository 
 
 ## Evidence boundaries
 
-Run `37275833749` proves the checks that actually ran on its exact SHA. Do not cite skipped platform-specific steps as passes. Docker isolation evidence does not prove Podman, macOS, or Windows container-runtime behavior. Short soak smoke is not a 24-hour soak.
+Run `37287594297` proves the checks that actually ran on its exact SHA. Do not cite skipped platform-specific steps as passes. Docker isolation evidence does not prove Podman, macOS, or Windows container-runtime behavior. Short soak smoke is not a 24-hour soak.
 
 Danger mode remains zero manual approval after hard denies; authorization, workspace/Capsule containment, policy deny, audit, rate limits, and fail-closed sandboxing remain mandatory.
 
 ## Immediate next action
 
-Read the post-merge update and NEXT_RUN_PROMPT in `docs/project/PROJECT_STATE.md`; match live main to its exact run, then select one remaining evidence gap. R16 real Podman containment, R17 external release gates, and R19 Windows compatibility-document drift remain open. Do not replay the completed R18 smoke-selector fix or infer Podman evidence from its mocked routing tests.
+Read NEXT_RUN_PROMPT in `docs/project/PROJECT_STATE.md`; match live main to its exact run, then select one remaining evidence gap. R16 real Podman containment and R17 external release gates remain open. Do not reopen R19 unless the compatibility document and `ci.yml` diverge. Do not infer Podman evidence from Docker success or routing mocks.
 
 ## Human gates still closed
 

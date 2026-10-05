@@ -6,7 +6,7 @@ This frontier is derived from live git, GitHub Actions, and the current release 
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Pre-goal baseline SHA `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed` has green `ci.yml` run `37275833749`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully.
+Verified main SHA `3b1889e42cd236d80fd57f3cb6521ccc7700ef84` has green `ci.yml` run `37287594297`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. A later documentation handoff is not certified by that run.
 
 The Windows/Node 22 pinned third-party child-MCP regression is closed on main. Successful matrix jobs prove only the steps that ran; skipped platform-specific checks are not evidence.
 
@@ -25,6 +25,10 @@ PR #29 is merged. The verified main baseline is now recorded above; future commi
 The child-MCP sandbox smoke previously hardcoded Docker when Podman was requested. The scoped fix now validates the existing selector and aligns generated config, prerequisites, and reported engine. Local verification and exact-head CI run `37278290277` passed. PR #30 merged at `27fc3e0aa7c79228f84a1f9b351c46c2af27713d`; match its main run `37279062422` and any subsequent documentation-only merge to live main before readiness claims.
 
 Acceptance names the environment: Linux/Node 22 with Docker present and Podman absent must reject requested Podman without falling back to Docker. Real Docker smoke must still pass. Routing-only protocol mocks are not Podman containment evidence.
+
+## P1 — Windows workflow claims — RECONCILED
+
+PR #32 closed the false claim that every matrix job runs the full suite and package/stdio/HTTP smokes. The documented Windows contract is generated from `ci.yml` and locked by a regression test. No Windows gate was removed. Skipped Windows checks remain NOT_RUN.
 
 ## P1 — Real Podman and portability evidence — STILL OPEN
 
