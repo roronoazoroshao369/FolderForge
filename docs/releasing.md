@@ -62,8 +62,10 @@ The exact release commit must pass all required CI jobs on:
 - macOS with Node 22 and 24;
 - Windows with Node 22 and 24.
 
-A local Linux pass cannot establish macOS or Windows readiness. Do not reuse old
-workflow run IDs as evidence for a newer commit.
+A local Linux pass cannot establish macOS or Windows readiness. A green Windows
+job is not evidence for steps `docs/compatibility.md` marks NOT_RUN, including
+the full suite and package, stdio, and authenticated HTTP smokes. Do not reuse
+old workflow run IDs as evidence for a newer commit.
 
 ## Maintainer procedure
 

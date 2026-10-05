@@ -13,27 +13,81 @@ current GitHub-hosted Ubuntu, macOS, and Windows runners.
 | macOS latest | Required | Required |
 | Windows latest | Required | Required |
 
-Every matrix entry installs dependencies with lifecycle scripts disabled and
-runs:
+A green job proves only the steps that ran. NOT_RUN is not a pass. Docker
+success is not Podman evidence, and a Windows success is not Ubuntu or macOS
+evidence.
 
-1. Typecheck and lint.
-2. Unit and integration tests.
-3. Production build.
-4. Documentation, link, and version consistency checks.
-5. Packed-tarball local and global-prefix installs plus CLI, doctor, browser
-   resolution, and package-local Playwright MCP handshake smoke in paths with
-   spaces and Unicode.
-6. Stdio MCP initialize, `tools/list`, and governed file-read smoke.
-7. Authenticated HTTP MCP initialize, list, and call smoke.
+Ubuntu and macOS jobs install dependencies with lifecycle scripts disabled and
+run typecheck, lint, architecture and documentation checks, the full unit and
+integration suite, production build, packed-tarball CLI smoke, stdio MCP smoke,
+and authenticated HTTP MCP smoke. Ubuntu/Node 22 additionally runs coverage,
+property/fuzz, real Docker isolation, the containerized child-MCP boundary,
+heartbeat stress, MCP Inspector, and the Ubuntu-only evidence gates named in
+the workflow. macOS/Node 22 also runs heartbeat stress. These checks remain
+required where the workflow enables them.
 
-Ubuntu/Node 22 additionally enforces coverage thresholds and property/fuzz checks.
-Ubuntu/Node 22 and Windows/Node 22 run repeated heartbeat stress plus official MCP
-Inspector stdio `tools/list`/`tools/call` conformance. Every Node 22 operating-system
-job installs and exercises the exact-version/integrity-pinned third-party child MCP
-matrix and retains its JSON report. These targeted jobs protect the runtime versions
-and platforms that exposed the original scheduling race. Dependency audits for the
-FolderForge tree run once on Ubuntu/Node 22; the isolated third-party matrix audits
-its own temporary production dependency graph on every Node 22 operating system.
+Windows jobs install dependencies the same way and run typecheck, lint,
+architecture and documentation checks, routing-only sandbox selection tests,
+Fleet reconnect recovery, the focused Windows danger-mode regression, and the
+production build. Windows/Node 22 also runs the pinned third-party child-MCP
+probe and retains its artifact. Windows danger-mode regression is not the full unit and integration suite.
+The package, stdio, and authenticated HTTP smokes are not Windows evidence.
+In particular, heartbeat stress and MCP Inspector do not run on Windows.
+No Windows gate was removed to make this contract true.
+
+The table below is the Windows run/NOT_RUN contract for every named workflow
+step except runner setup. `tests/unit/windows-ci-claims.test.ts` regenerates it
+from `.github/workflows/ci.yml` and fails if the document drifts or if a gate
+that already runs on Windows stops running.
+
+<!-- windows-ci-contract:start -->
+| Step | Node 22 | Node 24 |
+| --- | --- | --- |
+| Install dependencies without lifecycle downloads | run | run |
+| Typecheck | run | run |
+| Lint | run | run |
+| Architecture boundaries | run | run |
+| Documentation and version checks | run | run |
+| Real container-runtime isolation (Docker, digest-pinned image) | NOT_RUN | NOT_RUN |
+| Sandbox smoke runtime selection (routing-only, not containment evidence) | run | run |
+| Fleet reconnect recovery (orphan reaping, lease fencing) | run | run |
+| Audit durability failure injection | NOT_RUN | NOT_RUN |
+| Preserve audit durability evidence | NOT_RUN | NOT_RUN |
+| Evidence integrity and release provenance corpus | NOT_RUN | NOT_RUN |
+| Preserve evidence integrity results | NOT_RUN | NOT_RUN |
+| Test | NOT_RUN | NOT_RUN |
+| Windows danger-mode regression | run | run |
+| Coverage regression gate | NOT_RUN | NOT_RUN |
+| Property and fuzz checks | NOT_RUN | NOT_RUN |
+| Child MCP heartbeat stress | NOT_RUN | NOT_RUN |
+| Build | run | run |
+| Containerized child MCP boundary smoke | NOT_RUN | NOT_RUN |
+| Child MCP compatibility corpus | NOT_RUN | NOT_RUN |
+| Preserve child MCP compatibility evidence | NOT_RUN | NOT_RUN |
+| Pinned third-party child MCP compatibility | run | NOT_RUN |
+| Preserve third-party child MCP evidence | run | NOT_RUN |
+| Concurrent audit writer stress | NOT_RUN | NOT_RUN |
+| Evidence migration and tamper smoke | NOT_RUN | NOT_RUN |
+| Resumable runtime soak smoke | NOT_RUN | NOT_RUN |
+| Preserve runtime soak smoke evidence | NOT_RUN | NOT_RUN |
+| Full-day soak evidence volume gate | NOT_RUN | NOT_RUN |
+| Preserve soak volume evidence | NOT_RUN | NOT_RUN |
+| Five-minute onboarding smoke | NOT_RUN | NOT_RUN |
+| Godot adapter package smoke | NOT_RUN | NOT_RUN |
+| Governance microbenchmark | NOT_RUN | NOT_RUN |
+| Preserve governance benchmark evidence | NOT_RUN | NOT_RUN |
+| MCP Inspector conformance | NOT_RUN | NOT_RUN |
+| Pack, install tarball, and smoke CLI | NOT_RUN | NOT_RUN |
+| Smoke stdio MCP with spaces and Unicode | NOT_RUN | NOT_RUN |
+| Smoke authenticated HTTP MCP | NOT_RUN | NOT_RUN |
+| Production dependency audit | NOT_RUN | NOT_RUN |
+| Full dependency audit | NOT_RUN | NOT_RUN |
+<!-- windows-ci-contract:end -->
+
+Every Node 22 operating-system job, including Windows, installs and exercises
+the exact-version/integrity-pinned third-party child MCP matrix and retains its
+JSON report. That probe audits its own temporary production dependency graph.
+FolderForge's own dependency audits run once on Ubuntu/Node 22.
 
 ## Evidence rule
 
