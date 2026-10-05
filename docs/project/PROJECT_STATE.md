@@ -1,128 +1,96 @@
 # PROJECT STATE
 
-_Last updated: 2026-10-05T07:42:58Z_
+_Last updated: 2026-10-05T09:10:45Z_
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Verified main baseline SHA: `aa8c5e97683ccde5b2a8aefac4b99b21c0fd08ed`.
-- Baseline main CI: run `37275833749` completed success on that exact SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
-- PR #29 is merged; its head `5d901a99fba690bec7ffafad5cebd115b98a2c6f` is an ancestor of main. The clean local checkout was still on its branch at resume; no unexpected changes were present.
-- Implementation branch: `council/podman-smoke-selection`; post-merge documentation branch: `council/podman-smoke-handoff`, based on the implementation merge without touching old branches/worktrees.
-- Phase: engineering goal merged / post-merge handoff; overall verdict: IN_PROGRESS because R16/R17/R19 remain open. PR #30 is merged; resolve any documentation follow-up and latest main CI live before resuming.
+- Verified main SHA: `3b1889e42cd236d80fd57f3cb6521ccc7700ef84`.
+- Exact-SHA main CI: run `37287594297` completed success; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- PR #32 merged normally at `2026-10-05T09:04:02Z`. Accepted head: `bda17ce160e93587043f5b95c814b0a3f0f0373e`; exact-head run `37286780402` completed success for all six jobs. Merge commit is the verified main SHA above. No admin or bypass flag was used.
+- Overall verdict: IN_PROGRESS because R16 and R17 remain open. R19 is fixed on this main SHA.
+- This handoff does not self-certify a later documentation commit. Inspect live `origin/main` and match its run by exact SHA before the next goal.
+
+## Environment inspected before the goal
+
+Host: Linux `devops-HP-Z420-Workstation`, kernel `7.0.0-31-generic`, uid `1000(devops)`, Node `22.23.0`. Docker: `/usr/bin/docker`. Podman: not on PATH, no `/usr/bin/podman` or `/usr/local/bin/podman`, `podman.service` and `podman.socket` inactive, no `/run/podman` or `/run/user/1000/podman`. cgroup: `0::/init.scope`. Real Podman acceptance is NOT_RUN. Present Docker images are unrelated local fixtures and are not Podman or VM-host proof.
 
 ## Verification truth
 
-Baseline CI proves only steps that ran. Docker isolation on Ubuntu/Node 22 is not Podman or macOS/Windows container-runtime proof. Windows matrix jobs also skip the general full-test and package/stdio/HTTP smoke steps.
+Baseline and merge CI prove only steps that ran. Docker isolation on Ubuntu/Node 22 is not Podman or macOS/Windows container-runtime proof. Windows jobs still skip the full suite, package/stdio/HTTP smokes, heartbeat stress, and MCP Inspector. Those skips are NOT_RUN, not passes.
 
-Environment inspected: Linux, Node `22.23.0`, Docker available; Podman absent from PATH. On unchanged baseline code, requesting `FOLDERFORGE_SANDBOX_RUNTIME=podman` with the locally present pinned Python image makes `npm run smoke:sandbox` exit 0 and report `runtime: docker`. Log: `.folderforge-ci/podman-smoke-selection/baseline-routing.log`; exit file: `baseline-routing.exit`. This is E2 reproduction of wrong-runtime selection, NOT Podman isolation evidence.
+On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode regression` success, `Pinned third-party child MCP compatibility` success, `Build` success; `Test`, package smoke, stdio smoke, HTTP smoke, heartbeat stress, and MCP Inspector skipped. No `ci.yml` condition changed.
 
 ## Risk register
 
 | ID | Severity | Status | Evidence / boundary |
 | --- | --- | --- | --- |
-| R11 | High | Fixed | Prior terminal timeout/kill reaping implementation and exact-main CI remain on main. |
+| R11 | High | Fixed | Terminal timeout/kill reaping remains on main. |
 | R12 | High | Fixed | Applicable Linux/Docker sandbox CI gate remains enabled. |
 | R13 | High | Fixed | Terminal timeout, signal, and uncertain outcomes remain distinct. |
 | R14 | High | Fixed | Orphan recovery and Windows npm launch fixes remain on main. |
-| R15 | High | Fixed | Windows/Node 22 third-party child-MCP step succeeded in baseline run `37275833749`. |
-| R16 | Medium | Open | Real Podman runtime evidence absent; rootless UID/mount/cgroup behavior and VM-host portability unverified. |
+| R15 | High | Fixed | Windows/Node 22 third-party child-MCP step succeeded again in run `37286780402`. |
+| R16 | Medium | Open | Real Podman runtime evidence absent. Rootless UID/mount/cgroup behavior and VM-host portability unverified. Docker success and routing mocks are not Podman proof. |
 | R17 | External | Open | Exact-release-SHA 24-hour soak, protection/environment confirmation, human Danger Mode sign-off, and beta evidence incomplete. |
-| R18 | Medium | Fixed | PR #30 merged after run `37278290277` passed all six jobs on head `816a98aedd55538d8315036b1c6ada486a754bd6`; routing step succeeded in all six. Actual absent-Podman invocation fails with ENOENT rather than Docker success. This does not close R16. |
-| R19 | Low | Open / backlog | `docs/compatibility.md` says every matrix job runs full tests and package/stdio/HTTP smoke; `ci.yml` skips these on Windows. Out of this smoke-selection goal; no Windows full-suite claim is accepted. |
+| R18 | Medium | Fixed | PR #30 merged after run `37278290277` passed all six jobs on head `816a98aedd55538d8315036b1c6ada486a754bd6`. Absent Podman fails with ENOENT rather than Docker success. This does not close R16. |
+| R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
 
-## Primary goal contract
+## Completed goal
 
 **GOAL**
-Make the existing sandbox child-MCP smoke honor the same Docker/Podman environment selector as terminal runtime tests, reject unsupported selections before launch, and report the engine actually selected.
+Reconcile the false Windows workflow claims without weakening or expanding gates.
 
-**WHY NOW**
-The smoke silently tests Docker when the operator requests Podman. This can contaminate release evidence even though successful JSON currently labels Docker.
+**WHY THIS GOAL**
+Real Podman acceptance was preferred and was NOT_RUN because no Podman engine, socket, or service was available. Installing a runtime was not approved. The remaining reproducible internal gap was R19.
 
-**SCOPE FILES**
-- `.github/workflows/ci.yml` (routing-only focused suite in all six jobs)
-- `scripts/smoke-sandbox.mjs`
-- `tests/unit/smoke-sandbox.test.ts`
-- `docs/sandbox.md`, `CHANGELOG.md`
-- State/status/frontier/handoff reconciliation and proposal 024.
+**SCOPE**
+`docs/compatibility.md`, `docs/releasing.md`, `CHANGELOG.md`, proposal 025, and `tests/unit/windows-ci-claims.test.ts`. No workflow, product, dependency, or version change.
 
-**NON-GOALS**
-No product tool, CLI, route, MCP API, dependency, version, or containment-flag change. No runtime installation, tag, publish, release, protection, secrets, environment changes, or workflow cancellation. No claim of real Podman isolation from mocked routing tests or Docker success.
-
-**ACCEPTANCE CRITERIA**
-1. Regression tests fail before the fix, then pass: absent selection defaults to Docker; explicit Docker/Podman map to generated adapter mode AND success-report runtime; invalid/process/empty selections exit before transport launch; prerequisite instructions name the selected engine; temporary project is removed.
-2. Linux/Node 22 with Podman absent and Docker present: requesting Podman with the pinned Python image fails and cannot produce Docker success; default/explicit Docker boundary smoke exits 0.
-3. Typecheck, lint, architecture, docs, focused tests, real Docker terminal runtime tests, clean-env full verify, relevant stdio/HTTP smokes, and high-level audit exit 0 with logs.
-4. Exact pushed PR head passes all six CI jobs; before merge confirm unchanged main base and no unresolved acceptance failures. Merge only under the user's conditional safe-merge authorization, without bypass.
-5. R16/R17 remain open, and evidence explicitly separates routing-only mocks, Docker containment, missing-Podman failure, and future real Podman acceptance.
+**ACCEPTANCE**
+1. The contract test failed before the document contained the generated table, then passed.
+2. `git diff -- .github/workflows/ci.yml` was empty.
+3. Windows danger-mode regression, Node 22 third-party probe, build, and the shared typecheck/lint/docs/architecture/routing/fleet steps still run.
+4. Exact PR head and the resulting main SHA each passed all six CI jobs.
+5. R16 and R17 remain open. Skipped Windows checks stay labeled NOT_RUN.
 
 **ROLLBACK**
-Revert the scoped commit or close the PR before merge. No data/config migration.
+Revert `bda17ce160e93587043f5b95c814b0a3f0f0373e` or the merge `3b1889e42cd236d80fd57f3cb6521ccc7700ef84`. No data migration.
 
 ## Council decision
 
-Options: A — do nothing (reject: preserves reproducible wrong-runtime testing); B — install/run Podman or add a new Podman CI matrix now (defer: engine unavailable locally, rootless mapping/host assumptions expand scope); C — correct existing smoke selection with regression and environment-specific no-fallback evidence (selected).
+Options: A — do nothing (reject: leaves a false supported-platform claim); B — install Podman or expand Windows to the full suite now (reject: engine unavailable, and expansion was out of scope); C — document the existing workflow exactly and lock it (selected).
 
-- Architect: C; reuse the existing environment selector, no new product surface.
-- Security/Red-team: C; allow only Docker/Podman and reject before launch, retain all isolation flags.
-- QA/Verifier: C; require red/green config-plus-report tests and a real Docker-present/Podman-absent negative check.
-- SRE/Release: C; exact-head CI required; keep Podman runtime certification open.
-- DX/Docs: C; engine-specific prerequisite text and evidence boundaries.
-- Skeptic: conditional C; mocked protocol can prove only routing. Reject any closure of R16 without real Podman commands and exact-SHA evidence.
-- Scribe: C; reconcile the stale baseline and persist the goal/evidence honestly.
+- Architect: C; do not invent Windows coverage by editing the workflow.
+- Security: C; keep the Windows danger-mode and third-party gates mandatory.
+- QA/Verifier: C; red/green contract test plus exact-SHA CI.
+- SRE/Release: C; do not treat a green Windows job as full-suite evidence.
+- DX/Docs: C; say NOT_RUN explicitly.
+- Skeptic: conditional C; a generated table can drift if the parser short-circuits. The parser must consume both sides of `&&`, and skipped steps must not be narrated as acceptance.
+- Scribe: C; record the absent Podman probe as NOT_RUN, not as a failed containment test.
 
 These are role/hat reviews by one agent, not independent human ratification.
 
+## Local evidence for the completed goal (E2)
+
+| Check | Exit | Result |
+| --- | --- | --- |
+| red `npx vitest run tests/unit/windows-ci-claims.test.ts` before the contract table | 1 | missing contract marker; log `.folderforge-ci/windows-claim-reconcile/red2.log` |
+| green focused contract test | 0 | 2 passed |
+| `npm run verify` | 0 inferred from log | 147 files; 1200 passed, 14 skipped; no FAIL or ELIFECYCLE |
+| `npm run docs:check` | 0 | PASS |
+| `npm run build` | 0 | PASS |
+| `git diff --check` | 0 | PASS |
+| `git diff -- .github/workflows/ci.yml` | empty | no gate added, removed, or weakened |
+
 ## External human gates still closed
 
-24-hour exact-release-SHA soak; branch protection; protected npm-publish environment; Danger Mode sign-off; beta evidence; explicit `v3.0.1` tag/npm publish/GitHub Release approval. Never retag/delete `v3.0.0`.
-
-## Current evidence and next step
-
-E1: repository/code/workflow inspection. E2: unchanged smoke ignores requested Podman (exit 0, Docker result). E3: baseline main run `37275833749`, not future branch proof.
-
-Red suite exited 1 with 5 failed / 3 passed (8 total); log `.folderforge-ci/podman-smoke-selection/red.log`. The smallest fix validates the selector and uses it for config/report/guidance. Ordered local verification and exact-head CI passed; the implementation is merged. Next: verify the implementation merge run, safely deliver this documentation-only handoff, emit NEXT_RUN_PROMPT, and stop. Do not start another engineering goal in this run. No new goal in this run.
-
-## Local verification for this goal (E2, pre-commit tree)
-
-Environment: Linux, Node 22.23.0, real Docker; Podman absent. Logs and numeric exit files are under `.folderforge-ci/podman-smoke-selection/`; structured summary: `verification.json`.
-
-| Check / command | Exit | Result |
-| --- | --- | --- |
-| `npm run typecheck` | 0 | PASS |
-| `npm run lint` | 0 | PASS |
-| `npm run architecture:check` | 0 | PASS |
-| `npm run docs:check` | 0 | PASS |
-| `npx vitest run tests/unit/smoke-sandbox.test.ts tests/unit/sandbox-launcher.test.ts` | 0 | 17 passed; smoke protocol is mocked/routing-only |
-| `FOLDERFORGE_SANDBOX_RUNTIME=docker FOLDERFORGE_REQUIRE_RUNTIME_TESTS=1 npx vitest run tests/integration/sandbox-runtime.test.ts` (pinned Alpine image) | 0 | 18 passed; real Docker terminal containment |
-| clean-env `npm run verify` | 0 | 146 files; 1198 passed, 14 skipped; includes production build |
-| default and explicit Docker `npm run smoke:sandbox` (pinned Python image) | 0 each | Real child-MCP boundary PASS |
-| explicit Podman `npm run smoke:sandbox` (same pinned Python image, Podman absent) | 1 expected | Negative acceptance PASS: `spawn podman ENOENT`, no success JSON / Docker fallback |
-| `npm run smoke:stdio` / `npm run smoke:http` | 0 each | PASS |
-| `npm audit --audit-level=high` | 0 | PASS |
-
-Pinned images: Python `python@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df`; Alpine `alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc`. No auto-pull was performed. `docker ps --filter name=folderforge-term-` found no remaining terminal test containers. Diff whitespace check passed. Secret scan found only 17 high-entropy platform-label/path/test-name false positives, individually reviewed; no real secrets identified.
-
-Blast-radius review: `scripts/run-release-check.mjs` invokes the same smoke; CI and package-compatibility assertions still preserve the real Docker boundary step. No release command was executed. Existing selectors/default behavior are retained; only explicit Podman/unsupported smoke selection changes. R19 is backlog, not silently fixed in this goal.
-
-## Delivery boundary
-
-The committed state cannot attest a future CI run for its own content or know its future merge SHA. The exact PR head and eventual main SHA/run must be inspected live before merge/resume; the chat handoff records the observed delivery result. Baseline SHA above is intentionally labeled a verified baseline, not a claim that it will remain current main.
-
-## Post-merge update
-
-- PR #30: `https://github.com/roronoazoroshao369/FolderForge/pull/30`, merged normally at `2026-10-05T07:40:28Z` under the user's conditional safe-merge authorization. No admin/bypass flag was used.
-- Accepted implementation head: `816a98aedd55538d8315036b1c6ada486a754bd6`; exact-head run `37278290277` completed success for all six jobs, including the routing-only step in each job (E3).
-- Inspected implementation merge baseline: `27fc3e0aa7c79228f84a1f9b351c46c2af27713d`; its exact-SHA main run is `37279062422`.
-- At this post-merge state write (2026-10-05T07:42:58Z), that main run was `in_progress` / `no conclusion yet`. This is a timestamped observation, not a current-status claim; inspect the run before proceeding. Never infer merge-SHA success from the PR run.
-
-This follow-up changes only durable documentation, not the tested runtime/script/workflow. Its exact pushed head must also pass CI before normal merge. The latest `main` may contain that later documentation merge; do not mistake either recorded baseline for an immutable current-main pointer. Inspect live `origin/main`, match its run by exact SHA, and treat skipped checks as NOT_RUN.
+24-hour exact-release-SHA soak; branch protection; protected npm-publish environment; Danger Mode sign-off; beta evidence; explicit `v3.0.1` tag/npm publish/GitHub Release approval. Never retag or delete `v3.0.0`.
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read PROJECT_STATE, PROJECT_STATUS, CURRENT_FRONTIER, CHANGELOG, sandbox/compatibility docs, and ci.yml; inspect clean/dirty git status, fetch origin/main, and match CI to the exact live SHA before editing. PR #30 fixed R18; implementation head/run and merge/run are listed above. A documentation-only follow-up may have advanced main; verify its actual state instead of assuming it is open or merged.
+Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read PROJECT_STATE, PROJECT_STATUS, CURRENT_FRONTIER, CHANGELOG, sandbox/compatibility docs, and ci.yml. Inspect git status, fetch origin/main, and match CI to the exact live SHA before editing. A documentation handoff may have advanced main after `3b1889e42cd236d80fd57f3cb6521ccc7700ef84`; do not assume this file's SHA is still current.
 
-R11–R15 and R18 are fixed. R16 (real Podman and deployment-specific containment), R17 (external release/human gates), and R19 (Windows compatibility-document drift) remain open. Select ONE reproducible evidence gap: prefer real Podman acceptance when a target engine/image/user context is available; otherwise reconcile the existing Windows workflow claims without expanding/skipping gates. Record exact environment, runtime/user/cgroups/mount context, command, SHA, exit and artifact. Docker or protocol mocks cannot prove Podman/VM-host parity.
+R11–R15, R18, and R19 are fixed. R16 (real Podman and deployment-specific containment) and R17 (external release/human gates) remain open. Windows full-suite, package, stdio, HTTP, heartbeat, and Inspector checks remain NOT_RUN; do not reopen R19 unless the document and workflow diverge again. Select ONE gap: real Podman acceptance only when a target engine, image, user, mount, and cgroup context are actually available. Otherwise do not install a runtime and do not expand or skip CI gates. Record environment, engine/user/mount/cgroup context, exact SHA, command, exit, and artifact. Docker or routing mocks do not prove Podman/VM-host parity. Skipped checks are NOT_RUN.
 
-Do not install/change host runtimes, tag, publish, release, retag/delete v3.0.0, change protection/secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY WITH ACCEPTANCE AND EXACT-SHA CI GREEN → UPDATE STATE → emit new NEXT_RUN_PROMPT → stop.
+Do not tag, publish, release, retag/delete v3.0.0, change protection or secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY WITH ACCEPTANCE AND EXACT-SHA CI GREEN → UPDATE PROJECT_STATE → emit NEXT_RUN_PROMPT → stop.

@@ -27,6 +27,10 @@ Red: the new contract test fails before the document contains the generated tabl
 
 Revert the scoped commit or close the PR before merge. No data migration or release action.
 
+## Delivery
+
+PR #32 merged normally at `2026-10-05T09:04:02Z`. Head `bda17ce160e93587043f5b95c814b0a3f0f0373e` passed run `37286780402`. Merge SHA `3b1889e42cd236d80fd57f3cb6521ccc7700ef84` passed run `37287594297`. All six jobs succeeded in both runs. No admin/bypass flag was used. R16 and R17 remain open.
+
 ## Decision log
 
 - 2026-10-05 — Architect — approve documentation reconciliation; do not invent a Windows suite by editing the workflow.
