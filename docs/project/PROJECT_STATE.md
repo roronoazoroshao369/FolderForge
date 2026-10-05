@@ -10,7 +10,7 @@ _Last updated: 2026-10-05T06:42:55Z_
 - Current main SHA: `f9a6e32a6ab48db929682bc1662232021df5c96e`.
 - Main CI: **green** — `ci.yml` run `37272090032` completed success for all six Ubuntu/macOS/Windows × Node 22/24 jobs on that exact SHA.
 - Council branch: `docs/reconcile-green-main` from the current main SHA.
-- Council PR: none yet. Existing open PRs are automated dependency updates and are outside this goal.
+- Council PR: `https://github.com/roronoazoroshao369/FolderForge/pull/29`; current committed head before this state update: `4a1d6334888774323dcbc01ee850be0ae33281ae`. This state update must be included in the final exact head verified by CI.
 
 ## Verification truth
 
