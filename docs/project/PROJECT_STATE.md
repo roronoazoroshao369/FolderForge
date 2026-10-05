@@ -1,6 +1,6 @@
 # PROJECT STATE
 
-_Last updated: 2026-10-05T05:46:34Z_
+_Last updated: 2026-10-05T06:12:00Z_
 
 ## Product and repository
 
@@ -10,7 +10,7 @@ _Last updated: 2026-10-05T05:46:34Z_
 - Main SHA: `4f82fd287763be4d88edb7fec9bb948535ca5abd`.
 - Main CI: **red** — `ci.yml` run `37216093165`; only `windows-latest / Node 22` failed, at `Pinned third-party child MCP compatibility`.
 - Council branch: `fix/windows-third-party-path` from the main SHA above.
-- Council PR: none yet. Existing open PRs are unrelated Dependabot PRs.
+- Council PR: `https://github.com/roronoazoroshao369/FolderForge/pull/28`; verified code head `3a1c173853270578265e7e6fd92be643f24eead3`. The commit containing this state update is documentation-only and must receive its own exact-SHA CI before merge.
 
 ## Verification truth
 
@@ -18,7 +18,8 @@ _Last updated: 2026-10-05T05:46:34Z_
 - Windows artifact `child-mcp-third-party-windows-latest-37216093165-1`: installation completed, audit reported 0 vulnerabilities, 4/5 profiles passed, and `mcp-filesystem` failed because `list_allowed_directories` text did not match the manifest's mixed-separator expected path.
 - Local verification for the current branch: `typecheck`, `lint`, `architecture:check`, `docs:check`, targeted regression (8/8), clean-env `npm run verify` (145 files, 1190 passed, 14 skipped), Linux pinned `mcp-filesystem` probe (1/1, audit ok), and `npm audit --audit-level=high` all exited 0.
 - Red-team review: matching remains exact first and otherwise changes only slash direction; package pins, integrity, required tools, audit, sandbox, and process semantics are unchanged. Secret scans found no credential material in the diff; entropy-only identifiers and an existing environment-variable name were reviewed as non-secrets.
-- Broken: exact-SHA main CI is red; Windows third-party compatibility remains unproven until PR CI produces a 5/5 Windows artifact.
+- Exact code-SHA CI: workflow-dispatch run `37270699488` completed success for all six OS/Node jobs at `3a1c173853270578265e7e6fd92be643f24eead3`; the Windows/Node 22 artifact reports commit match, clean tree, audit ok with 0 vulnerabilities, and 5/5 profiles passed.
+- Broken: main remains at the older red SHA until PR #28 is merged and main CI is confirmed.
 - Historical documents `docs/PROJECT_STATUS.md`, `docs/CURRENT_FRONTIER.md`, and `docs/HANDOFF.md` are stale (last marked 2026-10-03) and are not release authority.
 
 ## Risk register
@@ -27,11 +28,11 @@ _Last updated: 2026-10-05T05:46:34Z_
 - **R12 — Fixed (historical, not re-proved this run):** sandbox boundary CI gate was added.
 - **R13 — Fixed (historical, not re-proved this run):** terminal outcomes distinguish timeout, signal, and uncertain results.
 - **R14 — Fixed (historical, not re-proved this run):** Windows npm launch uses `node` plus `npm-cli.js`; run `37216093165` proved package installation starts and completes.
-- **R15 — Open:** Windows path separator mismatch makes the pinned `mcp-filesystem` probe fail and leaves main CI red.
+- **R15 — Fixed on PR #28, pending merge:** exact-SHA run `37270699488` and its Windows/Node 22 artifact prove 5/5 profiles passed with audit ok; main still needs the safe merge and post-merge confirmation.
 
 ## Current frontier
 
-Restore exact-SHA green CI by making the existing pinned Windows `mcp-filesystem` probe compare equivalent Windows path separators without weakening package pins, tool requirements, audit checks, or containment semantics.
+Land PR #28 only after the documentation-only head receives green exact-SHA CI, then confirm the merged `main` SHA and its CI before advancing the release frontier.
 
 ## Primary goal contract
 
