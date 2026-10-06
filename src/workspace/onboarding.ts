@@ -51,11 +51,17 @@ export function onboardProject(root: string, memory: MemoryStore): OnboardResult
   const commands = detectCommands(root);
   const t = TEMPLATE(project, commands);
 
+  const existing = new Set(memory.list());
+  const generated: Array<[string, string]> = [
+    ['project_overview.md', t.overview],
+    ['commands.md', t.commands],
+    ['coding_conventions.md', t.conventions],
+    ['testing_strategy.md', t.testing],
+  ];
   const written: string[] = [];
-  written.push(memory.write('project_overview.md', t.overview));
-  written.push(memory.write('commands.md', t.commands));
-  written.push(memory.write('coding_conventions.md', t.conventions));
-  written.push(memory.write('testing_strategy.md', t.testing));
+  for (const [name, content] of generated) {
+    if (!existing.has(name)) written.push(memory.write(name, content));
+  }
 
   return { project, commands, writtenMemories: written };
 }
