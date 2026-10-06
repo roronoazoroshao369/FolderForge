@@ -12,6 +12,8 @@ semantic versioning.
 
 ### Fixed
 
+- The root CLI now rejects unknown positional commands instead of silently treating a typo such as `folderforge doctro` as a successful server invocation.
+
 - `workspace_onboard` now preserves existing memory files and generates only missing overview, commands, conventions, and testing memories. Re-running onboarding no longer overwrites team edits despite the generated files explicitly inviting users to edit them.
 
 - **R20:** The separate `packages/mission-control` audit (1 moderate esbuild, 2 high source-map-js/Vite findings) is remediated. Vite moves from 5.4.21 to 6.4.4 — the minimal patched major within the declared peer ranges of the locked `@vitejs/plugin-react` 4.7.0 and `@tailwindcss/vite` 4.3.3 — which also resolves esbuild 0.25.12, and a `source-map-js@^1.2.2` override clears the remaining finding. Local audit reports 0 vulnerabilities; the SPA build and all 12 visual-regression screens pass unchanged on the Vite 6 build. Vite 8 was not adopted. No release gate changed; R16/R17 remain open.
