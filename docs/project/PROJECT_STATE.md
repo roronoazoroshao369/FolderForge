@@ -1,18 +1,18 @@
 # PROJECT STATE
 
-_Last updated: 2026-10-06T03:01:57Z_
+_Last updated from inspected main SHA `d7d35f9d55a27d418ac9e5708aec3498680137b6` (exact-SHA run `37408073201`) as the evidence baseline._
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; all external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Live main SHA: `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`.
-- Exact-SHA main CI: run `37406501278` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
-- PR #36 merged normally at main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact PR-head run `37405842816` passed all six matrix jobs.
-- PR #35 remains open and unmerged at head `74db9c298943482093b2a2aaef63ff8b4b466545`; exact-head run `37400080019` failed. Do not merge it.
-- Root production and full dependency audits passed in run `37406501278`. This does not clear the separate Mission Control package audit: 1 moderate and 2 high findings remain; Vite 8.3.2 is a major upgrade and the locked React Vite plugin does not declare Vite 8 support.
+- Inspected main SHA (docs-update base): `d7d35f9d55a27d418ac9e5708aec3498680137b6`.
+- Exact-SHA main CI: run `37408073201` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact PR-head run `37405842816` passed all six matrix jobs; PR #37 later advanced main to the inspected base above.
+- PR #35 was closed without merge after exact-head run `37400080019` failed; its proposed handoff was superseded by PR #37. PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed without merge after exact-head CI failures. No dependency upgrades were merged; this docs-only state handoff was the only remaining PR to validate.
+- Root production and full dependency audits passed in exact-main run `37408073201`. This does not clear the separate Mission Control package audit: 1 moderate and 2 high findings remain; Vite 8.3.2 is a major upgrade and the locked React Vite plugin does not declare Vite 8 support.
 - Overall verdict: IN_PROGRESS because R16, R17, and R20 remain open. R16/R17 and all external release gates remain closed.
-- This handoff does not self-certify a later documentation commit. Inspect live `origin/main` and match its CI run by exact SHA before the next goal.
+- This record does not self-certify the docs-only branch update. Inspect live `origin/main` and match its CI run by exact SHA before the next goal.
 
 ## Previously inspected environment (not rechecked for this update)
 
@@ -39,7 +39,15 @@ On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode reg
 | R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
 | R20 | High | Open | `packages/mission-control` audit still reports 1 moderate and 2 high vulnerabilities (esbuild, source-map-js, Vite). Vite 8.3.2 is a major fix path; locked `@vitejs/plugin-react@4.7.0` declares Vite peer support only through 7. Review a compatible plugin/toolchain migration before any Vite 8 upgrade. No Mission Control dependency upgrade was made. |
 
-## Latest completed goal (2026-10-06)
+## Latest completed goal (2026-10-06): branch cleanup
+
+**GOAL**
+Remove stale branches without merging changes whose exact-head CI failed or changing release gates.
+
+**RESULT**
+PRs #35, #14, #15, #16, #18, #20, #21, #23, and #27 were closed without merge after exact-head CI failures; their remote head branches were deleted. Stale local and remote refs already merged into main were pruned. No dependency upgrades were merged. Both active managed task isolations were preserved; their state was reported as active and source-dirty, so their branches/worktrees were left untouched. R16/R17/R20 and all external release gates remain unchanged.
+
+## Previous completed goal (2026-10-06): root audit remediation
 
 **GOAL**
 Resolve the root production and full dependency audit findings without changing release gates.
@@ -48,7 +56,7 @@ Resolve the root production and full dependency audit findings without changing 
 PR #36 merged at main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact-head run `37405842816` passed all six matrix jobs. Exact-main run `37406501278` passed all six jobs, including the production and full dependency audits. These audit passes cover the root package only.
 
 **SCOPE**
-Reviewed and pinned root `simple-git@4.0.2`, applied patched root overrides for `proxy-addr@2.0.8` and `source-map-js@1.2.2`, and added a `git_blame` option-like filename regression test. PR #35 remains open at its failed exact head and was not merged.
+Reviewed and pinned root `simple-git@4.0.2`, applied patched root overrides for `proxy-addr@2.0.8` and `source-map-js@1.2.2`, and added a `git_blame` option-like filename regression test. PR #35 was later closed unmerged after its exact-head run failed.
 
 **OPEN BOUNDARY**
 The separate `packages/mission-control` audit remains 1 moderate and 2 high findings. Its suggested Vite 8.3.2 upgrade is major; locked `@vitejs/plugin-react@4.7.0` does not declare Vite 8 support. No Vite or Mission Control dependency upgrade was performed. R16/R17 and all release gates remain closed.
@@ -108,8 +116,8 @@ The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mo
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read the release-state and handoff docs, then inspect `git status`, fetch `origin/main`, and match CI to the exact live SHA before any edit. The verified snapshot here is main `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`, run `37406501278` green on all six matrix jobs; this record does not certify a later docs commit or merge.
+Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read the release-state and handoff docs, then inspect `git status`, fetch `origin/main`, and match CI to the exact live SHA before any edit. The inspected base snapshot was main `d7d35f9d55a27d418ac9e5708aec3498680137b6`, run `37408073201` green on all six matrix jobs. Any later change requires exact-head CI and a fresh live-main check.
 
-PR #36 is merged. PR #35 remains open at head `74db9c298943482093b2a2aaef63ff8b4b466545` with failed exact-head run `37400080019`; do not merge it. The root production/full audits are clear on the recorded main SHA. The separate Mission Control audit remains 1 moderate and 2 high findings. The lock has Vite `5.4.21` and `@vitejs/plugin-react` `4.7.0`, whose peer range ends at Vite 7; no Vite 8 upgrade was made. Review plugin/toolchain compatibility before considering a Vite 8 migration. R16, R17, and R20 remain open. Keep all release gates closed.
+PR #36 is merged. PR #35 and stale dependency PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed unmerged after failed exact-head CI; no dependency upgrades were merged. This docs-only handoff was the final PR; confirm its exact-head CI and merge state live on the next run. The root production/full audits are clear on the recorded main SHA. The separate Mission Control audit remains 1 moderate and 2 high findings. The lock has Vite `5.4.21` and `@vitejs/plugin-react` `4.7.0`, whose peer range ends at Vite 7; no Vite 8 upgrade was made. Review plugin/toolchain compatibility before considering a Vite 8 migration. R16, R17, and R20 remain open. Keep all release gates closed.
 
 Select one goal only. Do not infer full-repository audit cleanliness from the root audit. Do not tag, publish, release, retag/delete `v3.0.0`, change branch protection or secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-SHA CI GREEN → UPDATE STATE → emit a new NEXT_RUN_PROMPT → stop.
