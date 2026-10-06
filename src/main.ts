@@ -85,7 +85,13 @@ function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = { stdio: false, http: false, dashboard: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const next = () => argv[++i];
+    const next = (): string | undefined => {
+      const value = argv[++i];
+      if (value === undefined) {
+        throw new Error(`Missing value for ${a}. Run \`folderforge --help\` for usage.`);
+      }
+      return value;
+    };
     switch (a) {
       case "--project":
       case "-p": {

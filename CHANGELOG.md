@@ -12,6 +12,8 @@ semantic versioning.
 
 ### Fixed
 
+- Root CLI options that require values now fail fast when the value is missing instead of silently starting the server with defaults.
+
 - The root CLI now rejects unknown positional commands instead of silently treating a typo such as `folderforge doctro` as a successful server invocation.
 
 - `workspace_onboard` now preserves existing memory files and generates only missing overview, commands, conventions, and testing memories. Re-running onboarding no longer overwrites team edits despite the generated files explicitly inviting users to edit them.
