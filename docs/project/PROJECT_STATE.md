@@ -1,17 +1,18 @@
 # PROJECT STATE
 
-_Last updated from inspected main SHA `d7d35f9d55a27d418ac9e5708aec3498680137b6` (exact-SHA run `37408073201`) as the evidence baseline._
+_Last updated from inspected main SHA `d063bf74f5b8c8261400e86fcea6f8778a4f11e3` (exact-SHA run `37413497510`) as the evidence baseline._
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; all external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Inspected main SHA (docs-update base): `d7d35f9d55a27d418ac9e5708aec3498680137b6`.
-- Exact-SHA main CI: run `37408073201` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- Inspected main SHA (docs-update base): `d063bf74f5b8c8261400e86fcea6f8778a4f11e3`.
+- Exact-SHA main CI: run `37413497510` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- PR #38 (docs: reconcile status after branch cleanup) merged at that SHA.
 - PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact PR-head run `37405842816` passed all six matrix jobs; PR #37 later advanced main to the inspected base above.
 - PR #35 was closed without merge after exact-head run `37400080019` failed; its proposed handoff was superseded by PR #37. PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed without merge after exact-head CI failures. No dependency upgrades were merged; this docs-only state handoff was the only remaining PR to validate.
-- Root production and full dependency audits passed in exact-main run `37408073201`. This does not clear the separate Mission Control package audit: 1 moderate and 2 high findings remain; Vite 8.3.2 is a major upgrade and the locked React Vite plugin does not declare Vite 8 support.
-- Overall verdict: IN_PROGRESS because R16, R17, and R20 remain open. R16/R17 and all external release gates remain closed.
+- Root production and full dependency audits passed in exact-main run `37413497510`. The separate `packages/mission-control` audit is remediated on this branch (R20): Vite 5.4.21 → 6.4.4 with the locked `@vitejs/plugin-react` 4.7.0 (peer range covers Vite 6) and a `source-map-js@^1.2.2` override; local `npm audit` in `packages/mission-control` reports 0 vulnerabilities. No Vite 8 upgrade was taken.
+- Overall verdict: IN_PROGRESS because R16 and R17 remain open. R20 is remediated locally pending exact-head CI. R16/R17 and all external release gates remain closed.
 - This record does not self-certify the docs-only branch update. Inspect live `origin/main` and match its CI run by exact SHA before the next goal.
 
 ## Previously inspected environment (not rechecked for this update)
@@ -37,9 +38,45 @@ On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode reg
 | R17 | External | Open | At `2026-10-05T13:34:32Z`, the GitHub `main` branch protection API returned HTTP 404 `Branch not protected`, and repository rulesets were `[]`; the protection gate is unmet. Exact-release-SHA 24-hour soak, protected npm-publish environment, human Danger Mode sign-off, beta evidence, and explicit release approval remain incomplete. No settings were changed. |
 | R18 | Medium | Fixed | PR #30 merged after run `37278290277` passed all six jobs on head `816a98aedd55538d8315036b1c6ada486a754bd6`. Absent Podman fails with ENOENT rather than Docker success. This does not close R16. |
 | R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
-| R20 | High | Open | `packages/mission-control` audit still reports 1 moderate and 2 high vulnerabilities (esbuild, source-map-js, Vite). Vite 8.3.2 is a major fix path; locked `@vitejs/plugin-react@4.7.0` declares Vite peer support only through 7. Review a compatible plugin/toolchain migration before any Vite 8 upgrade. No Mission Control dependency upgrade was made. |
+| R20 | High | Fixed | Remediated on branch `council/mission-control-audit-remediation`: Vite 5.4.21 → 6.4.4 (clears GHSA-4w7w-66w2-5vf9, GHSA-v6wh-96g9-6wx3, GHSA-fx2h-pf6j-xcff), esbuild 0.21.5 → 0.25.12 via Vite 6 (clears GHSA-67mh-4wv8-2f99), and `source-map-js@^1.2.2` override (clears GHSA-68fv-2mgg-jv7q). Locked `@vitejs/plugin-react@4.7.0` and `@tailwindcss/vite@4.3.3` both declare Vite 6 peer support. Local `npm audit` in `packages/mission-control` reports 0 vulnerabilities; SPA build and all 12 visual-regression screens pass on Vite 6. No Vite 8 upgrade was taken. Status becomes VERIFIED_CI only after this PR's exact-head run passes. |
 
-## Latest completed goal (2026-10-06): branch cleanup
+## Latest completed goal (2026-10-06): Mission Control audit remediation (R20)
+
+**GOAL**
+Clear the separate `packages/mission-control` audit (1 moderate esbuild, 2 high source-map-js/Vite) without taking the unreviewed Vite 8 major and without touching release gates.
+
+**WHY THIS GOAL**
+Exact-main CI is green (run `37413497510` on `d063bf74f5b8c8261400e86fcea6f8778a4f11e3`), no PRs are open, and the decision rule ranks a reproducible open audit finding next. R16/R17 are externally blocked.
+
+**SCOPE**
+`packages/mission-control/package.json` (vite `^5.4.11` → `^6.4.4`, new `overrides` for `source-map-js@^1.2.2`), `packages/mission-control/package-lock.json`, and state/frontier/handoff docs. No workflow, version, root dependency, or release-metadata change.
+
+**COMPATIBILITY REVIEW (pre-change)**
+Latest Vite 6 line is 6.4.4; all three Vite advisories name ranges ending at `<=6.4.2`. `vite@6.4.4` engines allow Node ^18/^20/>=22 (repo requires Node >=22; CI matrix Node 22/24). Locked `@vitejs/plugin-react@4.7.0` declares peer `^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0`; locked `@tailwindcss/vite@4.3.3` declares `^5.2.0 || ^6 || ^7 || ^8`. Vite 6 bundles esbuild `^0.25.0`, which clears the esbuild dev-server advisory. Vite 8 was rejected: the locked React plugin does not declare Vite 8 support.
+
+**ACCEPTANCE**
+1. `npm audit` in `packages/mission-control` reports 0 vulnerabilities (was 1 moderate + 2 high). PASS (E2).
+2. Resolved tree: `vite@6.4.4`, `esbuild@0.25.12`, `source-map-js@1.2.2`, plugin-react 4.7.0 and tailwind 4.3.3 unchanged. PASS (E2).
+3. `npm run build` in `packages/mission-control` (tsc --noEmit && vite build) passes on Vite 6.4.4. PASS (E2).
+4. SPA visual regression suite passes against the Vite 6 build: 12/12 screens, 0.000% pixel diff. PASS (E2).
+5. Root `npm run verify` and `npm run docs:check` pass; `git diff -- .github/workflows/ci.yml` empty. Evidence logged under `.folderforge-ci/mc-audit/`.
+6. Exact-head CI on the PR passes all six matrix jobs before merge (E3 gate).
+
+**ROLLBACK**
+Revert the branch commit; only `packages/mission-control` manifest/lockfile and docs change. No data migration.
+
+**COUNCIL**
+Options: A — do nothing (reject: open High audit findings); B — Vite 8.3.x (reject: locked plugin-react declares support only through Vite 7); C — minimal compatible major Vite 6.4.4 + source-map-js override (selected); D — override-only without Vite upgrade (reject: no patched Vite 5 line exists for the three advisories).
+
+- Architect: C; smallest boundary change with a declared-compatible toolchain.
+- Security: C; clears all three findings fail-safe; dev-server-scoped advisories still worth removing.
+- QA/Verifier: C; audit zero, build, visual suite, root verify, exact-head CI.
+- SRE/Release: C; CI already runs `npm --prefix packages/mission-control ci --ignore-scripts` and the SPA build.
+- DX/Docs: C; record that no Vite 8 path was taken and why.
+- Skeptic: conditional C; Vite 6 output changes could shift pixels — refuted by 12/12 visual screens at 0.000% diff. Residual: audit cleanliness is time-bound to the advisory database at run time.
+- Scribe: C; R20 marked Fixed with the exact-head CI caveat recorded.
+
+## Previous completed goal (2026-10-06): branch cleanup
 
 **GOAL**
 Remove stale branches without merging changes whose exact-head CI failed or changing release gates.
@@ -59,7 +96,7 @@ PR #36 merged at main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact-
 Reviewed and pinned root `simple-git@4.0.2`, applied patched root overrides for `proxy-addr@2.0.8` and `source-map-js@1.2.2`, and added a `git_blame` option-like filename regression test. PR #35 was later closed unmerged after its exact-head run failed.
 
 **OPEN BOUNDARY**
-The separate `packages/mission-control` audit remains 1 moderate and 2 high findings. Its suggested Vite 8.3.2 upgrade is major; locked `@vitejs/plugin-react@4.7.0` does not declare Vite 8 support. No Vite or Mission Control dependency upgrade was performed. R16/R17 and all release gates remain closed.
+The separate `packages/mission-control` audit remained open at that time; it was remediated by the R20 goal above (Vite 6.4.4 + `source-map-js@^1.2.2` override). No Vite 8 upgrade was performed. R16/R17 and all release gates remain closed.
 
 ## Prior completed goal (2026-10-05)
 
@@ -116,8 +153,8 @@ The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mo
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read the release-state and handoff docs, then inspect `git status`, fetch `origin/main`, and match CI to the exact live SHA before any edit. The inspected base snapshot was main `d7d35f9d55a27d418ac9e5708aec3498680137b6`, run `37408073201` green on all six matrix jobs. Any later change requires exact-head CI and a fresh live-main check.
+Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read the release-state and handoff docs, then inspect `git status`, fetch `origin/main`, and match CI to the exact live SHA before any edit. The inspected base snapshot was main `d063bf74f5b8c8261400e86fcea6f8778a4f11e3`, run `37413497510` green on all six matrix jobs. Any later change requires exact-head CI and a fresh live-main check.
 
-PR #36 is merged. PR #35 and stale dependency PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed unmerged after failed exact-head CI; no dependency upgrades were merged. This docs-only handoff was the final PR; confirm its exact-head CI and merge state live on the next run. The root production/full audits are clear on the recorded main SHA. The separate Mission Control audit remains 1 moderate and 2 high findings. The lock has Vite `5.4.21` and `@vitejs/plugin-react` `4.7.0`, whose peer range ends at Vite 7; no Vite 8 upgrade was made. Review plugin/toolchain compatibility before considering a Vite 8 migration. R16, R17, and R20 remain open. Keep all release gates closed.
+The R20 Mission Control audit remediation (Vite 5.4.21 → 6.4.4, `source-map-js@^1.2.2` override, local audit 0 vulnerabilities, 12/12 visual screens identical) lands via PR from branch `council/mission-control-audit-remediation`; confirm its exact-head CI, merge state, and the resulting main run live. Root audits were already clear on the recorded main SHA. R16 and R17 remain open; no Vite 8 upgrade was taken — any future Vite 7/8 migration still needs its own compatibility review. Keep all release gates closed.
 
 Select one goal only. Do not infer full-repository audit cleanliness from the root audit. Do not tag, publish, release, retag/delete `v3.0.0`, change branch protection or secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-SHA CI GREEN → UPDATE STATE → emit a new NEXT_RUN_PROMPT → stop.

@@ -6,7 +6,7 @@ This frontier is derived from live git, GitHub Actions, and the current release 
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Inspected main SHA `d7d35f9d55a27d418ac9e5708aec3498680137b6` has green `ci.yml` run `37408073201` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #36 previously passed exact-head run `37405842816`; PR #37 advanced main to this inspected baseline.
+Inspected main SHA `d063bf74f5b8c8261400e86fcea6f8778a4f11e3` has green `ci.yml` run `37413497510` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #36 previously passed exact-head run `37405842816`; PRs #37 and #38 advanced main to this inspected baseline.
 
 PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight open dependency PRs were also closed without merge because their exact-head CI had failures. Only this docs-only handoff remained open for exact-head verification; no dependency PRs remained open. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
 
@@ -34,11 +34,11 @@ PR #32 closed the false claim that every matrix job runs the full suite and pack
 
 Run both child-MCP boundary smoke and terminal runtime tests in a real, explicitly recorded Podman deployment. Record exact SHA, runtime version, rootless/rootful mode, UID mappings, mounts, cgroups, command, exit code, and artifact. Docker success must not be reused as Podman proof. macOS/Windows VM mount semantics remain environment-specific.
 
-## P1 — Mission Control dependency audit — OPEN (R20)
+## P1 — Mission Control dependency audit — REMEDIATED LOCALLY, EXACT-HEAD CI PENDING (R20)
 
-The separate `packages/mission-control` audit reports 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. The lock has Vite `5.4.21` and `@vitejs/plugin-react` `4.7.0`; its declared Vite peer range ends at 7, while the suggested Vite `8.3.2` fix is a major upgrade. `@tailwindcss/vite` in the lock declares Vite 8 support, but that alone does not make the React plugin/toolchain compatible. Do not take the Vite major without a compatibility plan covering supported plugin versions, Node requirements, Vite config, build, and tests. No Mission Control dependency upgrade was made in the root audit remediation.
+The separate `packages/mission-control` audit reported 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. The remediation on branch `council/mission-control-audit-remediation` upgrades Vite 5.4.21 → 6.4.4 — the minimal major whose patched line (`<=6.4.2` affected) stays within the declared peer ranges of the locked `@vitejs/plugin-react` 4.7.0 (`^4.2 || ^5 || ^6 || ^7`) and `@tailwindcss/vite` 4.3.3 (`^5.2 || ^6 || ^7 || ^8`) — and adds a `source-map-js@^1.2.2` override. Vite 6 resolves esbuild `^0.25.0` (0.25.12 locked), clearing the esbuild dev-server advisory. Local evidence: `npm audit` in the package reports 0 vulnerabilities, `tsc --noEmit && vite build` passes, and the 12-screen visual regression suite is pixel-identical (0.000% diff) on the Vite 6 build. Vite 8 was not taken because the locked React plugin does not declare Vite 8 support; any future Vite 7/8 move requires its own compatibility review. R20 closes only after this PR's exact-head CI passes and merges.
 
-Root production and full dependency audits are clear on inspected main SHA `d7d35f9d55a27d418ac9e5708aec3498680137b6`, exact run `37408073201`. This is not a repository-wide audit-clean claim. R16 and R17 remain open; no release gate changed.
+Root production and full dependency audits are clear on inspected main SHA `d063bf74f5b8c8261400e86fcea6f8778a4f11e3`, exact run `37413497510`. Audit cleanliness is time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
 
 ## P2 — External release evidence
 
