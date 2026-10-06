@@ -100,6 +100,19 @@ describe('git tools integration (Q8)', () => {
     expect(branches.branches).toContain('feature/x');
   });
 
+  it('handles git_blame file paths that begin with a dash', async () => {
+    const { registry } = setup(repo);
+    await registry.call('workspace_activate', { path: repo });
+
+    const file = '--option.txt';
+    writeFileSync(join(repo, file), 'safe contents\n');
+    await simpleGit({ baseDir: repo }).raw(['add', '--', file]);
+    data(await registry.call('git_commit', { message: 'add option-like filename' }));
+
+    const blame = data<{ blame: string }>(await registry.call('git_blame', { file }));
+    expect(blame.blame).toContain('safe contents');
+  });
+
   it('unstages with git_reset (mixed) through the pipeline', async () => {
     const { registry } = setup(repo);
     await registry.call('workspace_activate', { path: repo });
