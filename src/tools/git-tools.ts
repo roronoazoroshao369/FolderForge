@@ -404,7 +404,7 @@ export function gitTools(): ToolDefinition[] {
       mutates: false,
       inputSchema: { type: 'object', properties: { file: { type: 'string' } }, required: ['file'] },
       handler: async (args, ctx) => {
-        const out = await git(ctx).raw(['blame', String(args.file)]);
+        const out = await git(ctx).raw(['blame', '--', String(args.file)]);
         return { ok: true, data: { blame: out.slice(0, 50000) } };
       },
     }),
