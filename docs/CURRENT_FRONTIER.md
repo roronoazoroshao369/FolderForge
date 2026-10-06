@@ -1,14 +1,12 @@
 # CURRENT FRONTIER
 
-_Last verified: 2026-10-05._
+_Last verified: 2026-10-06 against live main SHA `19b146f16b09c0a952a0251546a1a61c5fb22abe` and exact-SHA run `37319345745`._
 
 This frontier is derived from live git, GitHub Actions, and the current release contract. Repository evidence overrides historical roadmap text.
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Verified main SHA `3b1889e42cd236d80fd57f3cb6521ccc7700ef84` has green `ci.yml` run `37287594297`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. A later documentation handoff is not certified by that run.
-
-The Windows/Node 22 pinned third-party child-MCP regression is closed on main. Successful matrix jobs prove only the steps that ran; skipped platform-specific checks are not evidence.
+Verified main SHA `19b146f16b09c0a952a0251546a1a61c5fb22abe` has green `ci.yml` run `37319345745`. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. This proves only the steps that ran; skipped platform-specific checks are not evidence. The Windows/Node 22 pinned third-party child-MCP check succeeded in this exact-main run. A later documentation PR is not certified by this base run.
 
 ## P0 — Danger-mode containment — IMPLEMENTED, KEEP EVIDENCE-BOUND
 
@@ -16,9 +14,9 @@ Danger mode bypasses manual approval but not hard denies, authorization, path an
 
 Current CI provides applicable Linux/Docker containment evidence. It does not establish Podman, macOS container-runtime, or Windows container-runtime parity.
 
-## P1 — Reconcile governance documentation — BASELINE REFRESHED
+## P1 — Reconcile release-state documents — DOCS-ONLY
 
-PR #29 is merged. The verified main baseline is now recorded above; future commits must not self-attest their own CI or pretend the baseline SHA is their eventual merge SHA.
+This documentation-only goal refreshes the durable release snapshot against base main SHA `19b146f16b09c0a952a0251546a1a61c5fb22abe` and run `37319345745`, without changing product code, workflow gates, release settings, or external readiness. Its own PR head and any later merge SHA require separate exact-SHA CI evidence; this baseline does not certify them. `CHANGELOG.md` is intentionally unchanged because this goal ships no product/version change.
 
 ## P1 — Podman smoke selection — IMPLEMENTED AND MERGED
 
@@ -39,7 +37,7 @@ Run both child-MCP boundary smoke and terminal runtime tests in a real, explicit
 The following remain human-gated or external:
 
 1. completed 24-hour soak on the eventual exact release SHA;
-2. branch protection confirmation/change;
+2. branch protection confirmation/change remains unmet: PR #34 recorded HTTP 404 `Branch not protected` and no repository rulesets at `2026-10-05T13:34:32Z`; no settings were changed;
 3. protected `npm-publish` environment;
 4. Danger Mode human sign-off;
 5. beta/design-partner evidence;

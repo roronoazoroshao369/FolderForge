@@ -1,26 +1,27 @@
 # PROJECT STATE
 
-_Last updated: 2026-10-05T13:34:32Z_
+_Last updated: 2026-10-06T01:24:06Z_
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Verified main SHA: `940f4eb0cd2889e010ae9d4aeac600c46ac1f4f2`.
-- Exact-SHA main CI: run `37289371720` completed success; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
-- PR #33 merged the documentation handoff normally at the verified main SHA above. No admin or bypass flag was used.
-- Overall verdict: IN_PROGRESS because R16 and R17 remain open. R19 is fixed on this main SHA.
-- This handoff does not self-certify a later documentation commit. Inspect live `origin/main` and match its run by exact SHA before the next goal.
+- Verified main SHA: `19b146f16b09c0a952a0251546a1a61c5fb22abe`.
+- Exact-SHA main CI: `ci.yml` run `37319345745` completed success on that exact SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded. This is job/matrix evidence, not proof for skipped steps.
+- PR #34 (`docs: record branch protection audit`) merged normally at this SHA. It recorded the unprotected-main finding; no repository setting or workflow was changed.
+- At inspection, eight unrelated Dependabot PRs were open: #14, #15, #16, #18, #20, #21, #23, and #27. They are not council-goal PRs and require separate evaluation.
+- Overall verdict: IN_PROGRESS because R16 and R17 remain open. R11–R14 are fixed historically but were not re-proved by run `37319345745`; R15 is fixed on main and its Windows/Node 22 third-party child-MCP step succeeded in that run; R18 and R19 remain fixed on main.
+- This snapshot is the independently verified base for the current documentation-only reconciliation. It does not self-certify a later PR head or merge SHA. Inspect live `origin/main` and match CI to its exact SHA before the next goal.
 
-## Environment inspected before the goal
+## Earlier environment inspection (not repeated for this docs-only goal)
 
-Host: Linux `devops-HP-Z420-Workstation`, kernel `7.0.0-31-generic`, uid `1000(devops)`, Node `22.23.0`. Docker: `/usr/bin/docker`. Podman: not on PATH, no `/usr/bin/podman` or `/usr/local/bin/podman`, `podman.service` and `podman.socket` inactive, no `/run/podman` or `/run/user/1000/podman`. cgroup: `0::/init.scope`. Real Podman acceptance is NOT_RUN. Present Docker images are unrelated local fixtures and are not Podman or VM-host proof.
+The prior host inspection recorded Linux `devops-HP-Z420-Workstation`, kernel `7.0.0-31-generic`, uid `1000(devops)`, Node `22.23.0`, and Docker at `/usr/bin/docker`. Podman was not on PATH; neither `/usr/bin/podman` nor `/usr/local/bin/podman` existed, Podman service/socket were inactive, and neither `/run/podman` nor `/run/user/1000/podman` was present. cgroup was `0::/init.scope`. Real Podman acceptance remained NOT_RUN; unrelated Docker fixtures are not Podman or VM-host proof. This environment snapshot is historical, not a fresh R16 probe.
 
 ## Verification truth
 
-Baseline and merge CI prove only steps that ran. Docker isolation on Ubuntu/Node 22 is not Podman or macOS/Windows container-runtime proof. Windows jobs still skip the full suite, package/stdio/HTTP smokes, heartbeat stress, and MCP Inspector. Those skips are NOT_RUN, not passes.
+Exact-main run `37319345745` is green on `19b146f16b09c0a952a0251546a1a61c5fb22abe` across all six Ubuntu/macOS/Windows × Node 22/24 jobs. A successful matrix proves only steps that ran. Docker isolation on Ubuntu/Node 22 is not Podman or macOS/Windows container-runtime proof; skipped steps remain NOT_RUN, not passes.
 
-On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode regression` success, `Pinned third-party child MCP compatibility` success, `Build` success; `Test`, package smoke, stdio smoke, HTTP smoke, heartbeat stress, and MCP Inspector skipped. No `ci.yml` condition changed.
+In that exact-main run, Windows/Node 22 `Windows danger-mode regression`, `Pinned third-party child MCP compatibility`, and `Build` succeeded. The full test suite, package smoke, stdio smoke, authenticated HTTP smoke, heartbeat stress, and MCP Inspector were skipped on that job. PR #34 changed no `ci.yml` condition.
 
 ## Risk register
 
@@ -30,13 +31,27 @@ On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode reg
 | R12 | High | Fixed | Applicable Linux/Docker sandbox CI gate remains enabled. |
 | R13 | High | Fixed | Terminal timeout, signal, and uncertain outcomes remain distinct. |
 | R14 | High | Fixed | Orphan recovery and Windows npm launch fixes remain on main. |
-| R15 | High | Fixed | Windows/Node 22 third-party child-MCP step succeeded again in run `37286780402`. |
+| R15 | High | Fixed | Windows/Node 22 pinned third-party child-MCP step succeeded in exact-main run `37319345745`; skipped Windows checks remain NOT_RUN. |
 | R16 | Medium | Open | Real Podman runtime evidence absent. Rootless UID/mount/cgroup behavior and VM-host portability unverified. Docker success and routing mocks are not Podman proof. |
 | R17 | External | Open | At `2026-10-05T13:34:32Z`, the GitHub `main` branch protection API returned HTTP 404 `Branch not protected`, and repository rulesets were `[]`; the protection gate is unmet. Exact-release-SHA 24-hour soak, protected npm-publish environment, human Danger Mode sign-off, beta evidence, and explicit release approval remain incomplete. No settings were changed. |
 | R18 | Medium | Fixed | PR #30 merged after run `37278290277` passed all six jobs on head `816a98aedd55538d8315036b1c6ada486a754bd6`. Absent Podman fails with ENOENT rather than Docker success. This does not close R16. |
 | R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
 
-## Completed goal
+## Latest completed goal
+
+**GOAL**
+Record exact-SHA branch-protection inspection evidence without changing repository settings.
+
+**RESULT**
+PR #34 merged at `19b146f16b09c0a952a0251546a1a61c5fb22abe`. The inspection recorded HTTP 404 `Branch not protected` for `main` and an empty repository rulesets response at `2026-10-05T13:34:32Z`; R17 remains open. The PR changed only this state document.
+
+**VERIFICATION**
+The PR reported `npm run docs:check` and `git diff --check` passing. Exact-main CI run `37319345745` passed all six matrix jobs on the merge SHA. No workflow, branch protection, repository setting, or secret was changed.
+
+**BOUNDARY**
+This audit is evidence that the protection gate was unmet at the recorded inspection time, not authorization to change it. Release gates remain closed.
+
+## Earlier completed goal (R19)
 
 **GOAL**
 Reconcile the false Windows workflow claims without weakening or expanding gates.
@@ -71,7 +86,7 @@ Options: A — do nothing (reject: leaves a false supported-platform claim); B �
 
 These are role/hat reviews by one agent, not independent human ratification.
 
-## Local evidence for the completed goal (E2)
+## Historical local evidence for the earlier R19 goal (E2)
 
 | Check | Exit | Result |
 | --- | --- | --- |
@@ -85,14 +100,18 @@ These are role/hat reviews by one agent, not independent human ratification.
 
 ## External human gates still closed
 
-At `2026-10-05T13:34:32Z`, `GET /repos/roronoazoroshao369/FolderForge/branches/main/protection` returned HTTP 404 `Branch not protected`, and `GET /repos/roronoazoroshao369/FolderForge/rulesets?includes_parents=true` returned `[]` in the authenticated API context. This confirms that the R17 protection gate is unmet; it is not authorization to change repository settings. No settings were changed.
+The last documented branch-protection inspection, at `2026-10-05T13:34:32Z` and recorded by PR #34, found HTTP 404 `Branch not protected` for `main` and `[]` repository rulesets in the authenticated API context. R17 remains unmet. No settings were changed, and this result does not authorize a settings change.
 
 The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mode sign-off, beta evidence, and explicit `v3.0.1` tag/npm publish/GitHub Release approval also remain outstanding. Never retag or delete `v3.0.0`.
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read PROJECT_STATE, PROJECT_STATUS, CURRENT_FRONTIER, CHANGELOG, sandbox/compatibility docs, and ci.yml. Inspect git status, fetch `origin/main`, and match CI to the exact live SHA before editing. A documentation-only branch-protection audit may have advanced main after `940f4eb0cd2889e010ae9d4aeac600c46ac1f4f2`; do not assume this file's SHA is still current.
+Resume the FolderForge perpetual council on the real repository `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this snapshot. At this inspection the verified base was `19b146f16b09c0a952a0251546a1a61c5fb22abe`, with exact-SHA `ci.yml` run `37319345745` green across all six jobs. PR #34 is merged. Eight unrelated Dependabot PRs (#14, #15, #16, #18, #20, #21, #23, #27) were open at inspection; do not mistake them for council work.
 
-R11–R15, R18, and R19 are fixed. R16 and R17 remain open. The `main` branch-protection API returned HTTP 404 `Branch not protected` and repository rulesets were `[]` at `2026-10-05T13:34:32Z`; this confirms the protection gate is unmet and does not authorize a settings change. Windows full-suite, package, stdio, HTTP, heartbeat, and Inspector checks remain NOT_RUN; do not reopen R19 unless `docs/compatibility.md` and `ci.yml` diverge. Select ONE remaining gap: run real Podman acceptance only when a target engine, digest-pinned image, user, mount, and cgroup context exist; otherwise select one separately authorized R17 evidence gap. Do not install a runtime, substitute Docker/mocks, expand or skip CI gates, or repeat the branch-protection audit without new evidence.
+Read `docs/project/PROJECT_STATE.md`, `docs/PROJECT_STATUS.md`, `docs/CURRENT_FRONTIER.md`, `CHANGELOG.md`, and `docs/HANDOFF.md`. Inspect git status, fetch `origin/main`, inspect `gh run list`, and match CI to the exact live SHA before editing or asserting status. This snapshot does not certify the current documentation PR's future head or merge SHA.
 
-Do not tag, publish, release, retag/delete `v3.0.0`, change protection or secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY WITH ACCEPTANCE AND EXACT-SHA CI GREEN → UPDATE PROJECT_STATE → emit NEXT_RUN_PROMPT → stop.
+R11–R14 remain Fixed historically but were not re-proved in run `37319345745`; R15, R18, and R19 are Fixed on main. R16 and R17 remain Open. The last branch-protection inspection (PR #34; `2026-10-05T13:34:32Z`) found HTTP 404 `Branch not protected` and no repository rulesets. Do not repeat that audit without new evidence, and do not change protection or settings. Windows full-suite, package, stdio, HTTP, heartbeat, and Inspector checks remain NOT_RUN; do not reopen R19 unless `docs/compatibility.md` and `ci.yml` diverge.
+
+For the next goal, use one evidence gap only: run real Podman acceptance only when a target engine, digest-pinned image, user, mount, and cgroup context exist; otherwise select one separately authorized R17 evidence gap. Do not install a runtime, substitute Docker or mocks, expand or skip CI gates, or claim external release readiness from green CI.
+
+Human gates remain closed: 24-hour exact-release-SHA soak, branch protection, protected `npm-publish` environment, Danger Mode sign-off, beta evidence, `v3.0.1` tag, npm publish, and GitHub Release. Do not tag, publish, release, retag/delete `v3.0.0`, change protection or secrets, or cancel workflows without explicit approval. Continue INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF ACCEPTANCE AND EXACT-SHA CI ARE GREEN AND IT IS SAFE → UPDATE PROJECT_STATE → emit a new NEXT_RUN_PROMPT → stop.
