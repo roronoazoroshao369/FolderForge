@@ -274,15 +274,14 @@ function parseArgs(argv: string[]): CliArgs {
         process.exit(0);
         break;
       default:
-        if (a && a.startsWith("-")) {
-          // Silently ignoring an unrecognized flag is dangerous: a single typo in a
-          // security flag (e.g. --apiKey instead of --api-key) drops the credential,
-          // which downgrades a loopback HTTP bind to authMode "none" and accepts every
-          // request. Fail fast instead of booting an unintentionally open server.
-          throw new Error(
-            `Unknown argument: ${a}. Run \`folderforge --help\` for supported flags.`,
-          );
-        }
+        // Silently ignoring an unrecognized flag is dangerous: a single typo in a
+        // security flag (e.g. --apiKey instead of --api-key) drops the credential.
+        // Unknown positional tokens are just as misleading because a mistyped command
+        // otherwise falls through to server startup and exits successfully on stdio.
+        throw new Error(
+          `${a?.startsWith("-") ? "Unknown argument" : "Unknown command"}: ${a}. ` +
+            "Run `folderforge --help` for supported commands and flags.",
+        );
     }
   }
   return args;

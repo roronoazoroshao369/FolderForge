@@ -8,7 +8,8 @@ import { afterAll, describe, expect, it } from 'vitest';
  * Regression guards for three defects found during production-readiness review:
  *  1. An unrecognized flag was warned about and ignored, so a typo such as
  *     --apiKey silently dropped the credential and left the server open.
- *  2. doctor treated every run file written by the current WorkflowManager
+ *  2. A mistyped positional command was ignored and fell through to server startup.
+ *  3. doctor treated every run file written by the current WorkflowManager
  *     (schemaVersion 2) as corrupt, failing a healthy workspace.
  */
 const CLI = resolve(__dirname, '..', '..', 'dist', 'main.js');
@@ -20,10 +21,10 @@ function tempRoot(): string {
   return root;
 }
 
-function runCli(args: string[]) {
+function runCli(args: string[], timeout = 60_000) {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout,
   });
   return { code: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 }
@@ -37,6 +38,12 @@ describe.skipIf(!existsSync(CLI))('CLI argument validation', () => {
     const { code, output } = runCli(['--apiKey', 'should-not-be-accepted']);
     expect(code).toBe(1);
     expect(output).toMatch(/Unknown argument: --apiKey/);
+  });
+
+  it('rejects an unknown positional command instead of starting the server', () => {
+    const { code, output } = runCli(['doctro', '--no-dashboard'], 2_000);
+    expect(code).toBe(1);
+    expect(output).toMatch(/Unknown command: doctro/);
   });
 
   it('still accepts supported flags', () => {
