@@ -103,7 +103,8 @@ export function workspaceTools(): ToolDefinition[] {
 
     defineTool({
       name: 'workspace_onboard',
-      description: 'Scan the project and generate memory files (overview, commands, conventions, testing).',
+      description:
+        'Scan the project and generate missing memory files (overview, commands, conventions, testing) without overwriting existing memories.',
       group: 'workspace',
       mutates: true,
       inputSchema: { type: 'object', properties: {} },
