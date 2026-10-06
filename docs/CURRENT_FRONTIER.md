@@ -6,9 +6,9 @@ This frontier is derived from live git, GitHub Actions, and the current release 
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Live main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226` has green `ci.yml` run `37406501278` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #36's exact head passed run `37405842816` before merge. A later documentation handoff is not certified by that run.
+Inspected main SHA `d7d35f9d55a27d418ac9e5708aec3498680137b6` has green `ci.yml` run `37408073201` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #36 previously passed exact-head run `37405842816`; PR #37 advanced main to this inspected baseline.
 
-PR #35 remains open and unmerged at `74db9c298943482093b2a2aaef63ff8b4b466545`; exact-head run `37400080019` failed. Do not merge it. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
+PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight open dependency PRs were also closed without merge because their exact-head CI had failures. Only this docs-only handoff remained open for exact-head verification; no dependency PRs remained open. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
 
 ## P0 — Danger-mode containment — IMPLEMENTED, KEEP EVIDENCE-BOUND
 
@@ -38,7 +38,7 @@ Run both child-MCP boundary smoke and terminal runtime tests in a real, explicit
 
 The separate `packages/mission-control` audit reports 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. The lock has Vite `5.4.21` and `@vitejs/plugin-react` `4.7.0`; its declared Vite peer range ends at 7, while the suggested Vite `8.3.2` fix is a major upgrade. `@tailwindcss/vite` in the lock declares Vite 8 support, but that alone does not make the React plugin/toolchain compatible. Do not take the Vite major without a compatibility plan covering supported plugin versions, Node requirements, Vite config, build, and tests. No Mission Control dependency upgrade was made in the root audit remediation.
 
-Root production and full dependency audits are clear on main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`, exact run `37406501278`. This is not a repository-wide audit-clean claim. R16 and R17 remain open; no release gate changed.
+Root production and full dependency audits are clear on inspected main SHA `d7d35f9d55a27d418ac9e5708aec3498680137b6`, exact run `37408073201`. This is not a repository-wide audit-clean claim. R16 and R17 remain open; no release gate changed.
 
 ## P2 — External release evidence
 
