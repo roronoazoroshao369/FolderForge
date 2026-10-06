@@ -6,9 +6,9 @@ This frontier is derived from live git, GitHub Actions, and the current release 
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Inspected main SHA `d063bf74f5b8c8261400e86fcea6f8778a4f11e3` has green `ci.yml` run `37413497510` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #36 previously passed exact-head run `37405842816`; PRs #37 and #38 advanced main to this inspected baseline.
+Inspected main SHA `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8` has green `ci.yml` run `37425225414` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #39 passed exact-head run `37424245809` on `9563b5652e5bcdf515fab4dd40743a8ec7c1f740` before merging to this baseline.
 
-PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight open dependency PRs were also closed without merge because their exact-head CI had failures. Only this docs-only handoff remained open for exact-head verification; no dependency PRs remained open. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
+PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight dependency PRs were also closed without merge because their exact-head CI had failures. PR #39 later merged the separately reviewed Mission Control remediation after exact-head CI passed; no PRs were open at this run's discovery. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
 
 ## P0 — Danger-mode containment — IMPLEMENTED, KEEP EVIDENCE-BOUND
 
@@ -34,11 +34,11 @@ PR #32 closed the false claim that every matrix job runs the full suite and pack
 
 Run both child-MCP boundary smoke and terminal runtime tests in a real, explicitly recorded Podman deployment. Record exact SHA, runtime version, rootless/rootful mode, UID mappings, mounts, cgroups, command, exit code, and artifact. Docker success must not be reused as Podman proof. macOS/Windows VM mount semantics remain environment-specific.
 
-## P1 — Mission Control dependency audit — REMEDIATED LOCALLY, EXACT-HEAD CI PENDING (R20)
+## P1 — Mission Control dependency audit — VERIFIED_CI (R20)
 
-The separate `packages/mission-control` audit reported 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. The remediation on branch `council/mission-control-audit-remediation` upgrades Vite 5.4.21 → 6.4.4 — the minimal major whose patched line (`<=6.4.2` affected) stays within the declared peer ranges of the locked `@vitejs/plugin-react` 4.7.0 (`^4.2 || ^5 || ^6 || ^7`) and `@tailwindcss/vite` 4.3.3 (`^5.2 || ^6 || ^7 || ^8`) — and adds a `source-map-js@^1.2.2` override. Vite 6 resolves esbuild `^0.25.0` (0.25.12 locked), clearing the esbuild dev-server advisory. Local evidence: `npm audit` in the package reports 0 vulnerabilities, `tsc --noEmit && vite build` passes, and the 12-screen visual regression suite is pixel-identical (0.000% diff) on the Vite 6 build. Vite 8 was not taken because the locked React plugin does not declare Vite 8 support; any future Vite 7/8 move requires its own compatibility review. R20 closes only after this PR's exact-head CI passes and merges.
+The separate `packages/mission-control` audit reported 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. PR #39 merged the minimal compatible remediation: Vite 5.4.21 → 6.4.4 plus `source-map-js@^1.2.2`; Vite 6 resolves esbuild 0.25.12. Local audit reports 0 vulnerabilities, the build passes, and the 12-screen visual suite is pixel-identical. Exact-head run `37424245809` and merge-SHA run `37425225414` both passed all six jobs. R20 is VERIFIED_CI. Vite 8 was not taken; any future Vite 7/8 move requires a separate compatibility review.
 
-Root production and full dependency audits are clear on inspected main SHA `d063bf74f5b8c8261400e86fcea6f8778a4f11e3`, exact run `37413497510`. Audit cleanliness is time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
+Root production and full dependency audits are clear on inspected main SHA `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`, exact run `37425225414`. Audit cleanliness is time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
 
 ## P2 — External release evidence
 
@@ -59,4 +59,4 @@ Major product work resumes only after the release evidence frontier is explicit 
 
 ## Decision rule
 
-Select one goal per run using this order: red exact-main CI, reproducible safety risk (including open audit R20), false supported-platform claim, measurable correctness/DX, release-decision documentation drift, then low-risk unblockers. Keep R16/R17 evidence and external release gates explicit; do not combine unrelated goals.
+Select one goal per run using this order: red exact-main CI, reproducible safety risk, false supported-platform claim, measurable correctness/DX, release-decision documentation drift, then low-risk unblockers. Keep R16/R17 evidence and external release gates explicit; do not combine unrelated goals.
