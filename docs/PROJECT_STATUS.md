@@ -1,27 +1,29 @@
 # PROJECT STATUS
 
-_Last verified: 2026-10-05T09:10:45Z against live git and GitHub Actions._
+_Last verified: 2026-10-06T03:01:57Z against live git and GitHub Actions._
 
 ## Authoritative snapshot
 
 - Repository: `/home/devops/FolderForge`
 - Default branch: `main`
-- Verified main SHA: `3b1889e42cd236d80fd57f3cb6521ccc7700ef84`
+- Live main SHA: `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`
 - Package: `@musashishao/folderforge` `3.0.1`
-- Exact-SHA main CI: `ci.yml` run `37287594297` completed **success** on that SHA.
-- Matrix result: all six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. Skipped steps are NOT_RUN, not passes.
+- Exact-SHA main CI: `ci.yml` run `37406501278` completed **success** on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. Skipped steps are NOT_RUN, not passes.
+- PR #36 merged normally at that SHA after its exact PR-head run `37405842816` passed all six jobs.
+- PR #35 remains open and unmerged at head `74db9c298943482093b2a2aaef63ff8b4b466545`; exact-head run `37400080019` failed.
+- Root production and full dependency audits passed in main run `37406501278`. The separate `packages/mission-control` audit remains unresolved: 1 moderate and 2 high findings; the suggested Vite 8.3.2 fix is a major upgrade.
 - `v3.0.0` remains public and abandoned; never retag, delete, or publish it.
 - `v3.0.1` is not tagged or published by this status update.
 
 ## Working tree and delivery state
 
-PR #32 merged the Windows claim reconciliation at `3b1889e42cd236d80fd57f3cb6521ccc7700ef84` after exact-head run `37286780402` succeeded on `bda17ce160e93587043f5b95c814b0a3f0f0373e`. Merge run `37287594297` succeeded on that exact main SHA. A later documentation handoff may advance main; inspect it live. PR #28 and PR #30 remain merged. The Windows/Node 22 third-party check succeeded again in run `37286780402`.
+PR #36 merged at main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226` after exact-head run `37405842816` passed all six matrix jobs. Exact-main run `37406501278` also passed all six jobs on that merge SHA. Root production and full dependency audits passed in both the PR-head and exact-main CI evidence.
 
-Automated dependency PRs remain open but are unrelated to the release-candidate hardening goal. They must be evaluated independently and must not be treated as already verified by the main run.
+PR #35 remains open and unmerged at head `74db9c298943482093b2a2aaef63ff8b4b466545`; exact-head run `37400080019` failed. Do not treat its proposed release-state changes as merged or verified. PR #28, #30, and #36 are merged. A later documentation handoff may advance main; inspect it live.
 
 ## Verification truth
 
-Run `37287594297` is exact-SHA evidence for the jobs and steps that actually ran. It proves the repository matrix completed successfully on Ubuntu, macOS, and Windows with Node 22 and 24.
+Run `37406501278` is exact-SHA evidence for live main `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226` and the jobs/steps that actually ran. It proves the six-job Ubuntu/macOS/Windows × Node 22/24 matrix completed successfully on that SHA, including root production and full dependency audits.
 
 It does **not** turn skipped platform-specific steps into passes. Container-runtime isolation ran only where the workflow enabled it; Docker evidence is not macOS, Windows, or Podman evidence. Short runtime-soak checks and sample-volume gates are not a completed 24-hour soak.
 
@@ -31,7 +33,7 @@ Earlier local verification on the merged implementation branch reported clean ty
 
 Danger mode remains zero manual approval after hard denies. Authorization, workspace and Capsule containment, policy deny, audit, rate limits, and fail-closed terminal sandbox requirements still apply.
 
-No known Critical or High defect was established during this documentation reconciliation. This is not production certification and does not waive the remaining human gates.
+The root production and full dependency audits are clear on main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`; this is not a claim that every package is vulnerability-free. The separate `packages/mission-control` audit remains open as R20 with 1 moderate and 2 high findings (esbuild, source-map-js, and Vite). Its suggested Vite 8.3.2 remediation is a major upgrade: the lock currently has Vite 5.4.21 and `@vitejs/plugin-react` 4.7.0, whose declared peer range ends at Vite 7. A compatible plugin/toolchain migration and validation are required before upgrading. No Mission Control dependency changes were made. This is not production certification and does not waive the remaining human gates.
 
 ## Open release gates
 
