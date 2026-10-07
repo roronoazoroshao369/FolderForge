@@ -1,19 +1,19 @@
 # PROJECT STATE
 
-_Last updated from inspected main SHA `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8` (exact-SHA run `37425225414`) as the evidence baseline._
+_Last updated from inspected main SHA `863306eb46a4609a1f065f746ed3b94e6be20535` (exact-SHA run `37648701564`) as the evidence baseline._
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; all external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Inspected main SHA (docs-update base): `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`.
-- Exact-SHA main CI: run `37425225414` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- Inspected main SHA (docs-update base): `863306eb46a4609a1f065f746ed3b94e6be20535`.
+- Exact-SHA main CI: run `37648701564` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
 - PR #39 merged at that SHA after exact-head run `37424245809` passed all six matrix jobs on head `9563b5652e5bcdf515fab4dd40743a8ec7c1f740`.
 - PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact PR-head run `37405842816` passed all six matrix jobs; PR #37 later advanced main to the inspected base above.
 - PR #35 was closed without merge after exact-head run `37400080019` failed; its proposed handoff was superseded by PR #37. PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed without merge after exact-head CI failures. PR #39 later merged the scoped Mission Control dependency remediation after exact-head CI passed.
-- Root production and full dependency audits passed in exact-main run `37425225414`. The separate `packages/mission-control` remediation (R20) is VERIFIED_CI: Vite 5.4.21 → 6.4.4 with the locked `@vitejs/plugin-react` 4.7.0 (peer range covers Vite 6) and a `source-map-js@^1.2.2` override; PR-head run `37424245809` and merge-SHA run `37425225414` each passed all six jobs. No Vite 8 upgrade was taken.
+- Root production and full dependency audits passed in exact-main run `37648701564`. PR #46 raised the `@modelcontextprotocol/sdk` security floor to `^1.32.1` after GHSA-6qxp-vccf-f47h made the previous `1.29.0` lock fail the production audit; exact-head run `37647956742` and merge-SHA run `37648701564` each passed all six jobs. The separate `packages/mission-control` remediation (R20) remains VERIFIED_CI. No release gate changed.
 - Overall verdict: IN_PROGRESS because R16 and R17 remain open. R20 is VERIFIED_CI. R16/R17 and all external release gates remain closed.
-- This record does not self-certify the docs-only branch update. Inspect live `origin/main` and match its CI run by exact SHA before the next goal.
+- This record is grounded in the verified main SHA above. Any later revision still requires its own exact-SHA CI before being used as a baseline.
 
 ## Previously inspected environment (not rechecked for this update)
 
@@ -40,7 +40,30 @@ On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode reg
 | R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
 | R20 | High | VERIFIED_CI | PR #39 merged at `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`: Vite 5.4.21 → 6.4.4 (clears GHSA-4w7w-66w2-5vf9, GHSA-v6wh-96g9-6wx3, GHSA-fx2h-pf6j-xcff), esbuild 0.21.5 → 0.25.12 via Vite 6 (clears GHSA-67mh-4wv8-2f99), and `source-map-js@^1.2.2` override (clears GHSA-68fv-2mgg-jv7q). Local audit is 0 vulnerabilities; SPA build and all 12 visual-regression screens pass. Exact-head run `37424245809` and merge run `37425225414` each passed 6/6. No Vite 8 upgrade was taken. |
 
-## Latest completed goal (2026-10-06): reconcile R20 CI status
+## Latest completed goal (2026-10-07): restore root dependency audit after MCP SDK advisory
+
+**VERDICT**
+
+PASS. Exact-main CI is green again after updating the locked MCP TypeScript SDK security floor.
+
+| Evidence | Result |
+| --- | --- |
+| Red main baseline | `26432cc45c2e8e1d3ad4e52ad924a4deb3bf4860`; run `37646358844` failed only on Ubuntu/Node 22 production dependency audit |
+| Root cause | `@modelcontextprotocol/sdk@1.29.0` matched GHSA-6qxp-vccf-f47h; PR #45 itself did not change dependencies |
+| Product PR | #46, exact head `9d5753c000e0fc0cc0b2fe5f8d03b4edc6db087a`, run `37647956742`, 6/6 success |
+| Merge main | `863306eb46a4609a1f065f746ed3b94e6be20535`, run `37648701564`, 6/6 success |
+| Dependency audits | production and full audit steps both success on PR head and merge main |
+| Release gates | R16/R17 and every external release gate remain closed |
+
+**SCOPE**
+
+`package.json`, `package-lock.json`, and `CHANGELOG.md`: minimum `@modelcontextprotocol/sdk` is now `^1.32.1`; locked runtime is `1.32.1`. No workflow, policy, release, or public schema change.
+
+**NEXT INTERNAL FRONTIER**
+
+With exact-main CI green, select one measurable correctness/DX goal. The CLI value parser remains a candidate: a value-taking option should not consume the following option token as its value. Reproduce before changing it.
+
+## Previous completed goal (2026-10-06): reconcile R20 CI status
 
 **VERDICT**
 
@@ -168,8 +191,8 @@ The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mo
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`, under the stable council policy. Repository truth overrides this record. Read the release-state and handoff docs, then inspect `git status`, fetch `origin/main`, and match CI to the exact live SHA before any edit. The inspected base snapshot was main `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`, run `37425225414` green on all six matrix jobs. Any later change requires exact-head CI and a fresh live-main check.
+Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`. Repository truth overrides this record. Inspect live main, open PRs, branch refs, and CI matched to the exact live SHA before any edit. The recorded baseline is main `863306eb46a4609a1f065f746ed3b94e6be20535`, run `37648701564` success 6/6; PR #46 exact-head run `37647956742` also passed 6/6 and restored clean root production/full dependency audits with `@modelcontextprotocol/sdk@1.32.1`.
 
-R20 is VERIFIED_CI: PR #39 exact-head run `37424245809` and merge-SHA run `37425225414` both passed 6/6; the merged remediation uses Vite 6.4.4 plus `source-map-js@^1.2.2`, with local audit 0 vulnerabilities and 12/12 visual screens identical. Root audits were already clear on the recorded main SHA. R16 and R17 remain open; no Vite 8 upgrade was taken — any future Vite 7/8 migration still needs its own compatibility review. Keep all release gates closed.
+R16 remains BLOCKED pending explicit approval for real Podman evidence. R17 and all external release gates remain closed. Do not tag, publish, release, retag/delete `v3.0.0`, alter branch protection or secrets, or infer Podman evidence from Docker.
 
-Select one goal only. Do not infer full-repository audit cleanliness from the root audit. Do not tag, publish, release, retag/delete `v3.0.0`, change branch protection or secrets, or cancel workflows without explicit approval. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-SHA CI GREEN → UPDATE STATE → emit a new NEXT_RUN_PROMPT → stop.
+Select one goal only. If exact-main CI is red, fix it first. Otherwise discover and reproduce one measurable correctness/DX issue; the CLI parser case where a value-taking flag can consume the next option token is an evidence-backed candidate, not yet a completed fix. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-SHA CI GREEN → UPDATE STATE → emit a fresh NEXT_RUN_PROMPT → stop.
