@@ -8,6 +8,8 @@ semantic versioning.
 
 ### Security
 
+- **Dependency security:** `@modelcontextprotocol/sdk` now has a minimum of `1.32.1`, moving the locked runtime off the vulnerable `1.29.0` line after GHSA-6qxp-vccf-f47h made the production dependency audit fail. This also avoids stopping at the newly superseded `1.31.0`; no release gate is changed.
+
 - **`v3.0.0` is abandoned and must not be released or published.** The public `v3.0.0` tag (commit `953e827a4095d52e0b9d2d001e86d13eb98fcd32`) predates the terminal sandbox hardening below: it runs `shell_exec` and `process_start` on the host shell in `danger` mode. It is left untouched (no retag or deletion); `3.0.1` supersedes it and carries the 3.0.0 zero-approval semantics together with fail-closed command containment.
 
 ### Fixed
