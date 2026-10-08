@@ -220,6 +220,85 @@ describe("Responses HTTP handler", () => {
     }
   });
 
+  it("disconnecting an idempotent SSE replay does not cancel the original response", async () => {
+    let executions = 0;
+    let originalAborted = false;
+    let releaseWork: (() => void) | undefined;
+    const workGate = new Promise<void>((resolve) => {
+      releaseWork = resolve;
+    });
+    const harness = await startHarness(
+      (store) =>
+        async ({ ownerId, responseId, signal }) => {
+          executions += 1;
+          store.update(responseId, ownerId, "in_progress");
+          signal.addEventListener(
+            "abort",
+            () => {
+              originalAborted = true;
+            },
+            { once: true },
+          );
+          await workGate;
+          if (!signal.aborted) {
+            store.appendDelta(responseId, ownerId, `msg_${responseId}`, "completed");
+            store.update(responseId, ownerId, "completed");
+          }
+        },
+    );
+    let primaryReader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const replayAbort = new AbortController();
+    try {
+      const payload = JSON.stringify({
+        model: "folderforge-agent",
+        input: "keep the original running",
+        stream: true,
+      });
+      const headers = {
+        "content-type": "application/json",
+        "idempotency-key": "replay-does-not-own-original",
+      };
+      const primary = await fetch(`${harness.baseUrl}/v1/responses`, {
+        method: "POST",
+        headers,
+        body: payload,
+      });
+      expect(primary.status).toBe(200);
+      primaryReader = primary.body?.getReader();
+      if (!primaryReader) throw new Error("missing primary SSE reader");
+      const first = await primaryReader.read();
+      const created = new TextDecoder().decode(first.value);
+      const event = JSON.parse(
+        created.match(/data: (\\{.*\\})/)?.[1] ?? "{}",
+      ) as { response?: { id?: string } };
+      const responseId = event.response?.id;
+      if (!responseId) throw new Error("missing original response id");
+
+      const replay = await fetch(`${harness.baseUrl}/v1/responses`, {
+        method: "POST",
+        headers,
+        body: payload,
+        signal: replayAbort.signal,
+      });
+      expect(replay.status).toBe(200);
+      await replay.body?.getReader().read();
+      replayAbort.abort();
+      // Allow the server's res.close handler to observe replay disconnect.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
+      expect(executions).toBe(1);
+      expect(harness.store.get(responseId, "owner:a").record.status).toBe(
+        "in_progress",
+      );
+      expect(originalAborted).toBe(false);
+    } finally {
+      replayAbort.abort();
+      releaseWork?.();
+      await primaryReader?.cancel().catch(() => undefined);
+      await closeHarness(harness);
+    }
+  });
+
   it("cancels an active SSE response through both cancellation routes", async () => {
     const harness = await startHarness(
       (store) =>
