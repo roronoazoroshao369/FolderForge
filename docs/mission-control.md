@@ -143,3 +143,28 @@ npm run verify
 The tests cover restart persistence, prior-mode restoration, state tampering,
 exact containment allowlisting, agent denial, active-call value redaction,
 write-freeze mutation blocking, and a live dashboard stop-process flow.
+
+## Fleet terminal execution profiles
+
+Fleet > Provision and Fleet > Configure now expose two terminal execution profiles:
+
+- `sandbox-required` — danger-mode shell execution fails closed unless a
+  container sandbox is configured for that instance.
+- `trusted-host` — the MCP server executes shell commands with its host OS
+  user's permissions in danger mode, without a Docker/Podman boundary.
+
+**Host-operator authorization is mandatory.** The parent FolderForge process
+must be started with `terminal.sandbox.mode: process` and
+`terminal.sandbox.requireInDanger: false` in a local host-owned configuration.
+The web UI cannot grant this permission without that prior startup opt-in.
+The host choice becomes the default for **new Fleet MCP instances**; existing
+instances must select the profile in Fleet > Configure. Updates take effect on
+start/restart. The instance's authentication mode must not be `none` for
+trusted-host execution. Profile changes preserve the per-instance 0600
+credential file and are recorded through the normal provisioner audit path.
+
+This option does **not** remove the command deny list, OS file permissions,
+workspace authorization for native tools, audit, or rate limits. It also does
+not configure separately launched third-party MCP/plugin runtimes or the
+OpenAI Tunnel supervisor. Secure those runtimes independently. Avoid exposing a
+trusted-host instance without strong authentication.

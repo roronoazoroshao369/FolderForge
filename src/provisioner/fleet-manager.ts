@@ -41,6 +41,7 @@ import { processCommandLine, terminatePidTree } from '../core/process-tree.js';
 
 export type FleetInstanceState = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
 export type FleetAuthMode = 'none' | 'token' | 'api-key' | 'oauth';
+export type FleetTerminalExecution = 'sandbox-required' | 'trusted-host';
 
 export interface FleetOAuthConfig {
   resource: string;
@@ -87,6 +88,8 @@ export interface FleetInstance {
   port: number;
   toolsPreset: string;
   policyMode: string;
+  /** Per-instance operator setting; trusted-host requires a host-owned opt-in. */
+  terminalExecution?: FleetTerminalExecution;
   /**
    * @deprecated Legacy Fleet state accepted for compatibility. It is ignored
    * and stripped on load/persist; danger mode itself bypasses approvals.
@@ -162,6 +165,8 @@ export interface FleetManagerOptions {
   /** Bounded wait for an orphan to die after SIGTERM (and again after SIGKILL). */
   reapGraceMs?: number;
   now?: () => number;
+  /** Host-owned permit, set only by the control-plane startup configuration. */
+  allowTrustedHostExecution?: boolean;
 }
 
 export const FLEET_TOOLS_PRESETS = ['vibe', 'vibe-lite', 'readonly', 'full', 'godot', 'adaptive'] as const;
@@ -349,6 +354,12 @@ function instanceConfigYaml(record: FleetInstance, credential?: string): string 
     'policy:',
     `  defaultMode: ${yamlString(record.policyMode)}`,
     '',
+    '# Fleet-managed terminal execution profile',
+    'terminal:',
+    '  sandbox:',
+    '    mode: process',
+    `    requireInDanger: ${record.terminalExecution === 'trusted-host' ? 'false' : 'true'}`,
+    '',
   );
   return lines.join('\n');
 }
@@ -401,6 +412,7 @@ export class FleetManager {
   private readonly lastAutoRestart = new Map<string, number>();
   private readonly now: () => number;
   private instances: FleetInstance[] = [];
+  private readonly allowTrustedHostExecution: boolean;
 
   constructor(projectRoot: string, options: FleetManagerOptions = {}) {
     const stateDir = resolve(projectRoot, '.folderforge');
@@ -421,6 +433,7 @@ export class FleetManager {
     this.killPidTreeFn = options.killPidTree ?? terminatePidTree;
     this.reapGraceMs = options.reapGraceMs ?? 1_500;
     this.now = options.now ?? (() => Date.now());
+    this.allowTrustedHostExecution = options.allowTrustedHostExecution === true;
     this.load();
   }
 
@@ -438,6 +451,7 @@ export class FleetManager {
     port?: number;
     toolsPreset?: string;
     policyMode?: string;
+    terminalExecution?: FleetTerminalExecution;
     /** @deprecated Compatibility input; ignored because danger mode is autonomous. */
     allowCriticalInDanger?: boolean;
     authMode?: FleetAuthMode;
@@ -472,6 +486,18 @@ export class FleetManager {
       throw new Error(`Unknown auth mode: ${authMode} (allowed: ${FLEET_AUTH_MODES.join(', ')})`);
     }
 
+    const terminalExecution = input.terminalExecution ??
+      (this.allowTrustedHostExecution ? 'trusted-host' : 'sandbox-required');
+    if (terminalExecution !== 'sandbox-required' && terminalExecution !== 'trusted-host') {
+      throw new Error('Invalid Fleet terminal execution profile.');
+    }
+    if (terminalExecution === 'trusted-host' && !this.allowTrustedHostExecution) {
+      throw new Error('Trusted host execution requires operator startup opt-in: terminal.sandbox.mode=process and requireInDanger=false.');
+    }
+    if (terminalExecution === 'trusted-host' && authMode === 'none') {
+      throw new Error('Trusted host execution requires authenticated MCP access.');
+    }
+
     const id = `flt_${randomUUID().slice(0, 8)}`;
     let credential: string | undefined;
     let token = '';
@@ -495,6 +521,7 @@ export class FleetManager {
       port,
       toolsPreset,
       policyMode,
+      terminalExecution,
       authMode,
       ...(oauth ? { oauth } : {}),
       ...(credential ? { tokenSha256: sha256(credential) } : {}),
@@ -520,6 +547,9 @@ export class FleetManager {
       throw new Error(`Instance ${id} is already ${record.state}.`);
     }
     this.assertSpawnReady();
+    if (record.terminalExecution === 'trusted-host' && !this.allowTrustedHostExecution) {
+      throw new Error('Trusted host execution is disabled by the control-plane startup configuration.');
+    }
     // Reconnect recovery: a pid left over from a previous plane life is either
     // a fingerprint-verified orphan to reap or a foreign process to refuse.
     this.reapInstanceOrphan(record);
@@ -596,6 +626,9 @@ export class FleetManager {
       oauth = normalizeOauth(input.oauth);
     }
 
+    if (input.mode === 'none' && record.terminalExecution === 'trusted-host') {
+      throw new Error('Cannot disable authentication while trusted host execution is enabled.');
+    }
     record.authMode = input.mode;
     if (oauth) record.oauth = oauth;
     else delete record.oauth;
@@ -858,6 +891,42 @@ export class FleetManager {
     record.policyMode = mode;
     // Strip the retired escape hatch whenever the record is touched.
     delete record.allowCriticalInDanger;
+    this.touch(record);
+    this.persist();
+    return cloneInstance(record);
+  }
+
+  setTerminalExecution(id: string, profile: FleetTerminalExecution): FleetInstance {
+    if (profile !== 'sandbox-required' && profile !== 'trusted-host') {
+      throw new Error('Invalid Fleet terminal execution profile.');
+    }
+    const record = this.mutable(id);
+    if (profile === 'trusted-host' && !this.allowTrustedHostExecution) {
+      throw new Error('Trusted host execution requires operator startup opt-in: terminal.sandbox.mode=process and requireInDanger=false.');
+    }
+    if (profile === 'trusted-host' && record.authMode === 'none') {
+      throw new Error('Trusted host execution requires authenticated MCP access.');
+    }
+    const file = this.configPathFor(id);
+    const original = readFileSync(file, 'utf8');
+    const marker = '# Fleet-managed terminal execution profile';
+    const at = original.indexOf(marker);
+    if (at < 0 && /^terminal:/m.test(original)) {
+      throw new Error('Refusing to replace an unmanaged terminal configuration.');
+    }
+    const block = [
+      marker,
+      'terminal:',
+      '  sandbox:',
+      '    mode: process',
+      `    requireInDanger: ${profile === 'trusted-host' ? 'false' : 'true'}`,
+      '',
+    ].join('\n');
+    const next = (at >= 0 ? original.slice(0, at) : original.trimEnd() + '\n\n') + block;
+    const temp = `${file}.${randomUUID().slice(0, 8)}.tmp`;
+    writeFileSync(temp, next, { mode: 0o600 });
+    renameSync(temp, file);
+    record.terminalExecution = profile;
     this.touch(record);
     this.persist();
     return cloneInstance(record);

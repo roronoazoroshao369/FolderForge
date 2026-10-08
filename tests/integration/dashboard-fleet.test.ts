@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defaultConfig } from '../../src/runtime/config.js';
@@ -34,11 +34,12 @@ interface FleetToolResult {
   error?: string;
 }
 
-async function startHarness(): Promise<FleetHarness> {
+async function startHarness(trustedHost = false): Promise<FleetHarness> {
   const root = mkdtempSync(join(tmpdir(), 'folderforge-dashboard-fleet-'));
   const config = defaultConfig(root);
   config.rateLimit.enabled = false;
   config.policy.defaultMode = 'dev';
+  if (trustedHost) config.terminal.sandbox = { mode: 'process', requireInDanger: false };
   const container = new Container(config);
   const registry = buildRegistry(container);
   const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0 });
@@ -308,4 +309,58 @@ describe('dashboard fleet endpoints', () => {
     const missing = await fetch(`${harness.baseUrl}/fleet/flt_missing/logs`);
     expect(missing.status).toBe(404);
   });
+  it('requires host operator opt-in for Fleet trusted execution, and persists selection in the child config', async () => {
+    const guarded = await startHarness();
+    harnesses.push(guarded);
+    const blocked = await postJson(`${guarded.baseUrl}/fleet`, {
+      projectPath: guarded.root,
+      policyMode: 'danger',
+      authMode: 'token',
+      terminalExecution: 'trusted-host',
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.json.error).toMatch(/host.*opt-in/i);
+
+    const allowed = await startHarness(true);
+    harnesses.push(allowed);
+    const created = await postJson(`${allowed.baseUrl}/fleet`, {
+      projectPath: allowed.root,
+      policyMode: 'danger',
+      authMode: 'token',
+    });
+    expect(created.status).toBe(201);
+    const instance = created.json.data!;
+    expect((instance as FleetInstanceView & { terminalExecution?: string }).terminalExecution).toBe('trusted-host');
+    const configPath = join(allowed.root, '.folderforge', 'fleet', `${instance.id}.yaml`);
+    expect(readFileSync(configPath, 'utf8')).toContain('requireInDanger: false');
+
+    const sandbox = await postJson(`${allowed.baseUrl}/fleet/${instance.id}/terminal`, {
+      terminalExecution: 'sandbox-required',
+    });
+    expect(sandbox.status).toBe(200);
+    expect(readFileSync(configPath, 'utf8')).toContain('requireInDanger: true');
+
+    const restore = await postJson(`${allowed.baseUrl}/fleet/${instance.id}/terminal`, {
+      terminalExecution: 'trusted-host',
+    });
+    expect(restore.status).toBe(200);
+    expect(readFileSync(configPath, 'utf8')).toContain('requireInDanger: false');
+
+    const invalid = await postJson(`${allowed.baseUrl}/fleet/${instance.id}/terminal`, {
+      terminalExecution: 'disable-everything',
+    });
+    expect(invalid.status).toBe(400);
+    expect(readFileSync(configPath, 'utf8')).toContain('requireInDanger: false');
+
+    mkdirSync(join(allowed.root, 'anon'));
+    const noAuth = await postJson(`${allowed.baseUrl}/fleet`, {
+      projectPath: join(allowed.root, 'anon'),
+      policyMode: 'danger',
+      authMode: 'none',
+      terminalExecution: 'trusted-host',
+    });
+    expect(noAuth.status).toBe(409);
+    expect(noAuth.json.error).toMatch(/requires authenticated/i);
+  });
+
 });

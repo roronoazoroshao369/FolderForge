@@ -16,6 +16,7 @@ import {
   FLEET_TOOLS_PRESETS,
   publicFleetInstance,
   type FleetAuthMode,
+  type FleetTerminalExecution,
   type FleetInstance,
   type FleetOAuthConfig,
 } from '../provisioner/fleet-manager.js';
@@ -115,6 +116,7 @@ export function provisionTools(): ToolDefinition[] {
           port: { type: 'number' },
           toolsPreset: { type: 'string', enum: [...FLEET_TOOLS_PRESETS] },
           policyMode: { type: 'string', enum: [...FLEET_POLICY_MODES] },
+          terminalExecution: { type: 'string', enum: ['sandbox-required', 'trusted-host'] },
           allowCriticalInDanger: {
             type: 'boolean',
             description:
@@ -136,6 +138,7 @@ export function provisionTools(): ToolDefinition[] {
             port: args.port !== undefined ? Number(args.port) : undefined,
             toolsPreset: args.toolsPreset !== undefined ? String(args.toolsPreset) : undefined,
             policyMode: args.policyMode !== undefined ? String(args.policyMode) : undefined,
+            terminalExecution: args.terminalExecution as FleetTerminalExecution | undefined,
             allowCriticalInDanger: args.allowCriticalInDanger === true ? true : undefined,
             authMode: args.authMode !== undefined ? (String(args.authMode) as FleetAuthMode) : undefined,
             apiKey: args.apiKey !== undefined ? String(args.apiKey) : undefined,
@@ -309,7 +312,7 @@ export function provisionTools(): ToolDefinition[] {
     defineTool({
       name: 'provision_update',
       description:
-        'Update auto-restart, tools preset, or policy mode. Legacy allowCriticalInDanger is accepted as a no-op for compatibility.',
+        'Update auto-restart, tools preset, policy mode, or operator-permitted terminal execution. Legacy allowCriticalInDanger is accepted as a no-op for compatibility.',
       group: 'provision',
       mutates: true,
       risk: 'MEDIUM',
@@ -320,6 +323,7 @@ export function provisionTools(): ToolDefinition[] {
           autoRestart: { type: 'boolean' },
           toolsPreset: { type: 'string', enum: [...FLEET_TOOLS_PRESETS] },
           policyMode: { type: 'string', enum: [...FLEET_POLICY_MODES] },
+          terminalExecution: { type: 'string', enum: ['sandbox-required', 'trusted-host'] },
           allowCriticalInDanger: {
             type: 'boolean',
             description:
@@ -336,13 +340,15 @@ export function provisionTools(): ToolDefinition[] {
             typeof args.autoRestart !== 'boolean' &&
             typeof args.toolsPreset !== 'string' &&
             typeof args.policyMode !== 'string' &&
+            typeof args.terminalExecution !== 'string' &&
             typeof args.allowCriticalInDanger !== 'boolean'
           ) {
-            throw new Error('Nothing to update: pass autoRestart, toolsPreset, policyMode, and/or allowCriticalInDanger.');
+            throw new Error('Nothing to update: pass autoRestart, toolsPreset, policyMode, terminalExecution, and/or allowCriticalInDanger.');
           }
           if (typeof args.autoRestart === 'boolean') ctx.container.fleet.setAutoRestart(id, args.autoRestart);
           if (typeof args.toolsPreset === 'string') ctx.container.fleet.setToolsPreset(id, args.toolsPreset);
           if (typeof args.policyMode === 'string') ctx.container.fleet.setPolicyMode(id, args.policyMode);
+          if (typeof args.terminalExecution === 'string') ctx.container.fleet.setTerminalExecution(id, args.terminalExecution as FleetTerminalExecution);
           if (typeof args.allowCriticalInDanger === 'boolean') ctx.container.fleet.setAllowCriticalInDanger(id, args.allowCriticalInDanger);
           const instance = ctx.container.fleet.get(id);
           ctx.container.audit.record({

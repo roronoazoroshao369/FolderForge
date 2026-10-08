@@ -1,5 +1,7 @@
 # Changelog
 
+- Mission Control Fleet: add per-instance terminal execution profiles, inherited trusted-host defaults from explicit host operator opt-in, authenticated-only host execution, and a reviewed web configuration control with restart semantics.
+
 All notable changes to FolderForge are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.

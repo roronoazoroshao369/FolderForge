@@ -40,6 +40,7 @@ import type {
 
 const PRESETS = ['vibe', 'vibe-lite', 'readonly', 'full', 'godot', 'adaptive'];
 const POLICIES = ['readonly', 'safe', 'dev', 'danger'];
+const EXECUTION_PROFILES = ['sandbox-required', 'trusted-host'] as const;
 const AUTH_MODES: FleetAuthMode[] = ['token', 'api-key', 'oauth', 'none'];
 
 interface OneTimeCredential {
@@ -84,6 +85,7 @@ export function FleetScreen() {
   const [path, setPath] = useState('');
   const [preset, setPreset] = useState('vibe');
   const [policy, setPolicy] = useState('dev');
+  const [executionProfile, setExecutionProfile] = useState('inherit');
   const [authMode, setAuthMode] = useState<FleetAuthMode>('token');
   const [apiKey, setApiKey] = useState('');
   const [oauthResource, setOauthResource] = useState('');
@@ -119,6 +121,7 @@ export function FleetScreen() {
         projectPath: path.trim(),
         toolsPreset: preset,
         policyMode: policy,
+        ...(executionProfile === 'inherit' ? {} : { terminalExecution: executionProfile }),
         authMode,
       };
       if (authMode === 'api-key' && apiKey.trim()) body.apiKey = apiKey.trim();
@@ -240,6 +243,22 @@ export function FleetScreen() {
           >
             Provision
           </Button>
+        </div>
+
+        <div className="mt-3 grid gap-2 max-w-xl">
+          <Field label="Terminal execution for new MCP">
+            <Select value={executionProfile} onChange={(event) => setExecutionProfile(event.target.value)}
+              aria-label="Terminal execution for new MCP">
+              <option value="inherit">Default (inherit operator host opt-in)</option>
+              <option value="sandbox-required">Require sandbox in danger mode</option>
+              <option value="trusted-host">Trusted host (requires host startup opt-in)</option>
+            </Select>
+          </Field>
+          {executionProfile === 'trusted-host' ? (
+            <Banner tone="warn">Commands run with the MCP service user's host permissions without Docker/Podman.
+              This does not disable hard command denies, audit or operating-system permissions.
+              Only authenticated MCP instances may use this profile. Restart is required after changes.</Banner>
+          ) : null}
         </div>
 
         {authMode === 'api-key' ? (
@@ -525,6 +544,7 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
   const action = useAction();
   const [preset, setPreset] = useState(props.instance.toolsPreset);
   const [policy, setPolicy] = useState(props.instance.policyMode);
+  const [terminalExecution, setTerminalExecution] = useState(props.instance.terminalExecution ?? 'sandbox-required');
   const save = async () => {
     const id = encodeURIComponent(props.instance.id);
     if (preset !== props.instance.toolsPreset && !(await action.run(`/fleet/${id}/preset`, { toolsPreset: preset }))) return;
@@ -533,6 +553,8 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
       !(await action.run(`/fleet/${id}/policy`, { policyMode: policy }))
     )
       return;
+    if (terminalExecution !== (props.instance.terminalExecution ?? 'sandbox-required') &&
+      !(await action.run(`/fleet/${id}/terminal`, { terminalExecution }))) return;
     toast('success', `${props.instance.id} updated — restart to apply`);
     props.onSaved();
   };
@@ -541,6 +563,18 @@ function ConfigModal(props: { instance: FleetInstance; onClose: () => void; onSa
       <div className="grid gap-3">
         <Field label="Tool preset"><Select value={preset} onChange={(event) => setPreset(event.target.value)}>{PRESETS.map((value) => <option key={value}>{value}</option>)}</Select></Field>
         <Field label="Policy mode"><Select value={policy} onChange={(event) => setPolicy(event.target.value)}>{POLICIES.map((value) => <option key={value}>{value}</option>)}</Select></Field>
+        <Field label="Terminal execution">
+          <Select value={terminalExecution} onChange={(event) => setTerminalExecution(event.target.value as typeof EXECUTION_PROFILES[number])}
+            aria-label="Terminal execution profile">
+            <option value="sandbox-required">Sandbox required for danger shell</option>
+            <option value="trusted-host">Trusted host execution (operator opt-in)</option>
+          </Select>
+        </Field>
+        {terminalExecution === 'trusted-host' ? (
+          <Banner tone="warn">This MCP can run shell commands directly under its host OS account in danger mode.
+            The server owner must explicitly opt in at startup and the MCP must use authentication.
+            Hard denies, audit and resource permissions still apply. Stop/start the instance to apply.</Banner>
+        ) : null}
         {policy === 'danger' ? (
           <Banner tone="warn">Danger mode bypasses all manual approvals, including HIGH/CRITICAL and policy-as-code approval rules. Hard denies, authorization, containment, audit, and rate limits remain enforced.</Banner>
         ) : null}
