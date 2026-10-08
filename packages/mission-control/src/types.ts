@@ -18,6 +18,8 @@ export interface FleetInstance {
   port: number;
   toolsPreset: string;
   policyMode: string;
+  /** Terminal profile for this MCP instance; trusted-host requires host-owned opt-in. */
+  terminalExecution?: 'sandbox-required' | 'trusted-host';
   /** @deprecated Legacy compatibility field; danger mode itself bypasses approvals. */
   allowCriticalInDanger?: boolean;
   authMode: FleetAuthMode;
