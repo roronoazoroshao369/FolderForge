@@ -14,6 +14,8 @@ semantic versioning.
 
 ### Fixed
 
+- Root CLI value-taking flags now reject a subsequent option token as a missing value (for example, `--project --http`) instead of silently consuming the next flag.
+
 - Root CLI options that require values now fail fast when the value is missing instead of silently starting the server with defaults.
 
 - The root CLI now rejects unknown positional commands instead of silently treating a typo such as `folderforge doctro` as a successful server invocation.
