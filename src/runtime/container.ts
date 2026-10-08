@@ -116,6 +116,9 @@ export class Container {
     // Fleet instances spawn through ProcessManager so Mission Control process
     // containment (stop/kill) and write-freeze apply to them unchanged.
     this.fleet = new FleetManager(config.workspace.defaultProject, {
+      // Only a host-owned startup configuration may authorize Fleet host execution.
+      allowTrustedHostExecution: config.terminal.sandbox?.mode === 'process' &&
+        config.terminal.sandbox.requireInDanger === false,
       spawn: (command, cwd, env) => this.processes.start(command, cwd, config.terminal.shell, env),
       stopSession: (sessionId) => this.processes.stop(sessionId),
       readSession: (sessionId) => this.processes.read(sessionId).output,
