@@ -6,7 +6,7 @@ This frontier is derived from live git, GitHub Actions, and the current release 
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Inspected main SHA `33026b16b27657544ec152e6611b644e386b6639` has green `ci.yml` run `37715608774` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #46 passed exact-head run `37647956742` on `9d5753c000e0fc0cc0b2fe5f8d03b4edc6db087a` before merging to this baseline; production and full dependency audits passed after moving `@modelcontextprotocol/sdk` to `1.32.1`.
+Inspected main SHA `33026b16b27657544ec152e6611b644e386b6639` has green `ci.yml` run `37715608774` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #48 passed exact-head run `37714944668` on `3dd88c04aacea1e74d1d04d0903e208a36f236bf` before merging to this baseline; the root CLI option-value regression is fixed and production/full dependency audit steps passed on exact-main Ubuntu/Node 22.
 
 PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight dependency PRs were also closed without merge because their exact-head CI had failures. PR #39 later merged the separately reviewed Mission Control remediation after exact-head CI passed; no PRs were open at this run's discovery. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
 
