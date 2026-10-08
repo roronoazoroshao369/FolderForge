@@ -1,14 +1,14 @@
 # PROJECT STATE
 
-_Last updated from inspected main SHA `863306eb46a4609a1f065f746ed3b94e6be20535` (exact-SHA run `37648701564`) as the evidence baseline._
+_Last updated from inspected main SHA `33026b16b27657544ec152e6611b644e386b6639` (exact-SHA run `37715608774`) as the evidence baseline._
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; all external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Inspected main SHA (docs-update base): `863306eb46a4609a1f065f746ed3b94e6be20535`.
-- Exact-SHA main CI: run `37648701564` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
-- PR #39 merged at that SHA after exact-head run `37424245809` passed all six matrix jobs on head `9563b5652e5bcdf515fab4dd40743a8ec7c1f740`.
+- Inspected main SHA (docs-update base): `33026b16b27657544ec152e6611b644e386b6639`.
+- Exact-SHA main CI: run `37715608774` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- PR #48 merged at main SHA `33026b16b27657544ec152e6611b644e386b6639` after exact-head CI `37714944668` passed 6/6 on `3dd88c04aacea1e74d1d04d0903e208a36f236bf`; exact-main run `37715608774` passed 6/6. PR #47 documentation closeout merged previously at `58cd43e43093cf8c0a7ee7d825e8b69f4dbc36c4` (run `37714813520` passed 6/6).
 - PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact PR-head run `37405842816` passed all six matrix jobs; PR #37 later advanced main to the inspected base above.
 - PR #35 was closed without merge after exact-head run `37400080019` failed; its proposed handoff was superseded by PR #37. PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed without merge after exact-head CI failures. PR #39 later merged the scoped Mission Control dependency remediation after exact-head CI passed.
 - Root production and full dependency audits passed in exact-main run `37648701564`. PR #46 raised the `@modelcontextprotocol/sdk` security floor to `^1.32.1` after GHSA-6qxp-vccf-f47h made the previous `1.29.0` lock fail the production audit; exact-head run `37647956742` and merge-SHA run `37648701564` each passed all six jobs. The separate `packages/mission-control` remediation (R20) remains VERIFIED_CI. No release gate changed.
@@ -40,7 +40,30 @@ On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode reg
 | R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
 | R20 | High | VERIFIED_CI | PR #39 merged at `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`: Vite 5.4.21 → 6.4.4 (clears GHSA-4w7w-66w2-5vf9, GHSA-v6wh-96g9-6wx3, GHSA-fx2h-pf6j-xcff), esbuild 0.21.5 → 0.25.12 via Vite 6 (clears GHSA-67mh-4wv8-2f99), and `source-map-js@^1.2.2` override (clears GHSA-68fv-2mgg-jv7q). Local audit is 0 vulnerabilities; SPA build and all 12 visual-regression screens pass. Exact-head run `37424245809` and merge run `37425225414` each passed 6/6. No Vite 8 upgrade was taken. |
 
-## Latest completed goal (2026-10-07): restore root dependency audit after MCP SDK advisory
+## Latest completed goal (2026-10-08): reject CLI option tokens as values
+
+**VERDICT**
+
+PASS. Root CLI value-taking flags now reject a following flag token rather than consuming it as a value, preventing silent loss of HTTP/auth options.
+
+| Evidence | Result |
+| --- | --- |
+| Reproduced code defect | `src/main.ts` next() checked only `undefined`, so `--project --http` could consume `--http` as a path |
+| Regression scope | Four cases: `--project --http`, `--config --stdio`, `--token --require-auth`, `--port --http` |
+| Product PR | #48, exact head `3dd88c04aacea1e74d1d04d0903e208a36f236bf`, run `37714944668`, 6/6 success |
+| Merge main | `33026b16b27657544ec152e6611b644e386b6639`, exact-main run `37715608774`, 6/6 success |
+| Relevant CI gates | Ubuntu/Node 22 test, coverage, build, CLI smoke, production/full dependency audits: success |
+| Release gates | R16/R17 and all human/external release gates remain closed |
+
+**SCOPE**
+
+`src/main.ts`, `tests/unit/cli-and-doctor-regression.test.ts`, and `CHANGELOG.md` only. No CI workflow, policy, package version, or release action changed. This is product and CI evidence, not a real Podman or 24-hour release soak claim.
+
+**NEXT INTERNAL FRONTIER**
+
+Recheck live main and exact-SHA CI, then independently discover and reproduce one new correctness/DX gap. Do not re-open this fixed CLI token-swallowing case without new evidence. R16 requires explicit real-Podman approval; R17 remains external.
+
+## Previous completed goal (2026-10-07): restore root dependency audit after MCP SDK advisory
 
 **VERDICT**
 
@@ -61,7 +84,7 @@ PASS. Exact-main CI is green again after updating the locked MCP TypeScript SDK 
 
 **NEXT INTERNAL FRONTIER**
 
-With exact-main CI green, select one measurable correctness/DX goal. The CLI value parser remains a candidate: a value-taking option should not consume the following option token as its value. Reproduce before changing it.
+Historical candidate at this checkpoint: the CLI value parser could consume the next flag token; this was resolved by PR #48 on 2026-10-08.
 
 ## Previous completed goal (2026-10-06): reconcile R20 CI status
 
@@ -191,8 +214,6 @@ The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mo
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge perpetual council on `roronoazoroshao369/FolderForge`, default branch `main`. Repository truth overrides this record. Inspect live main, open PRs, branch refs, and CI matched to the exact live SHA before any edit. The recorded baseline is main `863306eb46a4609a1f065f746ed3b94e6be20535`, run `37648701564` success 6/6; PR #46 exact-head run `37647956742` also passed 6/6 and restored clean root production/full dependency audits with `@modelcontextprotocol/sdk@1.32.1`.
+Resume the FolderForge council on `roronoazoroshao369/FolderForge`, default branch `main`. Repository truth overrides this handoff. Inspect live main, open PRs, branch refs and exact-main CI first. Last verified product baseline: main `33026b16b27657544ec152e6611b644e386b6639`, run `37715608774` success 6/6. Product PR #48 exact head `3dd88c04aacea1e74d1d04d0903e208a36f236bf`, run `37714944668` success 6/6, fixed the root CLI option-token value swallowing.
 
-R16 remains BLOCKED pending explicit approval for real Podman evidence. R17 and all external release gates remain closed. Do not tag, publish, release, retag/delete `v3.0.0`, alter branch protection or secrets, or infer Podman evidence from Docker.
-
-Select one goal only. If exact-main CI is red, fix it first. Otherwise discover and reproduce one measurable correctness/DX issue; the CLI parser case where a value-taking flag can consume the next option token is an evidence-backed candidate, not yet a completed fix. INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-SHA CI GREEN → UPDATE STATE → emit a fresh NEXT_RUN_PROMPT → stop.
+Select exactly one new goal, prioritize red exact-main CI or safety/correctness regressions, and reproduce before implementation. Keep R16 real-Podman acceptance BLOCKED without approval; R17 and all external release gates remain closed. Do not tag, publish, release, retag/delete `v3.0.0`, change protection or secrets, or claim unrun platform gates. Follow INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-HEAD GREEN → UPDATE STATE → fresh handoff.

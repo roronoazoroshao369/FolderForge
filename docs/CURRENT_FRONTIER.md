@@ -1,12 +1,12 @@
 # CURRENT FRONTIER
 
-_Last verified: 2026-10-07._
+_Last verified: 2026-10-08._
 
 This frontier is derived from live git, GitHub Actions, and the current release contract. Repository evidence overrides historical roadmap text.
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Inspected main SHA `863306eb46a4609a1f065f746ed3b94e6be20535` has green `ci.yml` run `37648701564` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #46 passed exact-head run `37647956742` on `9d5753c000e0fc0cc0b2fe5f8d03b4edc6db087a` before merging to this baseline; production and full dependency audits passed after moving `@modelcontextprotocol/sdk` to `1.32.1`.
+Inspected main SHA `33026b16b27657544ec152e6611b644e386b6639` has green `ci.yml` run `37715608774` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #48 passed exact-head run `37714944668` on `3dd88c04aacea1e74d1d04d0903e208a36f236bf` before merging to this baseline; the root CLI option-value regression is fixed and production/full dependency audit steps passed on exact-main Ubuntu/Node 22.
 
 PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight dependency PRs were also closed without merge because their exact-head CI had failures. PR #39 later merged the separately reviewed Mission Control remediation after exact-head CI passed; no PRs were open at this run's discovery. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
 
@@ -15,6 +15,10 @@ PR #35 was closed without merge after exact-head run `37400080019` failed; its h
 Danger mode bypasses manual approval but not hard denies, authorization, path and Capsule containment, audit, rate limits, or terminal sandbox requirements. The terminal sandbox must fail closed unless Docker or Podman containment is actually active.
 
 Current CI provides applicable Linux/Docker containment evidence. It does not establish Podman, macOS container-runtime, or Windows container-runtime parity.
+
+## P1 — Root CLI option parsing — VERIFIED_CI
+
+PR #48 merged at `33026b16b27657544ec152e6611b644e386b6639` after exact-head run `37714944668` succeeded 6/6, with exact-main run `37715608774` also green 6/6. Value-taking root flags reject following tokens starting with `-`; regressions cover project/config/token/port with next option. This closes the previous option-swallowing candidate; choose a newly reproduced correctness/DX issue next. No release gate changed.
 
 ## P1 — Reconcile governance documentation — BASELINE REFRESHED
 
@@ -38,7 +42,7 @@ Run both child-MCP boundary smoke and terminal runtime tests in a real, explicit
 
 The separate `packages/mission-control` audit reported 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. PR #39 merged the minimal compatible remediation: Vite 5.4.21 → 6.4.4 plus `source-map-js@^1.2.2`; Vite 6 resolves esbuild 0.25.12. Local audit reports 0 vulnerabilities, the build passes, and the 12-screen visual suite is pixel-identical. Exact-head run `37424245809` and merge-SHA run `37425225414` both passed all six jobs. R20 is VERIFIED_CI. Vite 8 was not taken; any future Vite 7/8 move requires a separate compatibility review.
 
-Root production and full dependency audits are clear on inspected main SHA `863306eb46a4609a1f065f746ed3b94e6be20535`, exact run `37648701564`. The prior main baseline became red when GHSA-6qxp-vccf-f47h began flagging the locked `@modelcontextprotocol/sdk@1.29.0`; PR #46 raised the floor to `^1.32.1` and restored both audits. Audit cleanliness remains time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
+Root production and full dependency audits are clear on inspected main SHA `33026b16b27657544ec152e6611b644e386b6639`, exact run `37715608774`. The prior main baseline became red when GHSA-6qxp-vccf-f47h began flagging the locked `@modelcontextprotocol/sdk@1.29.0`; PR #46 raised the floor to `^1.32.1` and restored both audits. Audit cleanliness remains time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
 
 ## P2 — External release evidence
 
