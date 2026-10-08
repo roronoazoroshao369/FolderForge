@@ -108,7 +108,8 @@ export function isLoopbackHost(host: string): boolean {
  *   GET  /approvals   -> pending + resolved approval requests
  *   POST /approvals/:id/approve  -> approve (body: { scope?: 'once'|'session' })
  *   POST /approvals/:id/deny     -> deny
- *   POST /policy/mode             -> change runtime policy mode (admin only)
+ *   POST /policy/mode             -> change persistent runtime policy mode (admin only)
+ *   GET/POST /runtime/settings    -> read/change persistent, bounded terminal limits (admin only)
  *   GET  /fleet                    -> provisioned per-folder MCP instances
  *   POST /fleet                    -> provision a folder (preset/policy + none|token|api-key|oauth auth)
  *   POST /fleet/:id/start|stop|restart -> local instance lifecycle (governed via provision_* tools)
@@ -933,6 +934,7 @@ async function handle(
         browsePoint: fsBrowsePoint(container),
       },
       policy: container.policy.describe(),
+      runtimeSettings: container.runtimeSettings.describe(),
       capsules: container.capsules.describe(),
       isolation: container.isolation.describe(),
       missionControl: container.missionControl.describe(),
@@ -2429,6 +2431,55 @@ async function handle(
       detail: { approvalId: id, approverId: principal.id },
     });
     return sendJson(res, 200, { approval: result });
+  }
+
+  if (method === "GET" && path === "/runtime/settings") {
+    return sendJson(res, 200, container.runtimeSettings.describe());
+  }
+
+  if (method === "POST" && path === "/runtime/settings") {
+    if (container.missionControl.isWriteFreezeActive()) {
+      return sendJson(res, 409, {
+        error: "runtime_settings_blocked",
+        message: "Mission Control write freeze is active.",
+      });
+    }
+    const body = await readJsonBody(req);
+    // Only the two supported resource budgets can change at runtime. Refuse
+    // unknown keys instead of silently treating privileged sandbox edits as applied.
+    if (
+      !body ||
+      Object.keys(body).sort().join(",") !== "defaultTimeoutMs,maxOutputBytes"
+    ) {
+      return sendJson(res, 400, {
+        error: "invalid_runtime_settings",
+        message: "Only defaultTimeoutMs and maxOutputBytes may be updated here.",
+      });
+    }
+    try {
+      const settings = container.runtimeSettings.update(
+        {
+          defaultTimeoutMs: body.defaultTimeoutMs,
+          maxOutputBytes: body.maxOutputBytes,
+        },
+        principal.id,
+      );
+      container.audit.record({
+        type: "dashboard_action",
+        summary: "runtime_terminal_limits_updated",
+        detail: {
+          actorId: principal.id,
+          defaultTimeoutMs: settings.terminal.defaultTimeoutMs,
+          maxOutputBytes: settings.terminal.maxOutputBytes,
+        },
+      });
+      return sendJson(res, 200, settings);
+    } catch (error) {
+      return sendJson(res, 400, {
+        error: "invalid_runtime_settings",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (method === "POST" && path === "/policy/mode") {
