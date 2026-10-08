@@ -14,6 +14,7 @@ interface PersistedMissionControlState {
   schemaVersion: 1;
   writeFreeze: boolean;
   previousPolicyMode?: PolicyMode;
+  selectedPolicyMode?: PolicyMode;
   updatedAt: string;
   updatedBy: string;
   integritySha256: string;
@@ -23,6 +24,7 @@ export interface MissionControlStateView {
   writeFreeze: boolean;
   effectivePolicyMode: PolicyMode;
   previousPolicyMode?: PolicyMode;
+  selectedPolicyMode?: PolicyMode;
   updatedAt?: string;
   updatedBy?: string;
   containmentActions: string[];
@@ -70,6 +72,7 @@ export class MissionControlState {
     this.path = resolve(projectRoot, '.folderforge', 'mission-control.json');
     this.load();
     if (this.state?.writeFreeze) this.policy.setMode('readonly');
+    else if (this.state?.selectedPolicyMode) this.policy.setMode(this.state.selectedPolicyMode);
   }
 
   describe(): MissionControlStateView {
@@ -78,6 +81,9 @@ export class MissionControlState {
       effectivePolicyMode: this.policy.getMode(),
       ...(this.state?.previousPolicyMode
         ? { previousPolicyMode: this.state.previousPolicyMode }
+        : {}),
+      ...(this.state?.selectedPolicyMode
+        ? { selectedPolicyMode: this.state.selectedPolicyMode }
         : {}),
       ...(this.state?.updatedAt ? { updatedAt: this.state.updatedAt } : {}),
       ...(this.state?.updatedBy ? { updatedBy: this.state.updatedBy } : {}),
@@ -113,6 +119,7 @@ export class MissionControlState {
       const next = this.persisted({
         writeFreeze: true,
         previousPolicyMode: this.policy.getMode(),
+        selectedPolicyMode: this.policy.getMode(),
         updatedBy: actor,
       });
       // Persist first. A crash between persistence and the in-memory mode change
@@ -124,6 +131,7 @@ export class MissionControlState {
       const restored = this.state?.previousPolicyMode ?? 'safe';
       const next = this.persisted({
         writeFreeze: false,
+        selectedPolicyMode: restored,
         updatedBy: actor,
       });
       // Persist the unfreeze decision before changing runtime policy. A crash in
@@ -143,17 +151,17 @@ export class MissionControlState {
       throw new Error('Mission Control write freeze is active; disable it before changing policy mode.');
     }
 
-    if (this.state) {
-      const next = this.persisted({
-        writeFreeze: this.state.writeFreeze,
-        ...(this.state.previousPolicyMode
-          ? { previousPolicyMode: this.state.previousPolicyMode }
-          : {}),
-        updatedBy: actor,
-      });
-      this.persistState(next);
-      this.state = next;
-    }
+    const next = this.persisted({
+      writeFreeze: this.state?.writeFreeze ?? false,
+      ...(this.state?.previousPolicyMode
+        ? { previousPolicyMode: this.state.previousPolicyMode }
+        : {}),
+      selectedPolicyMode: mode,
+      updatedBy: actor,
+    });
+    // Persist first so a restart cannot silently revert an operator change.
+    this.persistState(next);
+    this.state = next;
     this.policy.setMode(mode);
     return this.describe();
   }
@@ -161,6 +169,7 @@ export class MissionControlState {
   private persisted(input: {
     writeFreeze: boolean;
     previousPolicyMode?: PolicyMode;
+    selectedPolicyMode?: PolicyMode;
     updatedBy: string;
   }): PersistedMissionControlState {
     const unsigned = {
@@ -168,6 +177,9 @@ export class MissionControlState {
       writeFreeze: input.writeFreeze,
       ...(input.previousPolicyMode
         ? { previousPolicyMode: input.previousPolicyMode }
+        : {}),
+      ...(input.selectedPolicyMode
+        ? { selectedPolicyMode: input.selectedPolicyMode }
         : {}),
       updatedAt: new Date().toISOString(),
       updatedBy: input.updatedBy,
@@ -185,7 +197,8 @@ export class MissionControlState {
       typeof parsed.updatedBy !== 'string' ||
       !parsed.updatedBy.trim() ||
       !/^[a-f0-9]{64}$/.test(parsed.integritySha256) ||
-      (parsed.previousPolicyMode !== undefined && !isPolicyMode(parsed.previousPolicyMode))
+      (parsed.previousPolicyMode !== undefined && !isPolicyMode(parsed.previousPolicyMode)) ||
+      (parsed.selectedPolicyMode !== undefined && !isPolicyMode(parsed.selectedPolicyMode))
     ) {
       throw new Error('Mission Control state is invalid.');
     }
