@@ -184,7 +184,9 @@ export function createResponsesHttpHandler(
         const cleanup = () => {
           if (closed) return;
           closed = true;
-          cancelActiveResponse();
+          // A replay is only an observer of the existing execution. Closing its
+          // SSE connection must not cancel the original response or workflow.
+          if (!handle.isReplay) cancelActiveResponse();
           controller.abort();
           clearInterval(timer);
         };
