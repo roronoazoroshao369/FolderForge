@@ -11,7 +11,10 @@ import { afterAll, describe, expect, it } from 'vitest';
  *  2. A mistyped positional command was ignored and fell through to server startup.
  *  3. A value-taking root option at the end of argv was silently ignored.
  *  4. A value-taking root option could consume the following option token as its value.
- *  5. Invalid CLI security-policy modes were warned about and ignored, so\n *     the server started under a different policy than the operator requested.\n *  6. doctor treated every run file written by the current WorkflowManager\n *     (schemaVersion 2) as corrupt, failing a healthy workspace.
+ *  5. Invalid CLI security-policy modes were warned about and ignored, so
+ *     the server started under a different policy than the operator requested.
+ *  6. doctor treated every run file written by the current WorkflowManager
+ *     (schemaVersion 2) as corrupt, failing a healthy workspace.
  */
 const CLI = resolve(__dirname, '..', '..', 'dist', 'main.js');
 const roots: string[] = [];
