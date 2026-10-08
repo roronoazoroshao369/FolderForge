@@ -1,12 +1,12 @@
 # CURRENT FRONTIER
 
-_Last verified: 2026-10-06._
+_Last verified: 2026-10-07._
 
 This frontier is derived from live git, GitHub Actions, and the current release contract. Repository evidence overrides historical roadmap text.
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Inspected main SHA `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8` has green `ci.yml` run `37425225414` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #39 passed exact-head run `37424245809` on `9563b5652e5bcdf515fab4dd40743a8ec7c1f740` before merging to this baseline.
+Inspected main SHA `863306eb46a4609a1f065f746ed3b94e6be20535` has green `ci.yml` run `37648701564` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #46 passed exact-head run `37647956742` on `9d5753c000e0fc0cc0b2fe5f8d03b4edc6db087a` before merging to this baseline; production and full dependency audits passed after moving `@modelcontextprotocol/sdk` to `1.32.1`.
 
 PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight dependency PRs were also closed without merge because their exact-head CI had failures. PR #39 later merged the separately reviewed Mission Control remediation after exact-head CI passed; no PRs were open at this run's discovery. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
 
@@ -38,7 +38,7 @@ Run both child-MCP boundary smoke and terminal runtime tests in a real, explicit
 
 The separate `packages/mission-control` audit reported 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. PR #39 merged the minimal compatible remediation: Vite 5.4.21 → 6.4.4 plus `source-map-js@^1.2.2`; Vite 6 resolves esbuild 0.25.12. Local audit reports 0 vulnerabilities, the build passes, and the 12-screen visual suite is pixel-identical. Exact-head run `37424245809` and merge-SHA run `37425225414` both passed all six jobs. R20 is VERIFIED_CI. Vite 8 was not taken; any future Vite 7/8 move requires a separate compatibility review.
 
-Root production and full dependency audits are clear on inspected main SHA `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`, exact run `37425225414`. Audit cleanliness is time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
+Root production and full dependency audits are clear on inspected main SHA `863306eb46a4609a1f065f746ed3b94e6be20535`, exact run `37648701564`. The prior main baseline became red when GHSA-6qxp-vccf-f47h began flagging the locked `@modelcontextprotocol/sdk@1.29.0`; PR #46 raised the floor to `^1.32.1` and restored both audits. Audit cleanliness remains time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
 
 ## P2 — External release evidence
 
