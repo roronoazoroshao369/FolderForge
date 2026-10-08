@@ -87,7 +87,7 @@ function parseArgs(argv: string[]): CliArgs {
     const a = argv[i];
     const next = (): string | undefined => {
       const value = argv[++i];
-      if (value === undefined) {
+      if (value === undefined || value.startsWith("-")) {
         throw new Error(`Missing value for ${a}. Run \`folderforge --help\` for usage.`);
       }
       return value;
