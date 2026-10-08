@@ -9,7 +9,7 @@ _Last verified against inspected main SHA `33026b16b27657544ec152e6611b644e386b6
 - Inspected main SHA (docs-update base): `33026b16b27657544ec152e6611b644e386b6639`
 - Package: `@musashishao/folderforge` `3.0.1`
 - Exact-SHA main CI: `ci.yml` run `37715608774` completed **success** on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. Skipped steps are NOT_RUN, not passes.
-- PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226` after exact-head run `37405842816` passed all six jobs; PR #37 later advanced main to the inspected SHA above.
+- PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226` after exact-head run `37405842816` passed all six jobs; PRs #37 and #39–#48 subsequently advanced main to the inspected SHA above.
 - PR #35 was closed without merge; its exact-head run `37400080019` failed. Its proposed handoff was superseded by merged PR #37.
 - Root production and full dependency audits passed in exact-main run `37648701564`. PR #46 moved the locked `@modelcontextprotocol/sdk` from `1.29.0` to `1.32.1` after GHSA-6qxp-vccf-f47h made the former baseline fail; exact-head run `37647956742` and merge-SHA run `37648701564` both passed 6/6. The separate `packages/mission-control` remediation (R20) remains VERIFIED_CI. No Vite 8 upgrade was taken.
 - `v3.0.0` remains public and abandoned; never retag, delete, or publish it.
