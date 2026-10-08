@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getToken, setToken } from '../api';
 import { useAction, useApi } from '../hooks';
 import { Button, Card, ErrorNote, Field, Input, PageHeader, Select, useToast } from '../ui';
@@ -25,6 +25,7 @@ export function SettingsScreen() {
   const [mode, setMode] = useState('dev');
   const [timeout, setTimeout] = useState('120000');
   const [outputBytes, setOutputBytes] = useState('200000');
+  const hydratedRuntimeKey = useRef<string | null>(null);
 
   useEffect(() => {
     const current = status.data?.policy?.mode;
@@ -33,6 +34,14 @@ export function SettingsScreen() {
 
   useEffect(() => {
     if (!runtime.data) return;
+    const key = [
+      runtime.data.terminal.defaultTimeoutMs,
+      runtime.data.terminal.maxOutputBytes,
+      runtime.data.updatedAt ?? '',
+    ].join(':');
+    // Background status polling must not overwrite a form being edited.
+    if (hydratedRuntimeKey.current === key) return;
+    hydratedRuntimeKey.current = key;
     setTimeout(String(runtime.data.terminal.defaultTimeoutMs));
     setOutputBytes(String(runtime.data.terminal.maxOutputBytes));
   }, [runtime.data]);
