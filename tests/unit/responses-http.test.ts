@@ -269,7 +269,7 @@ describe("Responses HTTP handler", () => {
       const first = await primaryReader.read();
       const created = new TextDecoder().decode(first.value);
       const event = JSON.parse(
-        created.match(/data: (\\{.*\\})/)?.[1] ?? "{}",
+        created.match(/data: (\{.*\})/)?.[1] ?? "{}",
       ) as { response?: { id?: string } };
       const responseId = event.response?.id;
       if (!responseId) throw new Error("missing original response id");
