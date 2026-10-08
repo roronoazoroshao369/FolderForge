@@ -352,14 +352,15 @@ describe('dashboard fleet endpoints', () => {
     expect(invalid.status).toBe(400);
     expect(readFileSync(configPath, 'utf8')).toContain('requireInDanger: false');
 
+    mkdirSync(join(allowed.root, 'anon'));
     const noAuth = await postJson(`${allowed.baseUrl}/fleet`, {
       projectPath: join(allowed.root, 'anon'),
       policyMode: 'danger',
       authMode: 'none',
       terminalExecution: 'trusted-host',
     });
-    // A missing folder or anonymous trusted-host mode must not produce an instance.
-    expect(noAuth.status).not.toBe(201);
+    expect(noAuth.status).toBe(409);
+    expect(noAuth.json.error).toMatch(/requires authenticated/i);
   });
 
 });
