@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Boxes, FolderGit2, ListChecks, Share2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../hooks';
+import { useAction, useApi } from '../hooks';
 import {
+  Button,
   Card,
   Code,
   DataTable,
@@ -11,10 +13,27 @@ import {
   SkeletonRows,
   Stat,
   StatePill,
+  useToast,
 } from '../ui';
 import type { ApprovalRecord, FleetInstance, StatusSnapshot, TunnelRecord } from '../types';
 
+interface ManagedIsolation {
+  id: string;
+  taskId: string;
+  branch: string;
+  state: string;
+  worktreeRoot: string;
+}
+
+interface MissionControlSnapshot {
+  isolations?: ManagedIsolation[];
+}
+
 export function OverviewScreen() {
+  const mission = useApi<MissionControlSnapshot>('/mission-control');
+  const discard = useAction();
+  const toast = useToast();
+  const [confirmDiscardId, setConfirmDiscardId] = useState<string | null>(null);
   const status = useApi<StatusSnapshot>('/status');
   const fleet = useApi<{ instances: FleetInstance[] }>('/fleet');
   const tunnels = useApi<{ tunnels: TunnelRecord[] }>('/tunnels');
@@ -51,6 +70,63 @@ export function OverviewScreen() {
           </div>
         </Card>
       ) : null}
+
+      <Card title="Managed task isolations" hint="local worktrees · not GitHub remote branches">
+        <ErrorNote message={mission.error ?? discard.error} />
+        {(mission.data?.isolations ?? []).length === 0 ? (
+          <p className="text-sm text-muted">No managed task isolations.</p>
+        ) : (
+          <div className="grid gap-3">
+            {(mission.data?.isolations ?? []).map((isolation) => {
+              const eligible = isolation.state === 'active' || isolation.state === 'rolled_back';
+              const confirming = confirmDiscardId === isolation.id;
+              return (
+                <div key={isolation.id} className="grid gap-2 rounded-lg border border-border p-3 sm:flex sm:items-center sm:justify-between">
+                  <div className="grid gap-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Code>{isolation.taskId}</Code>
+                      <StatePill value={isolation.state} />
+                    </div>
+                    <Code className="break-all">{isolation.branch}</Code>
+                    <p className="text-xs text-muted break-all">Worktree: {isolation.worktreeRoot}</p>
+                    {confirming ? (
+                      <p className="text-xs text-danger">
+                        Discard permanently removes this local worktree and local task branch,
+                        including uncommitted changes. Back up any needed files first.
+                        Remote GitHub branches are unaffected.
+                      </p>
+                    ) : null}
+                  </div>
+                  {eligible ? (
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {confirming ? (
+                        <>
+                          <Button variant="danger" size="sm" busy={discard.busy} disabled={discard.busy}
+                            onClick={() => void discard.run(
+                              `/mission-control/isolations/${encodeURIComponent(isolation.id)}/discard`,
+                            ).then((ok) => {
+                              if (!ok) return;
+                              setConfirmDiscardId(null);
+                              mission.reload();
+                              toast('success', 'Local isolation discarded');
+                            })}>
+                            Confirm discard
+                          </Button>
+                          <Button size="sm" variant="ghost" disabled={discard.busy}
+                            onClick={() => setConfirmDiscardId(null)}>Cancel</Button>
+                        </>
+                      ) : (
+                        <Button size="sm" variant="danger" disabled={discard.busy}
+                          onClick={() => setConfirmDiscardId(isolation.id)}>Discard…</Button>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Control plane" hint="live">
