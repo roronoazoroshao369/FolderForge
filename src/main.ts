@@ -160,7 +160,15 @@ function parseArgs(argv: string[]): CliArgs {
       case "--policy":
       case "--policy-mode": {
         const v = next();
-        if (v !== undefined) args.policyMode = v;
+        if (v !== undefined) {
+          const validModes = ["readonly", "safe", "dev", "danger"];
+          if (!validModes.includes(v)) {
+            throw new Error(
+              `Invalid ${a} value: ${v}. Expected readonly|safe|dev|danger.`,
+            );
+          }
+          args.policyMode = v;
+        }
         break;
       }
       case "--token": {

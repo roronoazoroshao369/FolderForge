@@ -5,13 +5,15 @@ import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 /**
- * Regression guards for five defects found during production-readiness review:
+ * Regression guards for six defects found during production-readiness review:
  *  1. An unrecognized flag was warned about and ignored, so a typo such as
  *     --apiKey silently dropped the credential and left the server open.
  *  2. A mistyped positional command was ignored and fell through to server startup.
  *  3. A value-taking root option at the end of argv was silently ignored.
  *  4. A value-taking root option could consume the following option token as its value.
- *  5. doctor treated every run file written by the current WorkflowManager
+ *  5. Invalid CLI security-policy modes were warned about and ignored, so
+ *     the server started under a different policy than the operator requested.
+ *  6. doctor treated every run file written by the current WorkflowManager
  *     (schemaVersion 2) as corrupt, failing a healthy workspace.
  */
 const CLI = resolve(__dirname, '..', '..', 'dist', 'main.js');
@@ -64,6 +66,15 @@ describe.skipIf(!existsSync(CLI))('CLI argument validation', () => {
     expect(code).toBe(1);
     expect(output).toMatch(new RegExp(`Missing value for ${flag}`));
   });
+
+  it.each(['--policy', '--policy-mode'])(
+    'rejects invalid security-policy mode for %s rather than silently falling back',
+    (flag) => {
+      const { code, output } = runCli(['--no-dashboard', flag, 'unexpected-mode', '--stdio'], 2_000);
+      expect(code).toBe(1);
+      expect(output).toMatch(/Invalid (?:--policy|--policy-mode) value: unexpected-mode/);
+    },
+  );
 
   it('still accepts supported flags', () => {
     const { code, output } = runCli(['--version']);

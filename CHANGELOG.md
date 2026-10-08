@@ -14,6 +14,8 @@ semantic versioning.
 
 ### Fixed
 
+- Root CLI `--policy` and `--policy-mode` now reject unsupported modes before server startup rather than silently retaining the configured security policy.
+
 - Root CLI value-taking flags now reject a subsequent option token as a missing value (for example, `--project --http`) instead of silently consuming the next flag.
 
 - Root CLI options that require values now fail fast when the value is missing instead of silently starting the server with defaults.
