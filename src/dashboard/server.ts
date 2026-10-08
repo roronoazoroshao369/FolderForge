@@ -116,6 +116,7 @@ export function isLoopbackHost(host: string): boolean {
  *   POST /fleet/:id/auto-restart   -> toggle auto-restart (body: { enabled: boolean })
  *   POST /fleet/:id/preset         -> change tool preset (body: { toolsPreset }); applies on next start
  *   POST /fleet/:id/policy         -> change policy mode; danger mode is autonomous; applies on next start
+ *   POST /fleet/:id/terminal       -> set host-gated terminal execution profile (next start)
  *   POST /fleet/:id/auth           -> change authentication mode; static credentials returned once
  *   POST /fleet/:id/rotate-token|rotate-credential -> rotate static credentials (HIGH; returned once)
  *   POST /fleet/:id/tunnel         -> expose an authenticated running instance via Cloudflare (HIGH)
@@ -1389,6 +1390,9 @@ async function handle(
         ...(typeof body?.policyMode === "string"
           ? { policyMode: body.policyMode }
           : {}),
+        ...(typeof body?.terminalExecution === "string"
+          ? { terminalExecution: body.terminalExecution }
+          : {}),
         ...(typeof body?.authMode === "string"
           ? { authMode: body.authMode }
           : {}),
@@ -2118,6 +2122,20 @@ async function handle(
         policyMode: String(body?.policyMode ?? ""),
       },
     );
+    return sendJson(res, result.ok ? 200 : 409, result);
+  }
+
+  const fleetTerminalMatch = /^\/fleet\/([^/]+)\/terminal$/.exec(path);
+  if (method === "POST" && fleetTerminalMatch) {
+    const id = decodeURIComponent(fleetTerminalMatch[1]!);
+    const body = await readJsonBody(req);
+    if (body?.terminalExecution !== 'sandbox-required' && body?.terminalExecution !== 'trusted-host') {
+      return sendJson(res, 400, { error: 'invalid_terminal_execution', message: 'Expected sandbox-required or trusted-host.' });
+    }
+    const result = await runOperatorTool(registry, container, principal, 'provision_update', {
+      id,
+      terminalExecution: body.terminalExecution,
+    });
     return sendJson(res, result.ok ? 200 : 409, result);
   }
 
