@@ -14,6 +14,8 @@ semantic versioning.
 
 ### Fixed
 
+- Disconnecting a secondary idempotent SSE replay no longer cancels its original in-flight response. The original stream and explicit response cancellation routes keep their existing cancellation behavior.
+
 - Root CLI `--policy` and `--policy-mode` now reject unsupported modes before server startup rather than silently retaining the configured security policy.
 
 - Root CLI value-taking flags now reject a subsequent option token as a missing value (for example, `--project --http`) instead of silently consuming the next flag.
