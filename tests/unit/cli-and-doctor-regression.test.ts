@@ -65,6 +65,15 @@ describe.skipIf(!existsSync(CLI))('CLI argument validation', () => {
     expect(output).toMatch(new RegExp(`Missing value for ${flag}`));
   });
 
+  it.each(['--policy', '--policy-mode'])(
+    'rejects invalid security-policy mode for %s rather than silently falling back',
+    (flag) => {
+      const { code, output } = runCli(['--no-dashboard', flag, 'unexpected-mode', '--stdio'], 2_000);
+      expect(code).toBe(1);
+      expect(output).toMatch(/Invalid (?:--policy|--policy-mode) value: unexpected-mode/);
+    },
+  );
+
   it('still accepts supported flags', () => {
     const { code, output } = runCli(['--version']);
     expect(code).toBe(0);
