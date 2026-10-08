@@ -55,6 +55,18 @@ describe('MissionControlState', () => {
     });
   });
 
+  it('persists a dashboard-selected policy mode across process restarts', () => {
+    const first = setup(root, 'safe');
+    expect(first.missionControl.setPolicyMode('danger', 'admin:operator')).toMatchObject({
+      effectivePolicyMode: 'danger',
+    });
+    const restarted = setup(root, 'safe');
+    expect(restarted.policy.getMode()).toBe('danger');
+    expect(restarted.missionControl.describe().effectivePolicyMode).toBe('danger');
+    restarted.missionControl.setPolicyMode('dev', 'admin:operator');
+    expect(setup(root, 'safe').policy.getMode()).toBe('dev');
+  });
+
   it('preserves an explicitly readonly prior mode across freeze/unfreeze', () => {
     const { policy, missionControl } = setup(root, 'readonly');
     missionControl.setWriteFreeze(true, 'admin:operator');

@@ -73,6 +73,33 @@ require a separate approval before execution.
 Workspace Capsule revocation is also available directly from the admin plane
 because it only reduces authority.
 
+## Control Panel runtime settings
+
+The Settings screen manages an existing FolderForge instance while its dashboard
+is running. The selected policy mode is stored in the integrity-checked
+`.folderforge/mission-control.json` and restored at the next startup unless a
+write freeze is active (which still restores `readonly`).
+
+`GET /runtime/settings` returns the effective terminal timeout, output budget,
+environment redaction policy, and sandbox/containment requirement, without
+revealing secrets. `POST /runtime/settings` accepts **only**:
+
+```json
+{ "defaultTimeoutMs": 30000, "maxOutputBytes": 65536 }
+```
+
+Timeout is limited to 1,000–1,800,000 milliseconds and output to
+1,024–2,000,000 bytes. Changes apply to new terminal commands and survive
+restarts in `.folderforge/runtime-settings.json`, atomically written with 0600
+permissions and validated on load. Malformed data fails closed; dashboard
+write freeze blocks updates.
+
+The sandbox engine and danger containment requirement are **read-only** in this
+web endpoint. Configuring a Docker/Podman image or opting into unsandboxed host
+execution remains an explicit local server configuration action followed by a
+restart. Dashboard tokens are required on non-loopback deployments; existing
+blocked-command, workspace, audit, and rate-limit controls are unchanged.
+
 ## Operator endpoints
 
 | Endpoint | Behavior |

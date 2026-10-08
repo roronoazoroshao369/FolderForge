@@ -38,6 +38,8 @@ semantic versioning.
 
 ### Added
 
+- Mission Control Settings now persists selected policy mode across restarts and provides audited, validated terminal timeout/output limits with current sandbox-status diagnostics. Sandbox containment and authentication defaults are unchanged.
+
 - Real container-runtime isolation tests (`tests/integration/sandbox-runtime.test.ts`) run `shell_exec` and `process_start` through the full policy pipeline in a real Docker/Podman container and observe isolation from the inside: non-root uid/gid, zero capabilities, no-new-privileges, workspace-only mount, no host paths or environment, no network, read-only root, noexec `/tmp`, pid/memory cgroup limits, `--pull=never`, exit-code propagation, and no host fallback when the runtime is missing. CI runs them on ubuntu / Node 22 against a digest-pinned image with `FOLDERFORGE_REQUIRE_RUNTIME_TESTS=1`, so a missing runtime fails instead of skipping.
 - Danger-mode command containment: `shell_exec` and `process_start` now fail closed by default unless `terminal.sandbox` uses Docker or Podman. Container launches use a pre-existing digest-pinned image, no pull, dropped capabilities, no-new-privileges, read-only root, bounded resources, no network by default, and a single workspace mount. Trusted-host compatibility requires an explicit `requireInDanger: false` opt-out.
 - External beta evidence now records first-task attempt, success, duration, and maintainer intervention, and reports a unique-installation gate requiring at least 10 attempts with 80% completed unaided within five minutes.
