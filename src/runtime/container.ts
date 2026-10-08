@@ -31,6 +31,7 @@ import { WorkspaceCapsuleManager } from '../capsule/workspace-capsule-manager.js
 import { WorktreeManager } from '../isolation/worktree-manager.js';
 import { ProofPackManager } from '../proof/proof-pack-manager.js';
 import { MissionControlState } from '../operator/mission-control.js';
+import { RuntimeSettings } from '../operator/runtime-settings.js';
 import { VerificationManager } from '../verification/verification-manager.js';
 import { AgentLoopManager } from '../agent-loops/agent-loop-manager.js';
 import { AgentLoopRunner } from '../agent-loops/agent-loop-runner.js';
@@ -62,6 +63,7 @@ export class Container {
   readonly isolation: WorktreeManager;
   readonly proofPacks: ProofPackManager;
   readonly missionControl: MissionControlState;
+  readonly runtimeSettings: RuntimeSettings;
   readonly verifications: VerificationManager;
   readonly agentLoops: AgentLoopManager;
   readonly agentLoopRunner: AgentLoopRunner;
@@ -73,6 +75,7 @@ export class Container {
 
   constructor(config: FolderForgeConfig) {
     this.config = config;
+    this.runtimeSettings = new RuntimeSettings(config.workspace.defaultProject, config);
     this.policy = new PolicyEngine(config);
     this.missionControl = new MissionControlState(
       config.workspace.defaultProject,
