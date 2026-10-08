@@ -6,15 +6,23 @@ This frontier is derived from live git, GitHub Actions, and the current release 
 
 ## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
 
-Inspected main SHA `33026b16b27657544ec152e6611b644e386b6639` has green `ci.yml` run `37715608774` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #48 passed exact-head run `37714944668` on `3dd88c04aacea1e74d1d04d0903e208a36f236bf` before merging to this baseline; the root CLI option-value regression is fixed and production/full dependency audit steps passed on exact-main Ubuntu/Node 22.
+Inspected main SHA `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` has green `ci.yml` run `37720127758` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #50 passed exact-head run `37719460783` on `1f70a77d3d59865652f03cedc5bf7b0d2e623d18` before merging to this baseline; invalid CLI policy-mode fallback is fixed and production/full dependency audit steps passed on exact-main Ubuntu/Node 22.
 
 PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight dependency PRs were also closed without merge because their exact-head CI had failures. PR #39 later merged the separately reviewed Mission Control remediation after exact-head CI passed; no PRs were open at this run's discovery. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
+
+## P0 — Branch cleanup — BLOCKED ON ISOLATION / REMOTE DELETE ACCESS
+
+At product baseline `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e`, 8 non-main remote branch refs remain. Seven older refs are behind main with ahead=0; the squash-merged PR #50 branch has the same Git tree as main, but remains graph-divergent. FolderForge local MCP `isolation_list` returned 404 and `git_status` returned 429, so active managed worktree ownership is unverified. The available GitHub connector has no branch-ref delete operation. Do not discard source-dirty managed isolation or claim main-only. Recheck references and clean only after reviewing worktree status and obtaining a tool with authorized branch deletion.
 
 ## P0 — Danger-mode containment — IMPLEMENTED, KEEP EVIDENCE-BOUND
 
 Danger mode bypasses manual approval but not hard denies, authorization, path and Capsule containment, audit, rate limits, or terminal sandbox requirements. The terminal sandbox must fail closed unless Docker or Podman containment is actually active.
 
 Current CI provides applicable Linux/Docker containment evidence. It does not establish Podman, macOS container-runtime, or Windows container-runtime parity.
+
+## P1 — Invalid root CLI policy mode — VERIFIED_CI
+
+PR #50 blocks invalid `--policy`/`--policy-mode` values before loading the effective policy. RED regression on test-only commit `0ed228e624e4005fcbf9979fbdd3eddcff4ef7c3` observed two failed tests (actual exit 0). Exact final head `1f70a77d3d59865652f03cedc5bf7b0d2e623d18` passed `37719460783` 6/6; merged main `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` passed `37720127758` 6/6. No release gates were changed.
 
 ## P1 — Root CLI option parsing — VERIFIED_CI
 

@@ -1,13 +1,15 @@
 # PROJECT STATE
 
-_Last updated from inspected main SHA `33026b16b27657544ec152e6611b644e386b6639` (exact-SHA run `37715608774`) as the evidence baseline._
+_Last updated from inspected main SHA `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` (exact-SHA run `37720127758`) as the evidence baseline. The documentation commit being prepared is not self-certified._
 
 ## Product and repository
 
 - Phase: 3.0.1 release-candidate hardening; all external release gates remain closed.
 - Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Inspected main SHA (docs-update base): `33026b16b27657544ec152e6611b644e386b6639`.
-- Exact-SHA main CI: run `37715608774` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- Inspected main SHA (docs-update base): `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e`.
+- Exact-SHA main CI: run `37720127758` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
+- PR #50 fixed invalid `--policy` / `--policy-mode` silently falling back to configured policy. RED on test-only head `0ed228e624e4005fcbf9979fbdd3eddcff4ef7c3`: two regression assertions failed (exit 0 instead of 1). Final head `1f70a77d3d59865652f03cedc5bf7b0d2e623d18` passed run `37719460783` (6/6); squash merge `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` passed exact-main run `37720127758` (6/6). Only CLI parser, regression test and CHANGELOG changed. No release gate altered.
+- Branch hygiene audit: 8 remote branches remain after PR #50; seven older branches have no commits ahead of main, and the PR #50 branch has the same Git tree as its squash merge. Managed isolation inventory is unavailable because the local MCP returned HTTP 404/429; no branch was deleted. The proposed docs branch is temporary and must also be considered during eventual cleanup.
 - PR #48 merged at main SHA `33026b16b27657544ec152e6611b644e386b6639` after exact-head CI `37714944668` passed 6/6 on `3dd88c04aacea1e74d1d04d0903e208a36f236bf`; exact-main run `37715608774` passed 6/6. PR #47 documentation closeout merged previously at `58cd43e43093cf8c0a7ee7d825e8b69f4dbc36c4` (run `37714813520` passed 6/6).
 - PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact PR-head run `37405842816` passed all six matrix jobs; PR #37 later advanced main to the inspected base above.
 - PR #35 was closed without merge after exact-head run `37400080019` failed; its proposed handoff was superseded by PR #37. PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed without merge after exact-head CI failures. PR #39 later merged the scoped Mission Control dependency remediation after exact-head CI passed.
@@ -40,7 +42,13 @@ On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode reg
 | R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
 | R20 | High | VERIFIED_CI | PR #39 merged at `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`: Vite 5.4.21 → 6.4.4 (clears GHSA-4w7w-66w2-5vf9, GHSA-v6wh-96g9-6wx3, GHSA-fx2h-pf6j-xcff), esbuild 0.21.5 → 0.25.12 via Vite 6 (clears GHSA-67mh-4wv8-2f99), and `source-map-js@^1.2.2` override (clears GHSA-68fv-2mgg-jv7q). Local audit is 0 vulnerabilities; SPA build and all 12 visual-regression screens pass. Exact-head run `37424245809` and merge run `37425225414` each passed 6/6. No Vite 8 upgrade was taken. |
 
-## Latest completed goal (2026-10-08): reject CLI option tokens as values
+## Latest completed goal (2026-10-08): fail closed on invalid root CLI policy modes
+
+**VERDICT** VERIFIED_CI for product PR #50, not release approval. Invalid policy names previously logged a warning then started under the configured policy; a malformed security flag can misrepresent the applied protection. RED regression: 2 failures in the new invalid-mode tests, actual exit 0 versus expected exit 1. GREEN: final PR head `1f70a77d3d59865652f03cedc5bf7b0d2e623d18`, run `37719460783`, 6/6. Post-merge main `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e`, run `37720127758`, 6/6. No policy engine, workflow, dependencies, version, tag or publish action changed.
+
+**OPEN OPERATIONS:** 8 old remote branches are not yet deleted. Live managed isolation/worktree status cannot be attested while FolderForge MCP returns 404/429. Do not delete a task branch without checking isolation ownership and uncommitted files, even when Git history is already merged. R16 Podman and R17 external release gates remain open.
+
+## Previous completed goal (2026-10-08): reject CLI option tokens as values
 
 **VERDICT**
 
@@ -214,6 +222,6 @@ The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mo
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge council on `roronoazoroshao369/FolderForge`, default branch `main`. Repository truth overrides this handoff. Inspect live main, open PRs, branch refs and exact-main CI first. Last verified product baseline: main `33026b16b27657544ec152e6611b644e386b6639`, run `37715608774` success 6/6. Product PR #48 exact head `3dd88c04aacea1e74d1d04d0903e208a36f236bf`, run `37714944668` success 6/6, fixed the root CLI option-token value swallowing.
+Resume the FolderForge council on `roronoazoroshao369/FolderForge`, default branch `main`. Repository truth overrides this handoff. Inspect live main, open PRs, branch refs and exact-main CI first. Last verified product baseline: main `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e`, run `37720127758` success 6/6. Product PR #50 exact head `1f70a77d3d59865652f03cedc5bf7b0d2e623d18`, run `37719460783` success 6/6, fixed invalid CLI policy modes silently falling back.
 
 Select exactly one new goal, prioritize red exact-main CI or safety/correctness regressions, and reproduce before implementation. Keep R16 real-Podman acceptance BLOCKED without approval; R17 and all external release gates remain closed. Do not tag, publish, release, retag/delete `v3.0.0`, change protection or secrets, or claim unrun platform gates. Follow INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-HEAD GREEN → UPDATE STATE → fresh handoff.
