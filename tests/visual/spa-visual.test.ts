@@ -244,4 +244,26 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       rmSync(gitHarness.root, { recursive: true, force: true });
     }
   });
+
+  it('rejects stale discard confirmation without erasing task metadata or branch', { timeout: 30_000 }, async () => {
+    const gitHarness = await startHarness(true);
+    const page = await desktop.newPage();
+    try {
+      const isolation = gitHarness.container.isolation.create('visual-confirm-race');
+      const statePath = join(gitHarness.root, '.git', 'folderforge', 'isolations.json');
+      const before = readFileSync(statePath);
+      await page.goto(`${gitHarness.baseUrl}/app/`, { waitUntil: 'networkidle' });
+      await page.getByRole('button', { name: 'Discard…' }).click();
+      await page.getByRole('button', { name: 'Confirm discard' }).waitFor({ state: 'visible' });
+      execFileSync('git', ['worktree', 'remove', '--force', isolation.worktreeRoot], { cwd: gitHarness.root });
+      await page.getByRole('button', { name: 'Confirm discard' }).click();
+      await page.getByText(/ISOLATION_WORKTREE_MISSING/).waitFor({ state: 'visible' });
+      expect(readFileSync(statePath)).toEqual(before);
+      expect(execFileSync('git', ['show-ref', '--verify', `refs/heads/${isolation.branch}`], { cwd: gitHarness.root, encoding: 'utf8' })).toContain(isolation.branch);
+    } finally {
+      await page.close();
+      await new Promise<void>((resolve) => gitHarness.server.close(() => resolve()));
+      rmSync(gitHarness.root, { recursive: true, force: true });
+    }
+  });
 });
