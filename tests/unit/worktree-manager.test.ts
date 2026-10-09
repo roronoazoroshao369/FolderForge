@@ -155,6 +155,40 @@ describe("WorktreeManager", () => {
     expect(git(root, "rev-parse", `refs/heads/${isolation.branch}`).trim()).toBe(git(root, "rev-parse", "HEAD").trim());
   });
 
+  it("apply catches worktree removal immediately before an untracked source copy", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root, {
+      beforeUntrackedCopy: () => {
+        const isolation = manager.list()[0]!;
+        git(root, "worktree", "remove", "--force", isolation.worktreeRoot);
+      },
+    });
+    const isolation = manager.create("late-copy-race");
+    writeFileSync(join(isolation.worktreeRoot, "untracked.txt"), "task output\n");
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    expect(() => manager.apply(isolation.id)).toThrow(/ISOLATION_WORKTREE_MISSING/);
+    expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+    expect(manager.list()[0]?.state).toBe("active");
+  });
+
+  it("rollback rejects a worktree lost after validating the journal but before mutation", () => {
+    const root = repository();
+    let armed = false;
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackMutation: (isolation) => {
+        if (armed) git(root, "worktree", "remove", "--force", isolation.worktreeRoot);
+      },
+    });
+    const isolation = manager.create("late-rollback-race");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "applied change\n");
+    manager.apply(isolation.id);
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    armed = true;
+    expect(() => manager.rollback(isolation.id)).toThrow(/ISOLATION_WORKTREE_MISSING/);
+    expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+    expect(manager.list()[0]?.state).toBe("applied");
+  });
+
   it("rollback denies missing journal", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);

@@ -42,7 +42,7 @@ describe("inspectWorktreeHealth", () => {
     const probe = { run: (args: string[]) => {
       if (args.includes("--show-toplevel")) return root;
       if (args.includes("--git-common-dir")) return ".git";
-      if (args.includes("worktree")) return `worktree ${root}\nHEAD ${record(root).baseCommit}\nbranch refs/heads/main\n`;
+      if (args.includes("worktree")) return `worktree ${root}\nHEAD ${record(root).baseCommit}\nbranch refs/heads/main\n\n`;
       if (args.includes("for-each-ref")) return "refs/heads/main";
       throw new Error("unexpected probe");
     } };
@@ -119,6 +119,43 @@ describe("inspectWorktreeHealth", () => {
     expect(result.diagnosticCode).toBe("ISOLATION_HEALTH_UNVERIFIABLE");
   });
 
+  it("does not classify truncated Git porcelain as a verified missing worktree", () => {
+    const root = repository();
+    const r = record(root, join(root, "missing-truncated"), "not-created");
+    const partialInventory = `worktree ${root}\nHEAD ${r.sourceHead}\nbranch refs/heads/main\n`;
+    const observed = inspectWorktreeHealth(r, {
+      run: (args, cwd) => {
+        if (args.includes("worktree")) return partialInventory; // missing terminal blank line
+        return execFileSync("git", args, { cwd, encoding: "utf8" });
+      },
+    });
+    expect(observed.observedHealth).toBe("unverifiable");
+    expect(observed.branchRef).toBe("unverifiable");
+  });
+
+  it("rejects a complete-looking inventory lacking mandatory source HEAD data", () => {
+    const root = repository();
+    const r = record(root, join(root, "missing-corrupt-source"), "not-created");
+    const malformedInventory = `worktree ${root}\nbranch refs/heads/main\n\n`;
+    const observed = inspectWorktreeHealth(r, {
+      run: (args, cwd) => args.includes("worktree") ? malformedInventory : execFileSync("git", args, { cwd, encoding: "utf8" }),
+    });
+    expect(observed.observedHealth).toBe("unverifiable");
+  });
+
+  it("does not trust a forged common-directory identity for an existing worktree", () => {
+    const root = repository();
+    const foreign = repository();
+    const path = join(root, "valid-owned-worktree");
+    execFileSync("git", ["worktree", "add", "-b", "task-foreign-identity", path, "HEAD"], { cwd: root });
+    const observed = inspectWorktreeHealth(record(root, path, "task-foreign-identity"), {
+      run: (args, cwd) => args.includes("--git-common-dir")
+        ? join(foreign, ".git")
+        : execFileSync("git", args, { cwd, encoding: "utf8" }),
+    });
+    expect(observed.observedHealth).toBe("identity_mismatch");
+  });
+
   it("rejects symlink or foreign worktree", () => {
     const root = repository();
     const foreign = repository();
@@ -151,6 +188,39 @@ describe("inspectWorktreeHealth", () => {
     const foreign = repository();
     const result = inspectWorktreeHealth(record(root, foreign, "main"));
     expect(result.observedHealth).toBe("identity_mismatch");
+  });
+
+  it("does not assert a missing task ref when source common-directory ownership is false", () => {
+    const root = repository();
+    const foreign = repository();
+    const missing = join(root, "absent-branch-with-forged-source");
+    const result = inspectWorktreeHealth(record(root, missing, "not-created"), {
+      run: (args, cwd) => args.includes("--git-common-dir")
+        ? join(foreign, ".git")
+        : execFileSync("git", args, { cwd, encoding: "utf8" }),
+    });
+    expect(result).toMatchObject({ observedHealth: "identity_mismatch", branchRef: "unverifiable" });
+  });
+
+  it("accepts a valid linked source worktree with a separate managed branch", () => {
+    const root = repository();
+    const linkedSource = join(root, "linked-source");
+    const taskRoot = join(root, "managed-task");
+    execFileSync("git", ["worktree", "add", "-b", "source-linked", linkedSource, "HEAD"], { cwd: root });
+    execFileSync("git", ["worktree", "add", "-b", "task-from-linked", taskRoot, "HEAD"], { cwd: root });
+    const result = inspectWorktreeHealth(record(linkedSource, taskRoot, "task-from-linked"));
+    expect(result).toMatchObject({ observedHealth: "present_consistent", branchRef: "present" });
+  });
+
+  it("does not claim branch absence when the source inventory cannot be verified", () => {
+    const root = repository();
+    const result = inspectWorktreeHealth(record(root, join(root, "missing-bad-inventory"), "unknown"), {
+      run: (args, cwd) => {
+        if (args.includes("worktree")) return "partial";
+        return execFileSync("git", args, { cwd, encoding: "utf8" });
+      },
+    });
+    expect(result).toMatchObject({ observedHealth: "unverifiable", branchRef: "unverifiable" });
   });
 
   it("does not mislabel Git probe failures as missing", () => {

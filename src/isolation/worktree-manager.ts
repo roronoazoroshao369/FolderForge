@@ -84,6 +84,8 @@ export interface WorktreeManagerHooks {
   beforeFinalMutationCheck?: (isolation: WorktreeIsolation) => void;
   /** Test-only interleaving point after worktree removal, before branch deletion. */
   beforeBranchDelete?: (isolation: WorktreeIsolation) => void;
+  /** Test-only interleaving immediately before rollback mutates the source. */
+  beforeRollbackMutation?: (isolation: WorktreeIsolation) => void;
 }
 
 interface PersistedState {
@@ -531,12 +533,20 @@ export class WorktreeManager {
     const copied: string[] = [];
     let patchApplied = false;
     try {
+      // The journal was persisted after the earlier preflight. Recheck at
+      // the actual source mutation boundary; an uncertain outcome remains
+      // visible if this check cannot be completed.
+      this.assertWorktreePresent(isolation);
+      if (sourceSnapshot(isolation.sourceRoot).fingerprint !== isolation.sourceFingerprint) {
+        throw new Error("Source workspace changed after isolation creation; refusing to overwrite user work.");
+      }
       if (patch) {
         git(isolation.sourceRoot, ["apply", "--binary", "-"], patch);
         patchApplied = true;
       }
       for (const entry of untracked) {
         this.hooks.beforeUntrackedCopy?.(entry);
+        this.assertWorktreePresent(isolation);
         const source = this.validatedInside(
           entry.source,
           isolation.worktreeRoot,
@@ -677,6 +687,8 @@ export class WorktreeManager {
         patch,
       );
 
+    this.hooks.beforeRollbackMutation?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
     const removed: AppliedUntrackedFile[] = [];
     try {
       for (const entry of expectedUntracked) {
@@ -687,12 +699,14 @@ export class WorktreeManager {
         rmSync(target);
         removed.push(entry);
       }
-      if (patch)
+      if (patch) {
+        this.assertWorktreePresent(isolation);
         git(
           isolation.sourceRoot,
           ["apply", "--reverse", "--binary", "-"],
           patch,
         );
+      }
     } catch (error) {
       for (const entry of removed) {
         const source = this.validatedInside(
@@ -735,6 +749,10 @@ export class WorktreeManager {
     this.assertWorktreePresent(isolation);
     const taskRef = `refs/heads/${isolation.branch}`;
     const priorTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
+    const observedWorktreeHead = git(isolation.worktreeRoot, ["rev-parse", "--verify", "HEAD"]).trim();
+    if (observedWorktreeHead !== priorTaskHead) {
+      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+    }
     git(isolation.sourceRoot, [
       "worktree",
       "remove",
