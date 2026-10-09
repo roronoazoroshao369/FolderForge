@@ -741,19 +741,18 @@ export class WorktreeManager {
       "--force",
       isolation.worktreeRoot,
     ]);
-    this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
     const currentTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
     if (currentTaskHead !== priorTaskHead) {
       throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
     }
-    const branchExists =
-      spawnSync(
-        "git",
-        ["show-ref", "--verify", "--quiet", `refs/heads/${isolation.branch}`],
-        { cwd: isolation.sourceRoot, windowsHide: true },
-      ).status === 0;
-    if (branchExists)
-      git(isolation.sourceRoot, ["branch", "-D", isolation.branch]);
+    // Ref deletion is compare-and-swap: Git refuses to delete if another
+    // actor replaced the task branch after our latest SHA observation.
+    this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
+    try {
+      git(isolation.sourceRoot, ["update-ref", "-d", taskRef, priorTaskHead]);
+    } catch {
+      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+    }
     rmSync(this.rollbackPatchPath(isolation.id), { force: true });
     isolation.state = "discarded";
     isolation.discardedAt = new Date().toISOString();
