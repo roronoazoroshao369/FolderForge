@@ -120,12 +120,13 @@ workflow dispatch are public administrative actions and require explicit
 authorization. A prepared workflow file is not evidence that npm trusted
 publishing has been configured or exercised successfully.
 
-## Current public-state limitation
+## Published exception — 3.0.1 (2026-10-09)
 
-At the time this document was refreshed, npm `latest` was newer than the latest
-public Git tag and GitHub Release. Repository preparation must not claim those
-public objects exist. Closing that gap requires explicit operator authorization
-and exact-commit CI evidence.
+Version `@musashishao/folderforge@3.0.1` was manually published to npm by its maintainer, without a 24-hour exact-source production soak or trusted npm OIDC workflow. The public annotated `v3.0.1` tag and GitHub Release point to source commit `7104f75f8784423ae2680a9ab80f8ac5a972eef4`, which passed source CI run `37751407631` 6/6 matrix jobs; skipped platform checks remain NOT_RUN. Registry bytes SHA-1 `a601fc004470387bfa21caf8489697ec1298fa3b` were independently re-downloaded and verified.
+
+The tag push invoked the existing `release.yml` gate, which failed at the missing exact-commit soak evidence in run `37878788439`. That workflow and `publish-npm.yml` remain unchanged. The hosted Release explicitly discloses the failed gate and the absence of attested release bundle, SBOM and OIDC proof; no release assets are attached. See [the immutable post-publish record](project/RELEASE_3_0_1_MANUAL_PUBLICATION.md).
+
+Do NOT dispatch `publish-npm.yml` for already-published `3.0.1`, rewrite the tag, or claim a successful protected workflow. All normal release requirements above remain in force for future versions.
 
 ## Plugin trust limitation
 

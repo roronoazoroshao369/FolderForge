@@ -1,6 +1,6 @@
 # Public release provenance inventory
 
-**Captured:** 2026-07-20T16:15:46.717Z
+**Captured:** 2026-10-09T03:25:08.342Z
 **Package:** `@musashishao/folderforge`
 **Repository:** `roronoazoroshao369/FolderForge`
 
@@ -8,15 +8,16 @@ This is a factual snapshot, not a retroactive attestation. npm `gitHead` is a re
 
 ## Summary
 
-- npm latest: `2.3.4`
+- npm latest: `3.0.1`
 - npm next: `2.0.0-rc.2`
-- Public npm versions: 28
-- Remote tags: 2
-- GitHub Releases: 1
+- Public npm versions: 36
+- Remote tags: 15
+- GitHub Releases: 6
 - public-tag-conflict: 1
 - registry-claim-conflict: 11
-- registry-commit-aligned: 15
-- tag-aligned-no-release: 1
+- registry-commit-aligned: 16
+- tag-aligned-no-release: 6
+- tag-and-release-aligned: 2
 
 ## Version inventory
 
@@ -50,6 +51,14 @@ This is a factual snapshot, not a retroactive attestation. npm `gitHead` is a re
 | 2.2.3 | 2026-07-17T01:51:36.972Z | `af2d03001ee5` | 2.2.3 | none | none | **registry-commit-aligned** |
 | 2.3.0 | 2026-07-18T02:16:50.577Z | `f82caf4aaeb9` | 2.3.0 | none | none | **registry-commit-aligned** |
 | 2.3.4 | 2026-07-19T02:02:49.222Z | `c27a50a0fc75` | 2.3.4 | none | none | **registry-commit-aligned** |
+| 2.7.4 | 2026-07-28T03:55:19.574Z | `721f83897682` | 2.7.4 | `721f83897682` | v2.7.4 | **tag-and-release-aligned** |
+| 2.7.5 | 2026-07-28T15:41:06.005Z | `2524d735a9fb` | 2.7.5 | `2524d735a9fb` | none | **tag-aligned-no-release** |
+| 2.7.6 | 2026-07-29T03:30:20.147Z | `08890562a88b` | 2.7.6 | `08890562a88b` | none | **tag-aligned-no-release** |
+| 2.7.9 | 2026-08-06T08:34:00.556Z | `4c8005e92677` | 2.7.9 | none | none | **registry-commit-aligned** |
+| 2.7.11 | 2026-08-29T00:58:02.101Z | `b6f48be39a67` | 2.7.11 | `b6f48be39a67` | none | **tag-aligned-no-release** |
+| 2.8.0 | 2026-09-05T01:30:33.473Z | `917e6026ba63` | 2.8.0 | `917e6026ba63` | none | **tag-aligned-no-release** |
+| 2.9.0 | 2026-09-17T16:18:42.271Z | `b0f720a22559` | 2.9.0 | `b0f720a22559` | none | **tag-aligned-no-release** |
+| 3.0.1 | 2026-10-09T03:14:58.190Z | `7104f75f8784` | 3.0.1 | `7104f75f8784` | v3.0.1 | **tag-and-release-aligned** |
 
 ## Interpretation
 
