@@ -723,7 +723,7 @@ function missionControlSnapshot(
 ): Record<string, unknown> {
   const tasks = container.workflows.list(principal, 100);
   const capsules = container.capsules.list();
-  const isolations = container.isolation.list();
+  const isolations = container.isolation.listObserved();
   const processes = container.processes.list();
   const approvals = container.policy.approvals.pending();
   const verifications = container.verifications.list(principal, 100);
@@ -2059,7 +2059,7 @@ async function handle(
   if (method === "GET" && path === "/isolations") {
     return sendJson(res, 200, {
       ...container.isolation.describe(),
-      isolations: container.isolation.list(),
+      isolations: container.isolation.listObserved(),
     });
   }
 

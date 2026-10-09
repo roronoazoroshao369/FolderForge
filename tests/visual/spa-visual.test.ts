@@ -27,6 +27,7 @@ import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext } from 'playwright-core';
+import { execFileSync } from 'node:child_process';
 
 import { defaultConfig } from '../../src/runtime/config.js';
 import { Container } from '../../src/runtime/container.js';
@@ -95,10 +96,19 @@ interface VisualHarness {
   root: string;
   server: Server;
   baseUrl: string;
+  container: Container;
 }
 
-async function startHarness(): Promise<VisualHarness> {
+async function startHarness(withGit = false): Promise<VisualHarness> {
   const root = mkdtempSync(join(tmpdir(), 'folderforge-visual-'));
+  if (withGit) {
+    execFileSync('git', ['init', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 'Visual Fixture'], { cwd: root });
+    writeFileSync(join(root, 'tracked.txt'), 'baseline\n');
+    execFileSync('git', ['add', 'tracked.txt'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'fixture'], { cwd: root });
+  }
   const config = defaultConfig(root);
   config.rateLimit.enabled = false;
   config.policy.defaultMode = 'dev';
@@ -107,7 +117,7 @@ async function startHarness(): Promise<VisualHarness> {
   const server = startDashboard(container, registry, { host: '127.0.0.1', port: 0 });
   if (!server.listening) await once(server, 'listening');
   const address = server.address() as AddressInfo;
-  return { root, server, baseUrl: `http://127.0.0.1:${address.port}` };
+  return { root, server, container, baseUrl: `http://127.0.0.1:${address.port}` };
 }
 
 /** Navigate, stabilize, and capture a full-page screenshot. Security
@@ -217,4 +227,21 @@ describe.skipIf(!CHROMIUM)('Mission Control SPA visual regression (proposal 018)
       });
     }
   }
+
+  it('labels an unavailable task worktree without exposing discard action', { timeout: 30_000 }, async () => {
+    const gitHarness = await startHarness(true);
+    const page = await desktop.newPage();
+    try {
+      const isolation = gitHarness.container.isolation.create('visual-missing-health');
+      execFileSync('git', ['worktree', 'remove', '--force', isolation.worktreeRoot], { cwd: gitHarness.root });
+      await page.goto(`${gitHarness.baseUrl}/app/`, { waitUntil: 'networkidle' });
+      await page.getByText('Health: Worktree missing').waitFor({ state: 'visible' });
+      expect(await page.getByRole('button', { name: /Discard/ }).count()).toBe(0);
+      expect(await page.getByText(isolation.taskId).count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+      await new Promise<void>((resolve) => gitHarness.server.close(() => resolve()));
+      rmSync(gitHarness.root, { recursive: true, force: true });
+    }
+  });
 });
