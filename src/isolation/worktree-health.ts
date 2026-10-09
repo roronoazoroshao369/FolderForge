@@ -30,7 +30,6 @@ const defaultProbe: GitHealthProbe = {
       windowsHide: true,
     });
     if (result.error) throw result.error;
-    if (result.status === 1 && args[0] === "show-ref") return "";
     if (result.status !== 0) throw new Error("Git health probe failed");
     if (result.stdout.length > 1024 * 1024) throw new Error("Git health probe output exceeded limit");
     if (result.stderr.length > 1024 * 1024) throw new Error("Git health probe output exceeded limit");
@@ -52,60 +51,68 @@ export function inspectWorktreeHealth(
   }
 
   let branchRef: ObservedBranchRef = "unverifiable";
+  const ref = `refs/heads/${record.branch}`;
   try {
-    const ref = `refs/heads/${record.branch}`;
-    const refs = probe(gitProbe, ["show-ref", "--verify", ref], record.sourceRoot);
-    branchRef = refs ? "present" : "absent";
-  } catch {
-    branchRef = "unverifiable";
+    const refs = probe(gitProbe, ["for-each-ref", "--format=%(refname)", ref], record.sourceRoot);
+    branchRef = refs === ref ? "present" : refs ? "unverifiable" : "absent";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "REF_ABSENT") branchRef = "absent";
+    else branchRef = "unverifiable";
   }
 
-  let rootExists = true;
+  let stats;
   try {
-    lstatSync(record.worktreeRoot);
+    stats = lstatSync(record.worktreeRoot);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") rootExists = false;
-    else return { observedHealth: "unverifiable", branchRef, observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
-  }
-  if (!rootExists) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      return { observedHealth: "unverifiable", branchRef, observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
+    }
     try {
       const sourceTop = probe(gitProbe, ["rev-parse", "--show-toplevel"], record.sourceRoot);
+      const sourceCommon = probe(gitProbe, ["rev-parse", "--git-common-dir"], record.sourceRoot);
       const listing = probe(gitProbe, ["worktree", "list", "--porcelain"], record.sourceRoot);
-      const registered = listing.split(/\\r?\\n/).some(line => line === `worktree ${record.worktreeRoot}`);
-      if (!sourceTop || registered) return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
+      const canonicalSource = realpathSync.native(record.sourceRoot);
+      const commonPath = isAbsolute(sourceCommon) ? sourceCommon : resolve(record.sourceRoot, sourceCommon);
+      if (resolve(record.sourceRoot, sourceTop) !== canonicalSource || !sourceCommon || realpathSync.native(commonPath) !== realpathSync.native(resolve(record.sourceRoot, ".git"))) {
+        return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
+      }
+      const blocks = listing.split(/\r?\n\r?\n/).filter(Boolean);
+      if (blocks.some(block => !block.split(/\r?\n/).some(line => line.startsWith("worktree ")))) {
+        return { observedHealth: "unverifiable", branchRef: "unverifiable", observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
+      }
+      const registered = blocks.some(block => block.split(/\r?\n/).some(line => line === `worktree ${resolve(record.worktreeRoot)}`));
+      if (registered) return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
       return { observedHealth: "missing_worktree", branchRef, observedAt, diagnosticCode: "ISOLATION_WORKTREE_MISSING" };
     } catch {
       return { observedHealth: "unverifiable", branchRef: "unverifiable", observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
     }
   }
-  try {
-    const stats = lstatSync(record.worktreeRoot);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
-    }
-  } catch {
-    return { observedHealth: "unverifiable", branchRef, observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
   }
   try {
-    const stats = lstatSync(record.worktreeRoot);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
-    }
     const canonicalRoot = realpathSync.native(record.worktreeRoot);
     const sourceTop = probe(gitProbe, ["rev-parse", "--show-toplevel"], record.sourceRoot);
     const worktreeTop = probe(gitProbe, ["-C", canonicalRoot, "rev-parse", "--show-toplevel"], record.sourceRoot);
     const sourceCommon = probe(gitProbe, ["rev-parse", "--git-common-dir"], record.sourceRoot);
     const listing = probe(gitProbe, ["worktree", "list", "--porcelain"], record.sourceRoot);
     const expectedBranch = `branch refs/heads/${record.branch}`;
-    const registered = listing.split(/\r?\n\r?\n/).some(block =>
-      block.split(/\r?\n/).some(line => line === `worktree ${canonicalRoot}`) &&
-      block.split(/\r?\n/).includes(expectedBranch),
-    );
+    const expectedBranchRef = expectedBranch.slice("branch ".length);
+    const blocks = listing.split(/\r?\n\r?\n/).filter(Boolean);
+    if (blocks.some(block => !block.split(/\r?\n/).some(line => line.startsWith("worktree ")))) {
+      return { observedHealth: "unverifiable", branchRef, observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
+    }
+    const registered = blocks.some(block => {
+      const lines = block.split(/\r?\n/);
+      const branchLine = lines.find(line => line.startsWith("branch "));
+      return lines.some(line => line === `worktree ${canonicalRoot}`) &&
+        (branchLine === expectedBranch || (branchLine === undefined && lines.includes("detached")));
+    });
     const worktreeBranch = probe(gitProbe, ["-C", canonicalRoot, "symbolic-ref", "-q", "HEAD"], record.sourceRoot);
     const worktreeCommon = probe(gitProbe, ["-C", canonicalRoot, "rev-parse", "--git-common-dir"], record.sourceRoot);
-    const resolvedCommon = resolve(record.sourceRoot, sourceCommon);
+    const resolvedCommon = isAbsolute(sourceCommon) ? sourceCommon : resolve(record.sourceRoot, sourceCommon);
     const resolvedWorktreeCommon = isAbsolute(worktreeCommon) ? worktreeCommon : resolve(canonicalRoot, worktreeCommon);
-    if (!registered || worktreeTop !== canonicalRoot || worktreeBranch !== expectedBranch || resolve(resolvedCommon) !== resolve(resolvedWorktreeCommon) || !sourceTop) {
+    if (!registered || worktreeTop !== canonicalRoot || worktreeBranch !== expectedBranchRef || resolve(resolvedCommon) !== resolve(resolvedWorktreeCommon) || resolve(record.sourceRoot, sourceTop) !== realpathSync.native(record.sourceRoot)) {
       return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
     }
     return { observedHealth: "present_consistent", branchRef, observedAt };
