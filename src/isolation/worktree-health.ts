@@ -14,10 +14,25 @@ export interface IsolationHealthObservation {
   observedHealth: ObservedWorktreeHealth;
   branchRef: ObservedBranchRef;
   observedAt: string;
-  diagnosticCode?: string;
+  diagnosticCode?: IsolationHealthErrorCode;
 }
 export interface GitHealthProbe {
   run(args: string[], cwd?: string): string;
+}
+
+export type IsolationHealthErrorCode =
+  | "ISOLATION_WORKTREE_MISSING"
+  | "ISOLATION_IDENTITY_MISMATCH"
+  | "ISOLATION_HEALTH_UNVERIFIABLE";
+
+export class IsolationHealthError extends Error {
+  constructor(
+    readonly code: IsolationHealthErrorCode,
+    readonly observedHealth: ObservedWorktreeHealth,
+  ) {
+    super(`${code}: managed worktree health is ${observedHealth}.`);
+    this.name = "IsolationHealthError";
+  }
 }
 
 const defaultProbe: GitHealthProbe = {

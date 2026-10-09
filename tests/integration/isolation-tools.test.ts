@@ -89,6 +89,22 @@ describe('isolation tools', () => {
     expect(readFileSync(statePath, 'utf8')).toBe(stateBefore);
   });
 
+  it('status and diff expose structured health errors for a missing task worktree', async () => {
+    const { root, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'structured-missing' });
+    expect(created.ok).toBe(true);
+    const isolation = (created.data as { isolation: { id: string; worktreeRoot: string } }).isolation;
+    git(root, 'worktree', 'remove', '--force', isolation.worktreeRoot);
+    for (const name of ['isolation_status', 'isolation_diff']) {
+      const result = await registry.callAgent(name, { id: isolation.id });
+      expect(result).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('ISOLATION_WORKTREE_MISSING'),
+        data: { code: 'ISOLATION_WORKTREE_MISSING', observedHealth: 'missing_worktree' },
+      });
+    }
+  });
+
   it('creates and reviews through the agent plane, but applies only through admin authority', async () => {
     const { root, registry } = setup();
     const created = await registry.callAgent('isolation_create', { taskId: 'tool-task' });

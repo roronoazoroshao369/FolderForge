@@ -20,6 +20,7 @@ import {
 } from "../core/path-identity.js";
 import {
   inspectWorktreeHealth,
+  IsolationHealthError,
   type IsolationHealthObservation,
 } from "./worktree-health.js";
 
@@ -79,6 +80,8 @@ export interface WorktreeStatus {
 export interface WorktreeManagerHooks {
   /** Test/fault-injection hook invoked immediately before an untracked copy. */
   beforeUntrackedCopy?: (entry: { source: string; target: string }) => void;
+  /** Test-only interleaving point; health is checked after this hook. */
+  beforeFinalMutationCheck?: (isolation: WorktreeIsolation) => void;
 }
 
 interface PersistedState {
@@ -501,6 +504,8 @@ export class WorktreeManager {
       "--",
     ]);
     const untracked = this.preflightUntracked(isolation, status.untracked);
+    this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
     if (patch)
       git(isolation.sourceRoot, ["apply", "--check", "--binary", "-"], patch);
 
@@ -587,6 +592,8 @@ export class WorktreeManager {
         `Isolation rollback requires applied or applying state; current=${isolation.state}.`,
       );
     }
+    this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
     const patchPath = this.rollbackPatchPath(isolation.id);
     if (!existsSync(patchPath))
       throw new Error("Isolation rollback patch is missing.");
@@ -721,16 +728,15 @@ export class WorktreeManager {
         "Rollback applied isolation changes before discarding the recovery worktree.",
       );
     }
-    if (existsSync(isolation.worktreeRoot)) {
-      git(isolation.sourceRoot, [
-        "worktree",
-        "remove",
-        "--force",
-        isolation.worktreeRoot,
-      ]);
-    } else {
-      git(isolation.sourceRoot, ["worktree", "prune"]);
-    }
+    // A missing or foreign worktree does not mean its branch is disposable.
+    this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
+    git(isolation.sourceRoot, [
+      "worktree",
+      "remove",
+      "--force",
+      isolation.worktreeRoot,
+    ]);
     const branchExists =
       spawnSync(
         "git",
@@ -875,14 +881,12 @@ export class WorktreeManager {
   }
 
   private assertWorktreePresent(isolation: WorktreeIsolation): void {
-    if (!existsSync(isolation.worktreeRoot)) {
-      throw new Error(`Managed worktree is missing: ${isolation.worktreeRoot}`);
-    }
-    const top = canonicalRoot(
-      git(isolation.worktreeRoot, ["rev-parse", "--show-toplevel"]).trim(),
-    );
-    if (top !== canonicalRoot(isolation.worktreeRoot)) {
-      throw new Error("Managed worktree identity mismatch.");
+    const health = inspectWorktreeHealth(isolation);
+    if (health.observedHealth !== "present_consistent") {
+      throw new IsolationHealthError(
+        health.diagnosticCode ?? "ISOLATION_HEALTH_UNVERIFIABLE",
+        health.observedHealth,
+      );
     }
   }
 
