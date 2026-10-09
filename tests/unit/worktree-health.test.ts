@@ -103,6 +103,22 @@ describe("inspectWorktreeHealth", () => {
     expect(result.diagnosticCode).toBe("ISOLATION_HEALTH_UNVERIFIABLE");
   });
 
+  it("treats an empty Git worktree inventory as unverifiable", () => {
+    const root = repository();
+    const gitProbe = {
+      run: (args: string[]) => {
+        if (args.includes("for-each-ref")) return "refs/heads/main";
+        if (args.includes("--show-toplevel")) return root;
+        if (args.includes("--git-common-dir")) return ".git";
+        if (args.includes("worktree")) return "";
+        throw new Error("unexpected query");
+      },
+    };
+    const result = inspectWorktreeHealth(record(root, join(root, "absent")), gitProbe);
+    expect(result.observedHealth).toBe("unverifiable");
+    expect(result.diagnosticCode).toBe("ISOLATION_HEALTH_UNVERIFIABLE");
+  });
+
   it("rejects symlink or foreign worktree", () => {
     const root = repository();
     const foreign = repository();

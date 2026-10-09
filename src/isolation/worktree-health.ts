@@ -77,7 +77,10 @@ export function inspectWorktreeHealth(
         return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
       }
       const blocks = listing.split(/\r?\n\r?\n/).filter(Boolean);
-      if (blocks.some(block => !block.split(/\r?\n/).some(line => line.startsWith("worktree ")))) {
+      const sourceRegistered = blocks.some(block =>
+        block.split(/\r?\n/).includes(`worktree ${canonicalSource}`),
+      );
+      if (!sourceRegistered || blocks.some(block => !block.split(/\r?\n/).some(line => line.startsWith("worktree ")))) {
         return { observedHealth: "unverifiable", branchRef: "unverifiable", observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
       }
       const registered = blocks.some(block => block.split(/\r?\n/).some(line => line === `worktree ${resolve(record.worktreeRoot)}`));
