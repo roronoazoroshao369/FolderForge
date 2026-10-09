@@ -617,6 +617,24 @@ export class WorktreeManager {
     }
     const current = sourceSnapshot(isolation.sourceRoot);
     if (current.fingerprint === isolation.sourceFingerprint) {
+      // Git's source fingerprint omits ignored files. A crashed 'applying'
+      // operation may have copied an artifact that later became ignored;
+      // never certify recovery while any journaled source artifact exists.
+      for (const entry of isolation.appliedUntracked ?? []) {
+        const target = this.validatedInside(
+          resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
+          isolation.sourceRoot,
+        );
+        try {
+          lstatSync(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw error;
+        }
+        throw new Error(
+          `Rollback recovery uncertain: source artifact remains: ${entry.path}`,
+        );
+      }
       isolation.state = "rolled_back";
       isolation.rolledBackAt = new Date().toISOString();
       delete isolation.appliedSourceFingerprint;

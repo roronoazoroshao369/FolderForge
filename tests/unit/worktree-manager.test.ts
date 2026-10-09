@@ -607,6 +607,37 @@ describe("WorktreeManager", () => {
     expect(existsSync(isolation.worktreeRoot)).toBe(true);
   });
 
+  it("refuses to certify an applying rollback while an ignored source artifact remains", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("ignored-recovery-artifact");
+    writeFileSync(join(isolation.worktreeRoot, "artifact.tmp"), "task artifact bytes\n");
+    manager.apply(isolation.id);
+
+    const artifact = join(root, "artifact.tmp");
+    expect(readFileSync(artifact, "utf8")).toBe("task artifact bytes\n");
+    // A crash/restart can leave an applying journal. Git ignore rules may
+    // conceal copied source artifacts from the ordinary source fingerprint.
+    writeFileSync(join(root, ".git", "info", "exclude"), "\nartifact.tmp\n", { flag: "a" });
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
+      isolations: Array<Record<string, unknown>>;
+      digest: string;
+    };
+    const record = state.isolations[0]!;
+    record.state = "applying";
+    delete record.appliedAt;
+    delete record.appliedSourceFingerprint;
+    state.digest = "sha256:" + createHash("sha256")
+      .update(JSON.stringify(state.isolations)).digest("hex");
+    writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n");
+
+    const restarted = new WorktreeManager([root], root);
+    expect(() => restarted.rollback(isolation.id)).toThrow(/source artifact|uncertain/i);
+    expect(readFileSync(artifact, "utf8")).toBe("task artifact bytes\n");
+    expect(restarted.get(isolation.id)).toMatchObject({ state: "applying" });
+  });
+
   it("recovers an uncertain applying journal after restart without replaying apply", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);
