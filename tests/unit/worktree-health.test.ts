@@ -112,6 +112,31 @@ describe("inspectWorktreeHealth", () => {
     expect(result.observedHealth).toBe("identity_mismatch");
   });
 
+  it("treats an ENOENT Git probe for an existing worktree as unverifiable", () => {
+    const root = repository();
+    const worktreeRoot = join(root, "healthy worktree");
+    execFileSync("git", ["worktree", "add", "-b", "task-healthy", worktreeRoot, "HEAD"], { cwd: root });
+    const result = inspectWorktreeHealth(record(root, worktreeRoot, "task-healthy"), {
+      run: (args, cwd) => {
+        if (args.includes("symbolic-ref")) {
+          const failure = new Error("unable to launch git") as NodeJS.ErrnoException;
+          failure.code = "ENOENT";
+          throw failure;
+        }
+        return execFileSync("git", args, { cwd, encoding: "utf8" });
+      },
+    });
+    expect(result.observedHealth).toBe("unverifiable");
+    expect(result.diagnosticCode).toBe("ISOLATION_HEALTH_UNVERIFIABLE");
+  });
+
+  it("rejects a foreign directory even without a symlink", () => {
+    const root = repository();
+    const foreign = repository();
+    const result = inspectWorktreeHealth(record(root, foreign, "main"));
+    expect(result.observedHealth).toBe("identity_mismatch");
+  });
+
   it("does not mislabel Git probe failures as missing", () => {
     const root = repository();
     const result = inspectWorktreeHealth(record(root, join(root, "absent")), { run: () => { throw new Error("timeout with secret"); } });

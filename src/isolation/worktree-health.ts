@@ -116,11 +116,9 @@ export function inspectWorktreeHealth(
       return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
     }
     return { observedHealth: "present_consistent", branchRef, observedAt };
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      return { observedHealth: "missing_worktree", branchRef, observedAt, diagnosticCode: "ISOLATION_WORKTREE_MISSING" };
-    }
+  } catch {
+    // The path passed lstat above. A later ENOENT may be a failed Git probe
+    // or concurrent removal; neither proves a safely missing worktree.
     return { observedHealth: "unverifiable", branchRef, observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
   }
 }

@@ -46,6 +46,18 @@ describe("WorktreeManager", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);
     const isolation = manager.create("status-fresh");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(statePath);
+    const refsBefore = git(root, "show-ref");
+    const indexBefore = readFileSync(join(root, ".git", "index"));
+    const worktreesBefore = git(root, "worktree", "list", "--porcelain");
+    for (let i = 0; i < 3; i++) {
+      expect(inspectWorktreeHealth(isolation).observedHealth).toBe("present_consistent");
+    }
+    expect(readFileSync(statePath)).toEqual(stateBefore);
+    expect(git(root, "show-ref")).toBe(refsBefore);
+    expect(readFileSync(join(root, ".git", "index"))).toEqual(indexBefore);
+    expect(git(root, "worktree", "list", "--porcelain")).toBe(worktreesBefore);
     expect(manager.status(isolation.id)).toMatchObject({
       clean: true,
       changed: [],
