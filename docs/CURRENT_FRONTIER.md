@@ -2,16 +2,13 @@
 
 _Last release/source verification: 2026-10-09. Release-source `7104f75f8784423ae2680a9ab80f8ac5a972eef4`, CI `37751407631` PASS 6/6 matrix jobs. New documentation commits need independent exact-head and post-merge CI._
 
-## P0 — Goal #57: 3.0.1 post-publish closure
+## P0 — Release baseline and G58 implementation
 
-- npm `@musashishao/folderforge@3.0.1` is public (`latest`); registry tarball hashes match.
-- GitHub annotated tag and hosted Release `v3.0.1` exist and bind to the same source commit.
-- Manual publish lacked 24-hour soak and OIDC attestation/SBOM evidence; automatic tag-push `release.yml` run `37878788439` failed at the soak gate as designed. No gate changed. Never republish immutable version 3.0.1.
-- Public inventory, governance docs, handoff and explicit release exception are being reconciled in the documentation PR. Do not mark Goal #57 complete until exact-head CI, merge and post-merge CI are independently verified.
-
-## P0 — Goal #58: Managed isolation lifecycle reconciliation (next technical goal)
-
-Two records (`iso_b158d434167e4eb8b283` / `iso_0e1294c275b34225a61f`) remain active/sourceDirty while their worktree roots are missing and Git reports only the main worktree. Start with read-only inventory and reproducible failure, not deletion. Design a fail-closed, non-destructive state reconciliation path, cover missing worktree / dirty source / branch missing / restart cases, preserve audit evidence and recovery options, and verify with TDD. Do not silently discard human work.
+- Goal #57 is **CLOSED**: `@musashishao/folderforge@3.0.1` was published manually and reconciled with public annotated `v3.0.1` tag and GitHub Release. Docs PR #57 merged to main `3337d714f8d75c9e7586f99c5a37b3f446141116`; post-merge CI `37880351065` passed 6/6 jobs. Manual publication lacks exact-source 24-hour soak and protected OIDC/SBOM attestations; tag release workflow failure `37878788439` remains truthful and security gates unchanged.
+- User approved **Trusted Agent Development Workstation** North Star, spec PR #58 and G58 implementation plan PR #59. Plan merge baseline: `da736f0c84fa1f49fc53bf27654f398068a3aaa1`, CI `37891430646` SUCCESS 6/6.
+- **G58 implementation under verification on feature branch `feat/g58-isolation-health`**: read-only physical health separated from persisted state, stable governed errors, fail-closed mutation preflight, expected-SHA branch delete, truthful Mission Control UX and forensic inventory. Local tests and task-specific reviews passed, but no GitHub product PR exact-head CI or post-merge main gate is claimed in this document.
+- Two historical isolations remain `active/sourceDirty` with missing physical worktrees and refs. Their state file hash was preserved; no historical restore/discard, branch deletion or metadata mutation performed. See [the non-destructive forensic evidence](project/GOAL58_ISOLATION_EVIDENCE.md).
+- **Next after verified G58 merge:** G59 MCP protocol modernization (2025-11-25 legacy and 2026-07-28 modern conformance). Its epic charter is **not** an approved implementation plan.
 
 ## P1 — Adoption and compatibility proof
 

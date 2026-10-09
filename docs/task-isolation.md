@@ -88,6 +88,20 @@ snapshot, not an atomic transaction or authorization to apply/discard. Errors
 are reported rather than converted to a clean result. Mutation-time identity,
 source-drift, journal and approval checks remain mandatory and unchanged.
 
+## Physical health versus persisted lifecycle
+
+`isolation_list`, `GET /isolations` and `GET /mission-control` include fresh read-only `observedHealth`, `observedAt`, `branchRef` and optional `diagnosticCode`. They do **not** rewrite the persisted v1 schema. A record may be `active` while its physical worktree is missing.
+
+- `present_consistent`: worktree path, Git registration, branch and Git common-directory identity matched; fresh mutation-time authorization is still mandatory.
+- `missing_worktree`: path and matching registration missing; keep task state and branches, no auto-recreation or prune.
+- `identity_mismatch`: path, ref, ownership or registration disagrees; deny unsafe operations.
+- `unverifiable`: I/O error, permission, timeout or malformed Git data; never infer missing/clean/safe.
+- `terminal_record`: previously discarded lifecycle, displayed for historical context only.
+
+`isolation_status` / `isolation_diff` and admin mutation tools fail closed with stable `ISOLATION_WORKTREE_MISSING`, `ISOLATION_IDENTITY_MISMATCH` and `ISOLATION_HEALTH_UNVERIFIABLE` error codes. Errors have human-readable text; governed ToolResults may include structured `data.code` and `data.observedHealth`. Prior policy, audit and approval denials may still take precedence.
+
+`discard` no longer calls `git worktree prune` on a missing task and does not delete missing/foreign task refs. On a verified eligible worktree, task branch deletion uses atomic Git expected-SHA compare-and-delete, rejecting changed refs. External filesystem races cannot be ruled out atomically; failed operations retain visible recovery state. See the [G58 forensic inventory](project/GOAL58_ISOLATION_EVIDENCE.md).
+
 ## Storage and identity
 
 Worktrees are placed below the repository's Git common directory:

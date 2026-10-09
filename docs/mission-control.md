@@ -24,6 +24,12 @@ Active-call records contain only tool metadata and argument **keys**. FolderForg
 does not retain raw argument values in the active-call inventory. The inventory
 is process-local and disappears when a call completes or the server restarts.
 
+## Worktree health and safe discard in Overview
+
+Both `GET /mission-control` and `GET /isolations` include additive observed health, separate from historical lifecycle state. The UI reports **Available**, **Worktree missing**, **Identity mismatch**, **Unable to verify**, or **Health unavailable** for older/omitted fields. Unknown or unhealthy worktrees never expose a Discard confirmation button.
+
+The server repeats policy, approval, audit and Git identity checks even after an operator has opened a confirmation. Both already-existing `POST /isolations/:id/discard` and `POST /mission-control/isolations/:id/discard` return HTTP 409 with structured health errors on missing worktree. No second execution engine or additional mutation endpoint was introduced. A stale open dialog cannot bypass server-side rejection. See [task isolation safety](task-isolation.md).
+
 ## Write freeze
 
 The dashboard can persist a write freeze through:
