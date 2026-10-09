@@ -65,6 +65,33 @@ describe('dashboard admin authorization plane', () => {
     }
   });
 
+  it('reports missing isolation health in both snapshots and rejects unsafe discard', async () => {
+    const harness = await startHarness();
+    harnesses.push(harness);
+    const isolation = harness.container.isolation.create('health-dashboard');
+    execFileSync('git', ['worktree', 'remove', '--force', isolation.worktreeRoot], { cwd: harness.root });
+    const statePath = join(harness.root, '.git', 'folderforge', 'isolations.json');
+    const before = readFileSync(statePath);
+    const branchHead = execFileSync('git', ['rev-parse', `refs/heads/${isolation.branch}`], { cwd: harness.root, encoding: 'utf8' }).trim();
+
+    for (const endpoint of ['/isolations', '/mission-control']) {
+      const response = await fetch(harness.baseUrl + endpoint);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { isolations: Array<{ id: string; observedHealth?: string }> };
+      expect(body.isolations[0]).toMatchObject({ id: isolation.id, observedHealth: 'missing_worktree' });
+    }
+    for (const prefix of ['/isolations', '/mission-control/isolations']) {
+      const response = await fetch(`${harness.baseUrl}${prefix}/${encodeURIComponent(isolation.id)}/discard`, { method: 'POST' });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        data: { code: 'ISOLATION_WORKTREE_MISSING' },
+      });
+    }
+    expect(readFileSync(statePath)).toEqual(before);
+    expect(execFileSync('git', ['rev-parse', `refs/heads/${isolation.branch}`], { cwd: harness.root, encoding: 'utf8' }).trim()).toBe(branchHead);
+  });
+
   it('serves the local control plane and exposes workspace startup diagnostics', async () => {
     const harness = await startHarness();
     harnesses.push(harness);

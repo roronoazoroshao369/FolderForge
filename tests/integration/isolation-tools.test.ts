@@ -60,6 +60,107 @@ describe('isolation tools', () => {
     expect(readFileSync(join(root, 'file.txt'), 'utf8')).toBe('before\n');
   });
 
+  it('isolation_list exposes health without write', async () => {
+    const { root, container, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'observed-missing' });
+    expect(created.ok).toBe(true);
+    const isolation = (created.data as { isolation: { id: string; worktreeRoot: string } }).isolation;
+    const statePath = join(root, '.git', 'folderforge', 'isolations.json');
+    const stateBefore = readFileSync(statePath, 'utf8');
+    git(root, 'worktree', 'remove', '--force', isolation.worktreeRoot);
+
+    const result = await registry.callAgent('isolation_list', {});
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        isolations: [{
+          id: isolation.id,
+          state: 'active',
+          observedHealth: 'missing_worktree',
+          branchRef: 'present',
+        }],
+      },
+    });
+    expect((result.data as { isolations: Array<{ observedAt: string }> }).isolations[0]?.observedAt).toMatch(/^\d{4}-/);
+    expect(container.isolation.list()[0]?.state).toBe('active');
+    expect(readFileSync(statePath, 'utf8')).toBe(stateBefore);
+    const restarted = new Container(defaultConfig(root));
+    expect(restarted.isolation.list()[0]?.state).toBe('active');
+    expect(readFileSync(statePath, 'utf8')).toBe(stateBefore);
+  });
+
+  it('public forensic observations preserve an active record when both worktree and branch disappeared', async () => {
+    const { root, container, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'forensic-no-ref' });
+    expect(created.ok).toBe(true);
+    const isolation = (created.data as { isolation: { id: string; branch: string; worktreeRoot: string } }).isolation;
+    const statePath = join(root, '.git', 'folderforge', 'isolations.json');
+    const originalBytes = readFileSync(statePath);
+    const originalSource = readFileSync(join(root, 'file.txt'));
+    git(root, 'worktree', 'remove', '--force', isolation.worktreeRoot);
+    git(root, 'update-ref', '-d', `refs/heads/${isolation.branch}`);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const observed = await registry.callAgent('isolation_list', {});
+      expect(observed).toMatchObject({
+        ok: true,
+        data: { isolations: [{
+          id: isolation.id,
+          state: 'active',
+          observedHealth: 'missing_worktree',
+          branchRef: 'absent',
+        }] },
+      });
+      for (const tool of ['isolation_status', 'isolation_diff']) {
+        expect(await registry.callAgent(tool, { id: isolation.id })).toMatchObject({
+          ok: false,
+          error: expect.stringContaining('ISOLATION_WORKTREE_MISSING'),
+          data: { code: 'ISOLATION_WORKTREE_MISSING' },
+        });
+      }
+      expect(await registry.callAgent('isolation_discard', { id: isolation.id })).toMatchObject({
+        ok: false, error: expect.stringMatching(/Admin-only/),
+      });
+    }
+    expect(readFileSync(statePath)).toEqual(originalBytes);
+    expect(readFileSync(join(root, 'file.txt'))).toEqual(originalSource);
+    expect(container.isolation.list()[0]?.state).toBe('active');
+    expect(git(root, 'worktree', 'list', '--porcelain')).not.toContain(isolation.worktreeRoot);
+  });
+
+  it('status and diff expose structured health errors for a missing task worktree', async () => {
+    const { root, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'structured-missing' });
+    expect(created.ok).toBe(true);
+    const isolation = (created.data as { isolation: { id: string; worktreeRoot: string } }).isolation;
+    git(root, 'worktree', 'remove', '--force', isolation.worktreeRoot);
+    for (const name of ['isolation_status', 'isolation_diff']) {
+      const result = await registry.callAgent(name, { id: isolation.id });
+      expect(result).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('ISOLATION_WORKTREE_MISSING'),
+        data: { code: 'ISOLATION_WORKTREE_MISSING', observedHealth: 'missing_worktree' },
+      });
+    }
+  });
+
+  it('admin mutation errors retain structured health code without changing policy', async () => {
+    const { root, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'missing-mutation-error' });
+    const isolation = (created.data as { isolation: { id: string; worktreeRoot: string } }).isolation;
+    git(root, 'worktree', 'remove', '--force', isolation.worktreeRoot);
+    const result = await registry.call(
+      'isolation_discard',
+      { id: isolation.id },
+      { principal: LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL },
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('ISOLATION_WORKTREE_MISSING'),
+      data: { code: 'ISOLATION_WORKTREE_MISSING', observedHealth: 'missing_worktree' },
+    });
+  });
+
   it('creates and reviews through the agent plane, but applies only through admin authority', async () => {
     const { root, registry } = setup();
     const created = await registry.callAgent('isolation_create', { taskId: 'tool-task' });

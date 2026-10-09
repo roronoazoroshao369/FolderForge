@@ -27,9 +27,17 @@ _Updated 2026-10-09 from independent public npm/GitHub observations. Exact relea
 
 No verified passing 24-hour exact-commit soak; no protected npm-publish environment/OIDC proof; no attestations tied to published package; GitHub main unprotected; R16 real Podman runtime verification, R17 Danger Mode human sign-off and independent beta remain open. Do not claim production certification, runtime reliability, marketplace safety, or complete Windows/macOS test coverage. Version `v3.0.0` was abandoned and must not be rewritten.
 
-## Next primary goal — #58 Isolation Lifecycle Recovery
+## Primary execution checkpoint — G58 product delivery
 
-Inspect **live** main/CI/branches and `docs/project/PROJECT_STATE.md` before acting; this handoff may be stale. Objective: reproduce discrepancy between FolderForge `isolation_list` active/sourceDirty records and missing managed worktree directories, identify ownership and recoverability before any change, define fail-closed repair semantics, obtain the required Superpowers approvals, and implement red→green lifecycle tests. Do not remove user data or stale metadata speculatively. Keep a single primary goal, exact-head tests/CI, verified product PR, post-merge CI and documentation closeout; clean temporary remote branches only after preserving work.
+The user approved G58 design and implementation plan, selecting Subagent-driven. The baseline is main `da736f0c84fa1f49fc53bf27654f398068a3aaa1` following PR #59; approved spec PR #58 was already merged. Implementation lives on isolated branch `feat/g58-isolation-health` (do not recreate work or discard its linked worktree if this handoff becomes stale).
+
+Implemented/reviewed locally: read-only Git worktree health (`present_consistent`, `missing_worktree`, `identity_mismatch`, `unverifiable`, `terminal_record`), additive MCP and HTTP observations, stable health errors on governed operations, safe refusal when historical paths are missing, atomic expected-SHA branch removal, Mission Control accurate health and stale-confirmation denial. See `docs/project/GOAL58_ISOLATION_EVIDENCE.md` for exactly what was observed on real historical records. Missing source/task changes are **not** considered recovered.
+
+**Mandatory remaining G58 gates at writing:** transport smoke (stdio and HTTP), full exact feature-head verification, independent final whole-branch review, GitHub product PR exact-head 6/6 CI, authorized product merge, post-merge main CI, docs closeout with real run IDs, and safe cleanup of *completed feature branch only*. Never modify historical `sourceDirty` metadata or remove missing historical task refs as an implicit cleanup.
+
+## Next program goal after G58
+
+**G59 — MCP Protocol Compatibility Assessment / Modernization**, not yet approved for product implementation. Inspect live main first. Write a focused compatibility design against `2025-11-25` and `2026-07-28` before coding, preserve old clients and security boundary, gather actual conformance evidence. Do not start G59 until G58 product and documentation closeout are independently verified.
 
 ## Goal #57 verification protocol
 

@@ -23,6 +23,8 @@ interface ManagedIsolation {
   branch: string;
   state: string;
   worktreeRoot: string;
+  observedHealth?: string;
+  observedAt?: string;
 }
 
 interface MissionControlSnapshot {
@@ -78,7 +80,15 @@ export function OverviewScreen() {
         ) : (
           <div className="grid gap-3">
             {(mission.data?.isolations ?? []).map((isolation) => {
-              const eligible = isolation.state === 'active' || isolation.state === 'rolled_back';
+              const healthy = isolation.observedHealth === 'present_consistent';
+              const eligible = healthy && (isolation.state === 'active' || isolation.state === 'rolled_back');
+              const healthLabel: Record<string, string> = {
+                present_consistent: 'Available',
+                missing_worktree: 'Worktree missing',
+                identity_mismatch: 'Identity mismatch',
+                unverifiable: 'Unable to verify',
+                terminal_record: 'Not available',
+              };
               const confirming = confirmDiscardId === isolation.id;
               return (
                 <div key={isolation.id} className="grid gap-2 rounded-lg border border-border p-3 sm:flex sm:items-center sm:justify-between">
@@ -89,6 +99,7 @@ export function OverviewScreen() {
                     </div>
                     <Code className="break-all">{isolation.branch}</Code>
                     <p className="text-xs text-muted break-all">Worktree: {isolation.worktreeRoot}</p>
+                    <p className={healthy ? 'text-xs text-muted' : 'text-xs text-warn'} role="status">Health: {healthLabel[isolation.observedHealth ?? ''] ?? 'Health unavailable'}</p>
                     {confirming ? (
                       <p className="text-xs text-danger">
                         Discard permanently removes this local worktree and local task branch,
@@ -103,7 +114,7 @@ export function OverviewScreen() {
                         <>
                           <Button variant="danger" size="sm" busy={discard.busy} disabled={discard.busy}
                             onClick={() => void discard.run(
-                              `/mission-control/isolations/${encodeURIComponent(isolation.id)}/discard`,
+                              `/isolations/${encodeURIComponent(isolation.id)}/discard`,
                             ).then((ok) => {
                               if (!ok) return;
                               setConfirmDiscardId(null);

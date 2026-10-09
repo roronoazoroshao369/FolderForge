@@ -88,6 +88,20 @@ snapshot, not an atomic transaction or authorization to apply/discard. Errors
 are reported rather than converted to a clean result. Mutation-time identity,
 source-drift, journal and approval checks remain mandatory and unchanged.
 
+## Physical health versus persisted lifecycle
+
+`isolation_list`, `GET /isolations` and `GET /mission-control` include fresh read-only `observedHealth`, `observedAt`, `branchRef` and optional `diagnosticCode`. They do **not** rewrite the persisted v1 schema. A record may be `active` while its physical worktree is missing.
+
+- `present_consistent`: worktree path, Git registration, branch and Git common-directory identity matched; fresh mutation-time authorization is still mandatory.
+- `missing_worktree`: path and matching registration missing; keep task state and branches, no auto-recreation or prune.
+- `identity_mismatch`: path, ref, ownership or registration disagrees; deny unsafe operations.
+- `unverifiable`: I/O error, permission, timeout or malformed Git data; never infer missing/clean/safe.
+- `terminal_record`: previously discarded lifecycle, displayed for historical context only.
+
+`isolation_status` / `isolation_diff` and admin mutation tools fail closed with stable `ISOLATION_WORKTREE_MISSING`, `ISOLATION_IDENTITY_MISMATCH` and `ISOLATION_HEALTH_UNVERIFIABLE` error codes. Errors have human-readable text; governed ToolResults may include structured `data.code` and `data.observedHealth`. Prior policy, audit and approval denials may still take precedence.
+
+`discard` no longer calls `git worktree prune` on a missing task and does not delete missing/foreign task refs. On a verified eligible worktree, task branch deletion uses atomic Git expected-SHA compare-and-delete, rejecting changed refs. External filesystem races cannot be ruled out atomically; failed operations retain visible recovery state. See the [G58 forensic inventory](project/GOAL58_ISOLATION_EVIDENCE.md).
+
 ## Storage and identity
 
 Worktrees are placed below the repository's Git common directory:
@@ -146,8 +160,18 @@ and invoke `isolation_rollback`.
 After apply, FolderForge fingerprints source HEAD, binary diff bytes, porcelain
 status, and untracked file contents. Rollback succeeds only when the source still
 exactly matches the recorded applied change set. It removes exact untracked
-outputs and reverse-applies the checked patch. Any user edit, missing file, hash
-mismatch, extra path, or patch corruption causes a fail-closed refusal.
+outputs and reverse-applies the checked patch. Before any deletion it holds
+bounded, hash-verified copies of the source's untracked bytes (maximum 10 MiB)
+in memory; if a later step fails, it attempts to restore those original bytes
+using exclusive file creation, even if the task worktree disappears. A competing
+external filesystem writer can still prevent a complete rollback; such a
+failure must never be represented as an atomic success. If the original
+source repository itself disappears or its HEAD identity changes during
+recovery, FolderForge reports `ROLLBACK_RECOVERY_INCOMPLETE` and does
+**not** recreate an untrusted source directory. The operator must investigate
+the partially completed outcome using independent backups. Any user edit,
+missing file, hash mismatch, extra path, or patch corruption causes a
+fail-closed refusal.
 
 Discard is rejected while an isolation is `applying` or `applied`, preserving the
 recovery worktree and rollback journal. After rollback, discard removes the

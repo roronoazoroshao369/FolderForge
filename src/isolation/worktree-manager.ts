@@ -18,6 +18,11 @@ import {
   isPathWithin,
   samePath,
 } from "../core/path-identity.js";
+import {
+  inspectWorktreeHealth,
+  IsolationHealthError,
+  type IsolationHealthObservation,
+} from "./worktree-health.js";
 
 export type IsolationState =
   "active" | "applying" | "applied" | "rolled_back" | "discarded";
@@ -57,6 +62,9 @@ export interface WorkingTreeStatus {
   conflicts: string[];
 }
 
+export interface ObservedIsolation
+  extends WorktreeIsolation, IsolationHealthObservation {}
+
 export interface WorktreeStatus {
   isolation: WorktreeIsolation;
   /** Legacy task/source delta against comparison.baseCommit, NOT HEAD dirtiness. */
@@ -72,6 +80,14 @@ export interface WorktreeStatus {
 export interface WorktreeManagerHooks {
   /** Test/fault-injection hook invoked immediately before an untracked copy. */
   beforeUntrackedCopy?: (entry: { source: string; target: string }) => void;
+  /** Test-only interleaving point; health is checked after this hook. */
+  beforeFinalMutationCheck?: (isolation: WorktreeIsolation) => void;
+  /** Test-only interleaving point after worktree removal, before branch deletion. */
+  beforeBranchDelete?: (isolation: WorktreeIsolation) => void;
+  /** Test-only interleaving immediately before rollback mutates the source. */
+  beforeRollbackMutation?: (isolation: WorktreeIsolation) => void;
+  /** Test-only removal race after a prior untracked source file is removed. */
+  beforeRollbackUntrackedRemove?: (entry: AppliedUntrackedFile, index: number) => void;
 }
 
 interface PersistedState {
@@ -369,6 +385,18 @@ export class WorktreeManager {
       .map(cloneIsolation);
   }
 
+  inspect(id: string): IsolationHealthObservation {
+    const isolation = this.requireExisting(id);
+    return inspectWorktreeHealth(isolation);
+  }
+
+  listObserved(): ObservedIsolation[] {
+    return this.list().map((isolation) => ({
+      ...isolation,
+      ...this.inspect(isolation.id),
+    }));
+  }
+
   get(id: string): WorktreeIsolation | undefined {
     const value = this.isolations.get(id);
     return value ? cloneIsolation(value) : undefined;
@@ -482,6 +510,8 @@ export class WorktreeManager {
       "--",
     ]);
     const untracked = this.preflightUntracked(isolation, status.untracked);
+    this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
     if (patch)
       git(isolation.sourceRoot, ["apply", "--check", "--binary", "-"], patch);
 
@@ -505,12 +535,20 @@ export class WorktreeManager {
     const copied: string[] = [];
     let patchApplied = false;
     try {
+      // The journal was persisted after the earlier preflight. Recheck at
+      // the actual source mutation boundary; an uncertain outcome remains
+      // visible if this check cannot be completed.
+      this.assertWorktreePresent(isolation);
+      if (sourceSnapshot(isolation.sourceRoot).fingerprint !== isolation.sourceFingerprint) {
+        throw new Error("Source workspace changed after isolation creation; refusing to overwrite user work.");
+      }
       if (patch) {
         git(isolation.sourceRoot, ["apply", "--binary", "-"], patch);
         patchApplied = true;
       }
       for (const entry of untracked) {
         this.hooks.beforeUntrackedCopy?.(entry);
+        this.assertWorktreePresent(isolation);
         const source = this.validatedInside(
           entry.source,
           isolation.worktreeRoot,
@@ -568,6 +606,8 @@ export class WorktreeManager {
         `Isolation rollback requires applied or applying state; current=${isolation.state}.`,
       );
     }
+    this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
     const patchPath = this.rollbackPatchPath(isolation.id);
     if (!existsSync(patchPath))
       throw new Error("Isolation rollback patch is missing.");
@@ -577,6 +617,24 @@ export class WorktreeManager {
     }
     const current = sourceSnapshot(isolation.sourceRoot);
     if (current.fingerprint === isolation.sourceFingerprint) {
+      // Git's source fingerprint omits ignored files. A crashed 'applying'
+      // operation may have copied an artifact that later became ignored;
+      // never certify recovery while any journaled source artifact exists.
+      for (const entry of isolation.appliedUntracked ?? []) {
+        const target = this.validatedInside(
+          resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
+          isolation.sourceRoot,
+        );
+        try {
+          lstatSync(target);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw error;
+        }
+        throw new Error(
+          `Rollback recovery uncertain: source artifact remains: ${entry.path}`,
+        );
+      }
       isolation.state = "rolled_back";
       isolation.rolledBackAt = new Date().toISOString();
       delete isolation.appliedSourceFingerprint;
@@ -621,6 +679,10 @@ export class WorktreeManager {
         "Source workspace does not exactly match the recorded applied change set.",
       );
     }
+    // Preserve bounded verified source bytes before the first rollback deletion.
+    // A task worktree might disappear while later files are being removed.
+    const sourceBackups = new Map<string, { bytes: Buffer; mode: number }>();
+    let totalBackupBytes = 0;
     for (const entry of expectedUntracked) {
       const target = resolve(
         isolation.sourceRoot,
@@ -636,11 +698,17 @@ export class WorktreeManager {
           `Applied untracked file is missing or unsafe: ${entry.path}`,
         );
       }
-      if (sha256(readFileSync(target)) !== entry.sha256) {
+      const bytes = readFileSync(target);
+      if (sha256(bytes) !== entry.sha256) {
         throw new Error(
           `Applied untracked file changed after apply: ${entry.path}`,
         );
       }
+      totalBackupBytes += bytes.length;
+      if (totalBackupBytes > MAX_UNTRACKED_BYTES) {
+        throw new Error("Rollback untracked file backup exceeds allowed limit.");
+      }
+      sourceBackups.set(entry.path, { bytes, mode: lstatSync(target).mode & 0o777 });
     }
     if (patch)
       git(
@@ -649,9 +717,13 @@ export class WorktreeManager {
         patch,
       );
 
+    this.hooks.beforeRollbackMutation?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
     const removed: AppliedUntrackedFile[] = [];
     try {
-      for (const entry of expectedUntracked) {
+      for (const [index, entry] of expectedUntracked.entries()) {
+        this.hooks.beforeRollbackUntrackedRemove?.(entry, index);
+        this.assertWorktreePresent(isolation);
         const target = this.validatedInside(
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
@@ -659,30 +731,40 @@ export class WorktreeManager {
         rmSync(target);
         removed.push(entry);
       }
-      if (patch)
+      if (patch) {
+        this.assertWorktreePresent(isolation);
         git(
           isolation.sourceRoot,
           ["apply", "--reverse", "--binary", "-"],
           patch,
         );
+      }
     } catch (error) {
-      for (const entry of removed) {
-        const source = this.validatedInside(
-          resolve(isolation.worktreeRoot, assertRelativePath(entry.path)),
-          isolation.worktreeRoot,
-        );
+      try {
+        // Never recreate a vanished repository or restore into a different
+        // checkout. External deletion cannot be made atomically recoverable.
+        if (!existsSync(isolation.sourceRoot) ||
+            !lstatSync(isolation.sourceRoot).isDirectory() ||
+            git(isolation.sourceRoot, ["rev-parse", "--verify", "HEAD"]).trim() !== isolation.sourceHead) {
+          throw new Error("Original source repository is unavailable or changed.");
+        }
+        for (const entry of removed) {
+          const backup = sourceBackups.get(entry.path);
+        if (!backup) throw new Error("Rollback recovery bytes unavailable.");
         let target = this.validatedInside(
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
         );
-        if (
-          existsSync(source) &&
-          sha256(readFileSync(source)) === entry.sha256
-        ) {
-          mkdirSync(dirname(target), { recursive: true });
-          target = this.validatedInside(target, isolation.sourceRoot);
-          copyFileSync(source, target);
+        mkdirSync(dirname(target), { recursive: true });
+        target = this.validatedInside(target, isolation.sourceRoot);
+          // Exclusive create: never overwrite a concurrent user's replacement.
+          writeFileSync(target, backup.bytes, { flag: "wx", mode: backup.mode });
         }
+      } catch (recoveryError) {
+        throw new Error(
+          "ROLLBACK_RECOVERY_INCOMPLETE: source files may be missing; manual recovery is required. " +
+          (recoveryError instanceof Error ? recoveryError.message : String(recoveryError)),
+        );
       }
       throw error;
     }
@@ -702,24 +784,33 @@ export class WorktreeManager {
         "Rollback applied isolation changes before discarding the recovery worktree.",
       );
     }
-    if (existsSync(isolation.worktreeRoot)) {
-      git(isolation.sourceRoot, [
-        "worktree",
-        "remove",
-        "--force",
-        isolation.worktreeRoot,
-      ]);
-    } else {
-      git(isolation.sourceRoot, ["worktree", "prune"]);
+    // A missing or foreign worktree does not mean its branch is disposable.
+    this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
+    this.assertWorktreePresent(isolation);
+    const taskRef = `refs/heads/${isolation.branch}`;
+    const priorTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
+    const observedWorktreeHead = git(isolation.worktreeRoot, ["rev-parse", "--verify", "HEAD"]).trim();
+    if (observedWorktreeHead !== priorTaskHead) {
+      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
     }
-    const branchExists =
-      spawnSync(
-        "git",
-        ["show-ref", "--verify", "--quiet", `refs/heads/${isolation.branch}`],
-        { cwd: isolation.sourceRoot, windowsHide: true },
-      ).status === 0;
-    if (branchExists)
-      git(isolation.sourceRoot, ["branch", "-D", isolation.branch]);
+    git(isolation.sourceRoot, [
+      "worktree",
+      "remove",
+      "--force",
+      isolation.worktreeRoot,
+    ]);
+    const currentTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
+    if (currentTaskHead !== priorTaskHead) {
+      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+    }
+    // Ref deletion is compare-and-swap: Git refuses to delete if another
+    // actor replaced the task branch after our latest SHA observation.
+    this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
+    try {
+      git(isolation.sourceRoot, ["update-ref", "-d", taskRef, priorTaskHead]);
+    } catch {
+      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+    }
     rmSync(this.rollbackPatchPath(isolation.id), { force: true });
     isolation.state = "discarded";
     isolation.discardedAt = new Date().toISOString();
@@ -856,14 +947,12 @@ export class WorktreeManager {
   }
 
   private assertWorktreePresent(isolation: WorktreeIsolation): void {
-    if (!existsSync(isolation.worktreeRoot)) {
-      throw new Error(`Managed worktree is missing: ${isolation.worktreeRoot}`);
-    }
-    const top = canonicalRoot(
-      git(isolation.worktreeRoot, ["rev-parse", "--show-toplevel"]).trim(),
-    );
-    if (top !== canonicalRoot(isolation.worktreeRoot)) {
-      throw new Error("Managed worktree identity mismatch.");
+    const health = inspectWorktreeHealth(isolation);
+    if (health.observedHealth !== "present_consistent") {
+      throw new IsolationHealthError(
+        health.diagnosticCode ?? "ISOLATION_HEALTH_UNVERIFIABLE",
+        health.observedHealth,
+      );
     }
   }
 

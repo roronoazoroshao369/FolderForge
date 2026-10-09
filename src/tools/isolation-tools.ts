@@ -1,6 +1,7 @@
 import type { ToolDefinition } from '../core/types.js';
 import { canonicalCandidatePath, samePath } from '../core/path-identity.js';
 import { defineTool } from './registry.js';
+import { IsolationHealthError } from '../isolation/worktree-health.js';
 
 export function isolationTools(): ToolDefinition[] {
   return [
@@ -13,7 +14,7 @@ export function isolationTools(): ToolDefinition[] {
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       handler: async (_args, ctx) => ({
         ok: true,
-        data: { ...ctx.container.isolation.describe(), isolations: ctx.container.isolation.list() },
+        data: { ...ctx.container.isolation.describe(), isolations: ctx.container.isolation.listObserved() },
       }),
     }),
     defineTool({
@@ -59,10 +60,17 @@ export function isolationTools(): ToolDefinition[] {
         required: ['id'],
         additionalProperties: false,
       },
-      handler: async (args, ctx) => ({
-        ok: true,
-        data: ctx.container.isolation.status(String(args.id)),
-      }),
+      handler: async (args, ctx) => {
+        try {
+          return { ok: true, data: ctx.container.isolation.status(String(args.id)) };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
+      },
     }),
     defineTool({
       name: 'isolation_diff',
@@ -77,12 +85,16 @@ export function isolationTools(): ToolDefinition[] {
         additionalProperties: false,
       },
       handler: async (args, ctx) => {
-        const result = ctx.container.isolation.diff(String(args.id));
-        return {
-          ok: true,
-          data: result,
-          ...(result.diff ? { diff: result.diff } : {}),
-        };
+        try {
+          const result = ctx.container.isolation.diff(String(args.id));
+          return { ok: true, data: result, ...(result.diff ? { diff: result.diff } : {}) };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
       },
     }),
     defineTool({
@@ -99,10 +111,17 @@ export function isolationTools(): ToolDefinition[] {
         required: ['id'],
         additionalProperties: false,
       },
-      handler: async (args, ctx) => ({
-        ok: true,
-        data: ctx.container.isolation.apply(String(args.id)),
-      }),
+      handler: async (args, ctx) => {
+        try {
+          return { ok: true, data: ctx.container.isolation.apply(String(args.id)) };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
+      },
     }),
     defineTool({
       name: 'isolation_rollback',
@@ -118,10 +137,17 @@ export function isolationTools(): ToolDefinition[] {
         required: ['id'],
         additionalProperties: false,
       },
-      handler: async (args, ctx) => ({
-        ok: true,
-        data: ctx.container.isolation.rollback(String(args.id)),
-      }),
+      handler: async (args, ctx) => {
+        try {
+          return { ok: true, data: ctx.container.isolation.rollback(String(args.id)) };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
+      },
     }),
     defineTool({
       name: 'isolation_discard',
@@ -136,10 +162,17 @@ export function isolationTools(): ToolDefinition[] {
         required: ['id'],
         additionalProperties: false,
       },
-      handler: async (args, ctx) => ({
-        ok: true,
-        data: { isolation: ctx.container.isolation.discard(String(args.id)) },
-      }),
+      handler: async (args, ctx) => {
+        try {
+          return { ok: true, data: { isolation: ctx.container.isolation.discard(String(args.id)) } };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
+      },
     }),
   ];
 }
