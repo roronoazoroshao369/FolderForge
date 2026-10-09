@@ -1,7 +1,7 @@
 # G58 — Managed Isolation Health & Safe Recovery Design
 
 - **Ngày:** 2026-10-09
-- **Trạng thái:** DRAFT FOR MAINTAINER REVIEW; không cho phép implementation hoặc xóa dữ liệu
+- **Trạng thái:** APPROVED DESIGN — maintainer duyệt rõ ràng ngày 2026-10-09 tại PR #58. **Không cho phép implementation hoặc xóa dữ liệu** trước khi implementation plan được duyệt riêng.
 - **Phụ thuộc:** `2026-10-09-trusted-agent-workstation-design.md`; `docs/adr-0011-workspace-capsules-and-isolation.md`; `docs/task-isolation.md`
 - **Baseline xác minh:** `main@3337d714f8d75c9e7586f99c5a37b3f446141116`. Mô tả dưới đây chưa phải kết quả root-cause forensic hay kết quả sửa lỗi.
 
@@ -114,4 +114,4 @@
 
 ## 10. Pending review boundary
 
-Đây là **written design draft** được sinh từ chiến lược đã duyệt. Spec cần maintainer review trước khi chạy `superpowers:writing-plans`. Chỉ sau khi implementation plan được duyệt riêng mới chuyển sang TDD/product code. Quyết định chưa thể đưa ra từ audit hiện tại: root cause disappearance, commit reachability của từng branch historical, khả năng khôi phục untracked bytes, và có cần operator restore action riêng hay không; phải điều tra bằng read-only forensic và không suy đoán.
+Đây là **written design đã được maintainer duyệt**; được phép chuyển sang `superpowers:writing-plans` cho G58. Chỉ sau khi implementation plan được duyệt riêng mới chuyển sang TDD/product code. Quyết định chưa thể đưa ra từ audit hiện tại: root cause disappearance, commit reachability của từng branch historical, khả năng khôi phục untracked bytes, và có cần operator restore action riêng hay không; phải điều tra bằng read-only forensic và không suy đoán.

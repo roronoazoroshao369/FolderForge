@@ -1,7 +1,7 @@
 # Trusted Agent Development Workstation — Program Architecture
 
 - **Ngày:** 2026-10-09
-- **Trạng thái:** DRAFT FOR MAINTAINER REVIEW — chiến lược B/North Star đã được duyệt; **spec này chưa được duyệt, không cho phép implement**
+- **Trạng thái:** APPROVED DESIGN — maintainer duyệt rõ ràng ngày 2026-10-09 trong cuộc hội thoại sau khi review PR #58. **Không cấp quyền triển khai product code; từng implementation plan phải được duyệt riêng.**
 - **Dự án:** FolderForge — `roronoazoroshao369/FolderForge`
 - **Baseline đọc trực tiếp:** `main@3337d714f8d75c9e7586f99c5a37b3f446141116`, CI `37880351065` SUCCESS 6/6 matrix jobs, npm `@musashishao/folderforge@3.0.1`
 - **Nguyên tắc vận hành:** `docs/stability-policy.md` vẫn có hiệu lực; số hiệu 4.0 chỉ là **North Star**, không phải quyết định nâng major hay chấp thuận release.
@@ -156,7 +156,7 @@ No custom foundation model or new agent reasoning backend; no auto-publish/npm, 
 
 ## 10. Stage gates and deliverables
 
-1. **Now:** maintainer reviews this program design and first G58 design (`2026-10-09-goal58-isolation-recovery-design.md`). Changes requested are applied to docs only.
-2. **After written spec approval:** invoke Superpowers `writing-plans` separately for G58. No product implementation before the written plan is approved and execution path selected.
+1. **Completed design gate (2026-10-09):** maintainer đã duyệt program design và G58 design trong PR #58. Không suy diễn chấp thuận G59–G63 implementation specs chưa tồn tại.
+2. **Now:** invoke Superpowers `writing-plans` riêng cho G58. Chưa được triển khai product code cho đến khi written plan được duyệt và execution path được chọn.
 3. **After G58 delivery:** write and review G59 specific spec and plan, then repeat sequentially for G60–G63. The epic charters above preserve alignment, not approval.
 4. **Exit program:** release-readiness and beta-evidence gates must be reported from actual observations; no claim of 4.0/production readiness without all mandatory evidence.
