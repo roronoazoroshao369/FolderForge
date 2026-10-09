@@ -82,6 +82,8 @@ export interface WorktreeManagerHooks {
   beforeUntrackedCopy?: (entry: { source: string; target: string }) => void;
   /** Test-only interleaving point; health is checked after this hook. */
   beforeFinalMutationCheck?: (isolation: WorktreeIsolation) => void;
+  /** Test-only interleaving point after worktree removal, before branch deletion. */
+  beforeBranchDelete?: (isolation: WorktreeIsolation) => void;
 }
 
 interface PersistedState {
@@ -731,12 +733,19 @@ export class WorktreeManager {
     // A missing or foreign worktree does not mean its branch is disposable.
     this.hooks.beforeFinalMutationCheck?.(cloneIsolation(isolation));
     this.assertWorktreePresent(isolation);
+    const taskRef = `refs/heads/${isolation.branch}`;
+    const priorTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
     git(isolation.sourceRoot, [
       "worktree",
       "remove",
       "--force",
       isolation.worktreeRoot,
     ]);
+    this.hooks.beforeBranchDelete?.(cloneIsolation(isolation));
+    const currentTaskHead = git(isolation.sourceRoot, ["rev-parse", "--verify", taskRef]).trim();
+    if (currentTaskHead !== priorTaskHead) {
+      throw new IsolationHealthError("ISOLATION_IDENTITY_MISMATCH", "identity_mismatch");
+    }
     const branchExists =
       spawnSync(
         "git",

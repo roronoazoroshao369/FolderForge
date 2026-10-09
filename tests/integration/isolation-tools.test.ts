@@ -105,6 +105,23 @@ describe('isolation tools', () => {
     }
   });
 
+  it('admin mutation errors retain structured health code without changing policy', async () => {
+    const { root, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'missing-mutation-error' });
+    const isolation = (created.data as { isolation: { id: string; worktreeRoot: string } }).isolation;
+    git(root, 'worktree', 'remove', '--force', isolation.worktreeRoot);
+    const result = await registry.call(
+      'isolation_discard',
+      { id: isolation.id },
+      { principal: LOOPBACK_DASHBOARD_ADMIN_PRINCIPAL },
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('ISOLATION_WORKTREE_MISSING'),
+      data: { code: 'ISOLATION_WORKTREE_MISSING', observedHealth: 'missing_worktree' },
+    });
+  });
+
   it('creates and reviews through the agent plane, but applies only through admin authority', async () => {
     const { root, registry } = setup();
     const created = await registry.callAgent('isolation_create', { taskId: 'tool-task' });

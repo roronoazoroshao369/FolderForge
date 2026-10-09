@@ -99,6 +99,62 @@ describe("WorktreeManager", () => {
     expect(readFileSync(statePath)).toEqual(stateBefore);
   });
 
+  it("apply rechecks worktree identity after preflight before applying source patch", () => {
+    const root = repository();
+    let armed = false;
+    const manager = new WorktreeManager([root], root, {
+      beforeFinalMutationCheck: (isolation) => {
+        if (armed) git(root, "worktree", "remove", "--force", isolation.worktreeRoot);
+      },
+    });
+    const isolation = manager.create("race-apply");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    armed = true;
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    expect(() => manager.apply(isolation.id)).toThrow(/ISOLATION_WORKTREE_MISSING/);
+    expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+    expect(manager.list()[0]?.state).toBe("active");
+  });
+
+  it("rollback rechecks identity if worktree disappears after apply", () => {
+    const root = repository();
+    let armed = false;
+    const manager = new WorktreeManager([root], root, {
+      beforeFinalMutationCheck: (isolation) => {
+        if (armed) git(root, "worktree", "remove", "--force", isolation.worktreeRoot);
+      },
+    });
+    const isolation = manager.create("race-rollback");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "task change\n");
+    manager.apply(isolation.id);
+    const sourceBefore = readFileSync(join(root, "tracked.txt"));
+    armed = true;
+    expect(() => manager.rollback(isolation.id)).toThrow(/ISOLATION_WORKTREE_MISSING/);
+    expect(readFileSync(join(root, "tracked.txt"))).toEqual(sourceBefore);
+    expect(manager.list()[0]?.state).toBe("applied");
+  });
+
+  it("discard refuses a task branch ref replaced after worktree removal", () => {
+    const root = repository();
+    let replaced = false;
+    const manager = new WorktreeManager([root], root, {
+      beforeBranchDelete: (isolation) => {
+        replaced = true;
+        git(root, "update-ref", `refs/heads/${isolation.branch}`, git(root, "rev-parse", "HEAD").trim());
+      },
+    });
+    const isolation = manager.create("race-branch-ref");
+    writeFileSync(join(isolation.worktreeRoot, "tracked.txt"), "committed independent task\n");
+    git(isolation.worktreeRoot, "add", "tracked.txt");
+    git(isolation.worktreeRoot, "commit", "-m", "task checkpoint");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(statePath);
+    expect(() => manager.discard(isolation.id)).toThrow(/ISOLATION_IDENTITY_MISMATCH/);
+    expect(replaced).toBe(true);
+    expect(readFileSync(statePath)).toEqual(stateBefore);
+    expect(git(root, "rev-parse", `refs/heads/${isolation.branch}`).trim()).toBe(git(root, "rev-parse", "HEAD").trim());
+  });
+
   it("rollback denies missing journal", () => {
     const root = repository();
     const manager = new WorktreeManager([root], root);

@@ -111,10 +111,17 @@ export function isolationTools(): ToolDefinition[] {
         required: ['id'],
         additionalProperties: false,
       },
-      handler: async (args, ctx) => ({
-        ok: true,
-        data: ctx.container.isolation.apply(String(args.id)),
-      }),
+      handler: async (args, ctx) => {
+        try {
+          return { ok: true, data: ctx.container.isolation.apply(String(args.id)) };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
+      },
     }),
     defineTool({
       name: 'isolation_rollback',
@@ -130,10 +137,17 @@ export function isolationTools(): ToolDefinition[] {
         required: ['id'],
         additionalProperties: false,
       },
-      handler: async (args, ctx) => ({
-        ok: true,
-        data: ctx.container.isolation.rollback(String(args.id)),
-      }),
+      handler: async (args, ctx) => {
+        try {
+          return { ok: true, data: ctx.container.isolation.rollback(String(args.id)) };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
+      },
     }),
     defineTool({
       name: 'isolation_discard',
@@ -148,10 +162,17 @@ export function isolationTools(): ToolDefinition[] {
         required: ['id'],
         additionalProperties: false,
       },
-      handler: async (args, ctx) => ({
-        ok: true,
-        data: { isolation: ctx.container.isolation.discard(String(args.id)) },
-      }),
+      handler: async (args, ctx) => {
+        try {
+          return { ok: true, data: { isolation: ctx.container.isolation.discard(String(args.id)) } };
+        } catch (error) {
+          if (error instanceof IsolationHealthError) {
+            return { ok: false, error: error.message,
+              data: { code: error.code, observedHealth: error.observedHealth } };
+          }
+          throw error;
+        }
+      },
     }),
   ];
 }
