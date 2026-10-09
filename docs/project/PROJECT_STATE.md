@@ -2,6 +2,14 @@
 
 _Last inspected release-source commit: `7104f75f8784423ae2680a9ab80f8ac5a972eef4`; source CI `37751407631` successful (6/6 matrix jobs). Public tag, npm package and hosted release independently rechecked on 2026-10-09. This documentation change is not self-certified; check its own PR and post-merge CI before attributing verification._
 
+## G58 product merge and verification boundary — 2026-10-09
+
+- User approved G58 design PR #58 and separate written plan PR #59. Product PR [#60](https://github.com/roronoazoroshao369/FolderForge/pull/60) merged exact feature head `a0ff768b6087abe1822a1a41d1926edce37e3f3c` into `main@948feb34614bb66bb1bfb8170f6f7c2cbed3284b`.
+- Product exact-head PR CI `37955610544` SUCCESS 6/6; push CI `37955602053` SUCCESS 6/6. Independent post-merge exact-main CI `37956471711` SUCCESS 6/6 on `948feb34614bb66bb1bfb8170f6f7c2cbed3284b`: G58 product complete; subsequent documentation branch and merge require distinct exact-head and post-merge evidence.
+- Final local product verification: 151 test files, 1263 PASS / 14 SKIP; stdio and HTTP smoke, docs check, architecture, Mission Control build and diff check PASS. Independent scoped security review found no outstanding Critical/Important issue in its review scope. CI platform skips remain NOT_RUN.
+- Two original `active/sourceDirty` isolation records have no physical task worktrees or task refs. Metadata hash remains `47a189d85d05c4ef651886679cbf9e4e34be6d552f8a162a42e180441e0f4074`; readable historical base objects **do not** prove lost task bytes are recoverable. No historical metadata/ref or sourceDirty cleanup occurred. See `docs/project/GOAL58_ISOLATION_EVIDENCE.md`.
+- G58 is correctness and operator safety, not reconstruction of missing historical task data. G59 compatibility **design** is next only after the independent G58 documentation closeout, no product authorization. Neither 3.0.1's manual release exception nor R16/R17/external beta gates changed.
+
 ## Authoritative publication snapshot (2026-10-09)
 
 - Product: FolderForge — local-first MCP governance runtime; npm package `@musashishao/folderforge`, version `3.0.1`, npm dist-tag `latest`.
@@ -222,6 +230,6 @@ The 24-hour exact-release-SHA soak, protected npm-publish environment, Danger Mo
 
 ## NEXT_RUN_PROMPT
 
-Resume the FolderForge council on `roronoazoroshao369/FolderForge`, default branch `main`. Repository truth overrides this handoff. Inspect live main, open PRs, branch refs and exact-main CI first. Last verified product baseline: main `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e`, run `37720127758` success 6/6. Product PR #50 exact head `1f70a77d3d59865652f03cedc5bf7b0d2e623d18`, run `37719460783` success 6/6, fixed invalid CLI policy modes silently falling back.
+Resume the FolderForge council on `roronoazoroshao369/FolderForge`, default branch `main`, speaking Vietnamese. LIVE GitHub truth supersedes all documentation. At G58 product closeout, PR #60 merged as `948feb34614bb66bb1bfb8170f6f7c2cbed3284b` (product head `a0ff768b6087abe1822a1a41d1926edce37e3f3c`, PR CI `37955610544` and push CI `37955602053`, SUCCESS 6/6 each). G58 product post-merge main CI `37956471711` SUCCESS 6/6; check the later documentation-closeout PR/CI before declaring documentation closure; every new merge needs its own exact-main verification. Preserve the two historical active/sourceDirty missing-worktree records and ignored `.superpowers/sdd` and `.omc` local reviewer artifacts; no data repair or destructive cleanup.
 
-Select exactly one new goal, prioritize red exact-main CI or safety/correctness regressions, and reproduce before implementation. Keep R16 real-Podman acceptance BLOCKED without approval; R17 and all external release gates remain closed. Do not tag, publish, release, retag/delete `v3.0.0`, change protection or secrets, or claim unrun platform gates. Follow INSPECT → RECONCILE → ONE GOAL → VERIFY → PR → MERGE ONLY IF SAFE AND EXACT-HEAD GREEN → UPDATE STATE → fresh handoff.
+After verified G58 documentation closure, begin G59 **read-only discovery and reviewable compatibility design** for MCP legacy `2025-11-25` and modern `2026-07-28` protocols, with real client conformance evidence and no product coding until independent spec and implementation-plan approvals. Use Superpowers design → approval → plan approval → TDD → exact-head CI → reviewed merge → post-merge CI. R16/R17, 24-hour soak, trusted OIDC/SBOM and external beta remain open. No npm publish/tag/release or security-gate relaxation.

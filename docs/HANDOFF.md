@@ -1,4 +1,4 @@
-# HANDOFF — after FolderForge 3.0.1 npm publication
+# HANDOFF — G58 managed isolation integrity product merged (2026-10-09)
 
 _Updated 2026-10-09 from independent public npm/GitHub observations. Exact release-source SHA `7104f75f8784423ae2680a9ab80f8ac5a972eef4` has CI `37751407631` SUCCESS 6/6 jobs. This closeout document must not self-certify its own PR or eventual merge._
 
@@ -27,13 +27,15 @@ _Updated 2026-10-09 from independent public npm/GitHub observations. Exact relea
 
 No verified passing 24-hour exact-commit soak; no protected npm-publish environment/OIDC proof; no attestations tied to published package; GitHub main unprotected; R16 real Podman runtime verification, R17 Danger Mode human sign-off and independent beta remain open. Do not claim production certification, runtime reliability, marketplace safety, or complete Windows/macOS test coverage. Version `v3.0.0` was abandoned and must not be rewritten.
 
-## Primary execution checkpoint — G58 product delivery
+## G58 product delivery — verified evidence and remaining closeout
 
-The user approved G58 design and implementation plan, selecting Subagent-driven. The baseline is main `da736f0c84fa1f49fc53bf27654f398068a3aaa1` following PR #59; approved spec PR #58 was already merged. Implementation lives on isolated branch `feat/g58-isolation-health` (do not recreate work or discard its linked worktree if this handoff becomes stale).
-
-Implemented/reviewed locally: read-only Git worktree health (`present_consistent`, `missing_worktree`, `identity_mismatch`, `unverifiable`, `terminal_record`), additive MCP and HTTP observations, stable health errors on governed operations, safe refusal when historical paths are missing, atomic expected-SHA branch removal, Mission Control accurate health and stale-confirmation denial. See `docs/project/GOAL58_ISOLATION_EVIDENCE.md` for exactly what was observed on real historical records. Missing source/task changes are **not** considered recovered.
-
-**Mandatory remaining G58 gates at writing:** transport smoke (stdio and HTTP), full exact feature-head verification, independent final whole-branch review, GitHub product PR exact-head 6/6 CI, authorized product merge, post-merge main CI, docs closeout with real run IDs, and safe cleanup of *completed feature branch only*. Never modify historical `sourceDirty` metadata or remove missing historical task refs as an implicit cleanup.
+- Approved design PR #58 and implementation plan PR #59; original main baseline `da736f0c84fa1f49fc53bf27654f398068a3aaa1`.
+- Product PR [#60](https://github.com/roronoazoroshao369/FolderForge/pull/60) **MERGED**: final head `a0ff768b6087abe1822a1a41d1926edce37e3f3c`, PR-head CI `37955610544` SUCCESS 6/6, push CI `37955602053` SUCCESS 6/6, merge commit `948feb34614bb66bb1bfb8170f6f7c2cbed3284b`.
+- Final local verification: `npm run verify` 151/151 test files, 1263 PASS, 14 SKIP. `npm run smoke:stdio`, `npm run smoke:http`, `npm run docs:check`, `npm run architecture:check`, Mission Control build, diff check PASS. Reviewer SPEC/QUALITY PASS; macOS path alias and crash/restart rollback recovery regressions added. Platform CI skips remain NOT_RUN.
+- Post-merge exact-main CI `37956471711` verified SUCCESS 6/6 on `948feb34614bb66bb1bfb8170f6f7c2cbed3284b`: **G58 product delivery closed**. This documentation branch and its merge still require fresh exact-head and post-merge CI. CI of the product head cannot certify a later documentation SHA. CI of the previous head cannot certify a later documentation SHA.
+- Live historical forensic check: two `active/sourceDirty` records (`iso_b158d434167e4eb8b283`, `iso_0e1294c275b34225a61f`) still have missing task worktrees and refs; recorded base commits are readable. `.git/folderforge/isolations.json` SHA-256 `47a189d85d05c4ef651886679cbf9e4e34be6d552f8a162a42e180441e0f4074` unchanged after merge. Do **not** prune, discard, rollback or try to reconstruct historical uncommitted/untracked bytes. G58 provides truthful health and fail-closed operations, not actual data recovery.
+- **Branch cleanup safety:** source feature worktree contains ignored `.omc` session/project-memory and `.superpowers/sdd` review/ledger artifacts. Do not `git clean` or force-remove the local worktree, even though Git status is clean. Only delete a merged remote feature ref after verifying main contains the head; preserve local evidence.
+- No npm publish/tag, release, production soak certification or future G59 implementation is part of this closeout.
 
 ## Next program goal after G58
 
