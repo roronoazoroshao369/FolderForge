@@ -160,8 +160,14 @@ and invoke `isolation_rollback`.
 After apply, FolderForge fingerprints source HEAD, binary diff bytes, porcelain
 status, and untracked file contents. Rollback succeeds only when the source still
 exactly matches the recorded applied change set. It removes exact untracked
-outputs and reverse-applies the checked patch. Any user edit, missing file, hash
-mismatch, extra path, or patch corruption causes a fail-closed refusal.
+outputs and reverse-applies the checked patch. Before any deletion it holds
+bounded, hash-verified copies of the source's untracked bytes (maximum 10 MiB)
+in memory; if a later step fails, it attempts to restore those original bytes
+using exclusive file creation, even if the task worktree disappears. A competing
+external filesystem writer can still prevent a complete rollback; such a
+failure must never be represented as an atomic success. Any user edit,
+missing file, hash mismatch, extra path, or patch corruption causes a
+fail-closed refusal.
 
 Discard is rejected while an isolation is `applying` or `applied`, preserving the
 recovery worktree and rollback journal. After rollback, discard removes the

@@ -86,6 +86,8 @@ export interface WorktreeManagerHooks {
   beforeBranchDelete?: (isolation: WorktreeIsolation) => void;
   /** Test-only interleaving immediately before rollback mutates the source. */
   beforeRollbackMutation?: (isolation: WorktreeIsolation) => void;
+  /** Test-only removal race after a prior untracked source file is removed. */
+  beforeRollbackUntrackedRemove?: (entry: AppliedUntrackedFile, index: number) => void;
 }
 
 interface PersistedState {
@@ -659,6 +661,10 @@ export class WorktreeManager {
         "Source workspace does not exactly match the recorded applied change set.",
       );
     }
+    // Preserve bounded verified source bytes before the first rollback deletion.
+    // A task worktree might disappear while later files are being removed.
+    const sourceBackups = new Map<string, { bytes: Buffer; mode: number }>();
+    let totalBackupBytes = 0;
     for (const entry of expectedUntracked) {
       const target = resolve(
         isolation.sourceRoot,
@@ -674,11 +680,17 @@ export class WorktreeManager {
           `Applied untracked file is missing or unsafe: ${entry.path}`,
         );
       }
-      if (sha256(readFileSync(target)) !== entry.sha256) {
+      const bytes = readFileSync(target);
+      if (sha256(bytes) !== entry.sha256) {
         throw new Error(
           `Applied untracked file changed after apply: ${entry.path}`,
         );
       }
+      totalBackupBytes += bytes.length;
+      if (totalBackupBytes > MAX_UNTRACKED_BYTES) {
+        throw new Error("Rollback untracked file backup exceeds allowed limit.");
+      }
+      sourceBackups.set(entry.path, { bytes, mode: lstatSync(target).mode & 0o777 });
     }
     if (patch)
       git(
@@ -691,7 +703,9 @@ export class WorktreeManager {
     this.assertWorktreePresent(isolation);
     const removed: AppliedUntrackedFile[] = [];
     try {
-      for (const entry of expectedUntracked) {
+      for (const [index, entry] of expectedUntracked.entries()) {
+        this.hooks.beforeRollbackUntrackedRemove?.(entry, index);
+        this.assertWorktreePresent(isolation);
         const target = this.validatedInside(
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
@@ -709,22 +723,16 @@ export class WorktreeManager {
       }
     } catch (error) {
       for (const entry of removed) {
-        const source = this.validatedInside(
-          resolve(isolation.worktreeRoot, assertRelativePath(entry.path)),
-          isolation.worktreeRoot,
-        );
+        const backup = sourceBackups.get(entry.path);
+        if (!backup) throw new Error("Rollback recovery bytes unavailable.");
         let target = this.validatedInside(
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
           isolation.sourceRoot,
         );
-        if (
-          existsSync(source) &&
-          sha256(readFileSync(source)) === entry.sha256
-        ) {
-          mkdirSync(dirname(target), { recursive: true });
-          target = this.validatedInside(target, isolation.sourceRoot);
-          copyFileSync(source, target);
-        }
+        mkdirSync(dirname(target), { recursive: true });
+        target = this.validatedInside(target, isolation.sourceRoot);
+        // Exclusive create: never overwrite a concurrent user's replacement.
+        writeFileSync(target, backup.bytes, { flag: "wx", mode: backup.mode });
       }
       throw error;
     }

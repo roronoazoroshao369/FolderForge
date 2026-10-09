@@ -134,6 +134,30 @@ describe("WorktreeManager", () => {
     expect(manager.list()[0]?.state).toBe("applied");
   });
 
+  it("restores earlier source files if worktree disappears between rollback untracked removals", () => {
+    const root = repository();
+    let isolationRoot = "";
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: (_entry, index) => {
+        if (index === 1) git(root, "worktree", "remove", "--force", isolationRoot);
+      },
+    });
+    const isolation = manager.create("multi-untracked-race");
+    isolationRoot = isolation.worktreeRoot;
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "precious bytes a\n");
+    writeFileSync(join(isolation.worktreeRoot, "b.txt"), "precious bytes b\n");
+    manager.apply(isolation.id);
+    const aBefore = readFileSync(join(root, "a.txt"));
+    const bBefore = readFileSync(join(root, "b.txt"));
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const metadataBefore = readFileSync(statePath);
+    expect(() => manager.rollback(isolation.id)).toThrow(/ISOLATION_WORKTREE_MISSING/);
+    expect(readFileSync(join(root, "a.txt"))).toEqual(aBefore);
+    expect(readFileSync(join(root, "b.txt"))).toEqual(bBefore);
+    expect(readFileSync(statePath)).toEqual(metadataBefore);
+    expect(manager.list()[0]?.state).toBe("applied");
+  });
+
   it("discard refuses a task branch ref replaced after worktree removal", () => {
     const root = repository();
     let replaced = false;
