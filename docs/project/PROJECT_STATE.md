@@ -1,46 +1,46 @@
 # PROJECT STATE
 
-_Last updated from inspected main SHA `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` (exact-SHA run `37720127758`) as the evidence baseline. The documentation commit being prepared is not self-certified._
+_Last inspected release-source commit: `7104f75f8784423ae2680a9ab80f8ac5a972eef4`; source CI `37751407631` successful (6/6 matrix jobs). Public tag, npm package and hosted release independently rechecked on 2026-10-09. This documentation change is not self-certified; check its own PR and post-merge CI before attributing verification._
 
-## Product and repository
+## Authoritative publication snapshot (2026-10-09)
 
-- Phase: 3.0.1 release-candidate hardening; all external release gates remain closed.
-- Package: `@musashishao/folderforge` `3.0.1`; default branch: `main`.
-- Inspected main SHA (docs-update base): `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e`.
-- Exact-SHA main CI: run `37720127758` completed success on that SHA; all six Ubuntu/macOS/Windows × Node 22/24 jobs succeeded.
-- PR #50 fixed invalid `--policy` / `--policy-mode` silently falling back to configured policy. RED on test-only head `0ed228e624e4005fcbf9979fbdd3eddcff4ef7c3`: two regression assertions failed (exit 0 instead of 1). Final head `1f70a77d3d59865652f03cedc5bf7b0d2e623d18` passed run `37719460783` (6/6); squash merge `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` passed exact-main run `37720127758` (6/6). Only CLI parser, regression test and CHANGELOG changed. No release gate altered.
-- Branch hygiene audit: 8 remote branches remain after PR #50; seven older branches have no commits ahead of main, and the PR #50 branch has the same Git tree as its squash merge. Managed isolation inventory is unavailable because the local MCP returned HTTP 404/429; no branch was deleted. The proposed docs branch is temporary and must also be considered during eventual cleanup.
-- PR #48 merged at main SHA `33026b16b27657544ec152e6611b644e386b6639` after exact-head CI `37714944668` passed 6/6 on `3dd88c04aacea1e74d1d04d0903e208a36f236bf`; exact-main run `37715608774` passed 6/6. PR #47 documentation closeout merged previously at `58cd43e43093cf8c0a7ee7d825e8b69f4dbc36c4` (run `37714813520` passed 6/6).
-- PR #36 merged normally at prior main SHA `7fa11eecfb8bddd0a9d3d195d2ad8427ca7a7226`. Its exact PR-head run `37405842816` passed all six matrix jobs; PR #37 later advanced main to the inspected base above.
-- PR #35 was closed without merge after exact-head run `37400080019` failed; its proposed handoff was superseded by PR #37. PRs #14, #15, #16, #18, #20, #21, #23, and #27 were closed without merge after exact-head CI failures. PR #39 later merged the scoped Mission Control dependency remediation after exact-head CI passed.
-- Root production and full dependency audits passed in exact-main run `37648701564`. PR #46 raised the `@modelcontextprotocol/sdk` security floor to `^1.32.1` after GHSA-6qxp-vccf-f47h made the previous `1.29.0` lock fail the production audit; exact-head run `37647956742` and merge-SHA run `37648701564` each passed all six jobs. The separate `packages/mission-control` remediation (R20) remains VERIFIED_CI. No release gate changed.
-- Overall verdict: IN_PROGRESS because R16 and R17 remain open. R20 is VERIFIED_CI. R16/R17 and all external release gates remain closed.
-- This record is grounded in the verified main SHA above. Any later revision still requires its own exact-SHA CI before being used as a baseline.
+- Product: FolderForge — local-first MCP governance runtime; npm package `@musashishao/folderforge`, version `3.0.1`, npm dist-tag `latest`.
+- Repository: `roronoazoroshao369/FolderForge`. Published npm `gitHead`, release tag commit and source main all map to `7104f75f8784423ae2680a9ab80f8ac5a972eef4`.
+- npm package SHA-1: `a601fc004470387bfa21caf8489697ec1298fa3b`. npm SHA-512 integrity: `sha512-1NpzWEXAnN84C2p11lR+k+D+viOmVA73pQlDm/VU/Wwk+RElMWo+pqD6bhD9UWHvUQA1s3oZ+WjkAZhaeWfoyw==`. Registry tarball retrieved and byte hashes matched.
+- Public annotated tag `v3.0.1`: https://github.com/roronoazoroshao369/FolderForge/releases/tag/v3.0.1 (tag object `889e845c6e0c08d11af8c2dce8a6b6eb90b99d16`; peeled commit above).
+- Public GitHub Release `v3.0.1` created 2026-10-09T03:20:23Z; records manual npm publication, original changelog and explicit absent security/reliability attestations. No release assets were attached.
+- Source CI `37751407631`: https://github.com/roronoazoroshao369/FolderForge/actions/runs/37751407631 — all six Ubuntu/macOS/Windows x Node 22/24 matrix jobs successful. Platform-skipped steps remain NOT_RUN.
+- npm live install and CLI `folderforge 3.0.1` verified separately from a clean temporary prefix. This is not broad user acceptance.
+- Publication path: operator-authorized *direct npm publish*. The repository's `publish-npm.yml` OIDC path was NOT used, and MUST NOT be re-run for already-published `3.0.1`.
+- Automatic tag-push `release.yml` run `37878788439` failed at its expected exact-commit CI + production-soak gate (no passing 24-hour soak). This is a release-policy exception, not a green release workflow; security gates remain unchanged. See https://github.com/roronoazoroshao369/FolderForge/actions/runs/37878788439.
+- GitHub remote branches: at source audit, only `main`. No open pull requests or issues. Branch-protection status: unprotected; no repository rulesets recorded.
+- Managed isolation metadata is NOT clean: `iso_b158d434167e4eb8b283` and `iso_0e1294c275b34225a61f` report active/sourceDirty despite corresponding worktree directories being missing from disk and `git worktree list` containing only main. Do not discard/reconstruct without forensic integrity checks.
 
-## Previously inspected environment (not rechecked for this update)
+## Evidence boundary and open risk register
 
-Host: Linux `devops-HP-Z420-Workstation`, kernel `7.0.0-31-generic`, uid `1000(devops)`, Node `22.23.0`. Docker: `/usr/bin/docker`. Podman: not on PATH, no `/usr/bin/podman` or `/usr/local/bin/podman`, `podman.service` and `podman.socket` inactive, no `/run/podman` or `/run/user/1000/podman`. cgroup: `0::/init.scope`. Real Podman acceptance is NOT_RUN. Present Docker images are unrelated local fixtures and are not Podman or VM-host proof.
+| Risk | Status | Required evidence |
+| --- | --- | --- |
+| npm publication | PUBLISHED_MANUAL | Package + registry bytes + exact source SHA verified; not an attested release |
+| 24-hour exact-commit production soak | WAIVED_FOR_MANUAL_PUBLICATION / NOT_RUN | No claimed reliability certification; a future official release needs actual successful soak |
+| GitHub release gate | FAILED_EXPECTED_MISSING_SOAK | `release.yml` run `37878788439` fails by design; no gate was weakened |
+| Release provenance/SBOM | UNATTESTED | No original protected-workflow release bundle, GitHub build attestation or SBOM attestation for published bytes |
+| Branch protection and npm publish environment | OPEN / EXTERNAL | Branch not protected; protected environment/trusted publisher configuration not verified |
+| R16 real Podman and platform parity | OPEN | Native Podman rootless/mount/cgroup evidence absent; skip != pass |
+| R17 beta/Danger Mode ratification | OPEN | Independent user evidence and human authorization outside code/CI |
+| Isolation metadata with missing worktrees | OPEN / DATA-SAFETY | Separate approved goal, preserve sourceDirty metadata until proven safe |
+| R20 | High | VERIFIED_CI | Mission Control Vite 6.4.4 / source-map-js remediation verified on CI; unchanged by this documentation update |
 
-## Verification truth
+## Goal #57 (post-publish closure)
 
-Baseline and merge CI prove only steps that ran. Docker isolation on Ubuntu/Node 22 is not Podman or macOS/Windows container-runtime proof. Windows jobs still skip the full suite, package/stdio/HTTP smokes, heartbeat stress, and MCP Inspector. Those skips are NOT_RUN, not passes.
+Publish/tag/release/source hashes were independently verified. This documentation revision reconciles public inventory and handoff. Completion of its own exact-head CI, merge to main, and post-merge CI must be observed independently before reporting Goal #57 fully complete.
 
-On PR head run `37286780402`, Windows/Node 22 recorded: `Windows danger-mode regression` success, `Pinned third-party child MCP compatibility` success, `Build` success; `Test`, package smoke, stdio smoke, HTTP smoke, heartbeat stress, and MCP Inspector skipped. No `ci.yml` condition changed.
+## Previously inspected environment
 
-## Risk register
+Historical Linux host evidence included Docker/Node 22, while real Podman rootless acceptance remained NOT_RUN. R20 Mission Control dependency remediation is **VERIFIED_CI**, and remains unaffected by 3.0.1 publication.
 
-| ID | Severity | Status | Evidence / boundary |
-| --- | --- | --- | --- |
-| R11 | High | Fixed | Terminal timeout/kill reaping remains on main. |
-| R12 | High | Fixed | Applicable Linux/Docker sandbox CI gate remains enabled. |
-| R13 | High | Fixed | Terminal timeout, signal, and uncertain outcomes remain distinct. |
-| R14 | High | Fixed | Orphan recovery and Windows npm launch fixes remain on main. |
-| R15 | High | Fixed | Windows/Node 22 third-party child-MCP step succeeded again in run `37286780402`. |
-| R16 | Medium | Open | Real Podman runtime evidence absent. Rootless UID/mount/cgroup behavior and VM-host portability unverified. Docker success and routing mocks are not Podman proof. |
-| R17 | External | Open | At `2026-10-05T13:34:32Z`, the GitHub `main` branch protection API returned HTTP 404 `Branch not protected`, and repository rulesets were `[]`; the protection gate is unmet. Exact-release-SHA 24-hour soak, protected npm-publish environment, human Danger Mode sign-off, beta evidence, and explicit release approval remain incomplete. No settings were changed. |
-| R18 | Medium | Fixed | PR #30 merged after run `37278290277` passed all six jobs on head `816a98aedd55538d8315036b1c6ada486a754bd6`. Absent Podman fails with ENOENT rather than Docker success. This does not close R16. |
-| R19 | Low | Fixed | `docs/compatibility.md` now matches `ci.yml`. The generated Windows run/NOT_RUN table is locked by `tests/unit/windows-ci-claims.test.ts`, which also fails if an existing Windows gate stops running. Exact-head run `37286780402` and merge run `37287594297` succeeded. This does not create Windows full-suite evidence. |
-| R20 | High | VERIFIED_CI | PR #39 merged at `4a8fcafec87bf1b6ace59042bf4688eaf853c6f8`: Vite 5.4.21 → 6.4.4 (clears GHSA-4w7w-66w2-5vf9, GHSA-v6wh-96g9-6wx3, GHSA-fx2h-pf6j-xcff), esbuild 0.21.5 → 0.25.12 via Vite 6 (clears GHSA-67mh-4wv8-2f99), and `source-map-js@^1.2.2` override (clears GHSA-68fv-2mgg-jv7q). Local audit is 0 vulnerabilities; SPA build and all 12 visual-regression screens pass. Exact-head run `37424245809` and merge run `37425225414` each passed 6/6. No Vite 8 upgrade was taken. |
+## Historical engineering milestones (prior to the 2026-10-09 publication)
+
+The following entries are prior checkpoint history only. Their older descriptions of branch counts, release status, and next steps are superseded by the authoritative snapshot above.
 
 ## Latest completed goal (2026-10-08): fail closed on invalid root CLI policy modes
 

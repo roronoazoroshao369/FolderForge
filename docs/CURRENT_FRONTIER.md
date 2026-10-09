@@ -1,74 +1,44 @@
 # CURRENT FRONTIER
 
-_Last verified: 2026-10-08._
+_Last release/source verification: 2026-10-09. Release-source `7104f75f8784423ae2680a9ab80f8ac5a972eef4`, CI `37751407631` PASS 6/6 matrix jobs. New documentation commits need independent exact-head and post-merge CI._
 
-This frontier is derived from live git, GitHub Actions, and the current release contract. Repository evidence overrides historical roadmap text.
+## P0 — Goal #57: 3.0.1 post-publish closure
 
-## P0 — Exact-main CI — RECHECK EACH LIVE REVISION
+- npm `@musashishao/folderforge@3.0.1` is public (`latest`); registry tarball hashes match.
+- GitHub annotated tag and hosted Release `v3.0.1` exist and bind to the same source commit.
+- Manual publish lacked 24-hour soak and OIDC attestation/SBOM evidence; automatic tag-push `release.yml` run `37878788439` failed at the soak gate as designed. No gate changed. Never republish immutable version 3.0.1.
+- Public inventory, governance docs, handoff and explicit release exception are being reconciled in the documentation PR. Do not mark Goal #57 complete until exact-head CI, merge and post-merge CI are independently verified.
 
-Inspected main SHA `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` has green `ci.yml` run `37720127758` on that exact SHA. All six Ubuntu/macOS/Windows × Node 22/24 jobs completed successfully. PR #50 passed exact-head run `37719460783` on `1f70a77d3d59865652f03cedc5bf7b0d2e623d18` before merging to this baseline; invalid CLI policy-mode fallback is fixed and production/full dependency audit steps passed on exact-main Ubuntu/Node 22.
+## P0 — Goal #58: Managed isolation lifecycle reconciliation (next technical goal)
 
-PR #35 was closed without merge after exact-head run `37400080019` failed; its handoff was superseded by PR #37. The other eight dependency PRs were also closed without merge because their exact-head CI had failures. PR #39 later merged the separately reviewed Mission Control remediation after exact-head CI passed; no PRs were open at this run's discovery. Successful matrix jobs prove only steps that ran; skipped platform-specific checks are not evidence.
+Two records (`iso_b158d434167e4eb8b283` / `iso_0e1294c275b34225a61f`) remain active/sourceDirty while their worktree roots are missing and Git reports only the main worktree. Start with read-only inventory and reproducible failure, not deletion. Design a fail-closed, non-destructive state reconciliation path, cover missing worktree / dirty source / branch missing / restart cases, preserve audit evidence and recovery options, and verify with TDD. Do not silently discard human work.
 
-## P0 — Branch cleanup — BLOCKED ON ISOLATION / REMOTE DELETE ACCESS
+## P1 — Adoption and compatibility proof
 
-At product baseline `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e`, 8 non-main remote branch refs remain. Seven older refs are behind main with ahead=0; the squash-merged PR #50 branch has the same Git tree as main, but remains graph-divergent. FolderForge local MCP `isolation_list` returned 404 and `git_status` returned 429, so active managed worktree ownership is unverified. The available GitHub connector has no branch-ref delete operation. Do not discard source-dirty managed isolation or claim main-only. Recheck references and clean only after reviewing worktree status and obtaining a tool with authorized branch deletion.
+- Independently install `3.0.1` from npm on Linux, macOS and Windows (Node 22 and 24), run `doctor`, first real MCP tool task, authenticated HTTP and actual client connection.
+- Existing exact-source CI has 6 successful jobs; Windows and several macOS jobs skip full-suite/security/package checks. Skips remain NOT_RUN. Preserve an accurate platform matrix.
+- Collect human onboarding and incident-exercise evidence; use `docs/beta-program.md` and `docs/maturity-and-proof.md`.
 
-## P0 — Danger-mode containment — IMPLEMENTED, KEEP EVIDENCE-BOUND
+## P1 — Security and release governance
 
-Danger mode bypasses manual approval but not hard denies, authorization, path and Capsule containment, audit, rate limits, or terminal sandbox requirements. The terminal sandbox must fail closed unless Docker or Podman containment is actually active.
+- R16 real Podman rootless UID/mount/cgroup verification remains open. Docker and routing mocks are not Podman proof.
+- R17 branch protection, protected npm-publish GitHub environment, trusted-publisher setup, Danger Mode human sign-off and external beta remain open.
+- For *future* releases, preserve exact-commit soak, immutable SBOM/provenance and OIDC protected publishing. A manually published historical package cannot retroactively acquire a passing workflow receipt.
 
-Current CI provides applicable Linux/Docker containment evidence. It does not establish Podman, macOS container-runtime, or Windows container-runtime parity.
+## P1 — Mission Control dependency audit
 
-## P1 — Invalid root CLI policy mode — VERIFIED_CI
-
-PR #50 blocks invalid `--policy`/`--policy-mode` values before loading the effective policy. RED regression on test-only commit `0ed228e624e4005fcbf9979fbdd3eddcff4ef7c3` observed two failed tests (actual exit 0). Exact final head `1f70a77d3d59865652f03cedc5bf7b0d2e623d18` passed `37719460783` 6/6; merged main `228bfcd449fe9d2f16139ffd76d1d7d4d8df121e` passed `37720127758` 6/6. No release gates were changed.
-
-## P1 — Root CLI option parsing — VERIFIED_CI
-
-PR #48 merged at `33026b16b27657544ec152e6611b644e386b6639` after exact-head run `37714944668` succeeded 6/6, with exact-main run `37715608774` also green 6/6. Value-taking root flags reject following tokens starting with `-`; regressions cover project/config/token/port with next option. This closes the previous option-swallowing candidate; choose a newly reproduced correctness/DX issue next. No release gate changed.
-
-## P1 — Reconcile governance documentation — BASELINE REFRESHED
-
-PR #29 is merged. The verified main baseline is now recorded above; future commits must not self-attest their own CI or pretend the baseline SHA is their eventual merge SHA.
-
-## P1 — Podman smoke selection — IMPLEMENTED AND MERGED
-
-The child-MCP sandbox smoke previously hardcoded Docker when Podman was requested. The scoped fix now validates the existing selector and aligns generated config, prerequisites, and reported engine. Local verification and exact-head CI run `37278290277` passed. PR #30 merged at `27fc3e0aa7c79228f84a1f9b351c46c2af27713d`; match its main run `37279062422` and any subsequent documentation-only merge to live main before readiness claims.
-
-Acceptance names the environment: Linux/Node 22 with Docker present and Podman absent must reject requested Podman without falling back to Docker. Real Docker smoke must still pass. Routing-only protocol mocks are not Podman containment evidence.
-
-## P1 — Windows workflow claims — RECONCILED
-
-PR #32 closed the false claim that every matrix job runs the full suite and package/stdio/HTTP smokes. The documented Windows contract is generated from `ci.yml` and locked by a regression test. No Windows gate was removed. Skipped Windows checks remain NOT_RUN.
-
-## P1 — Real Podman and portability evidence — STILL OPEN
-
-Run both child-MCP boundary smoke and terminal runtime tests in a real, explicitly recorded Podman deployment. Record exact SHA, runtime version, rootless/rootful mode, UID mappings, mounts, cgroups, command, exit code, and artifact. Docker success must not be reused as Podman proof. macOS/Windows VM mount semantics remain environment-specific.
-
-## P1 — Mission Control dependency audit — VERIFIED_CI (R20)
-
-The separate `packages/mission-control` audit reported 1 moderate and 2 high vulnerabilities: esbuild, source-map-js, and Vite. PR #39 merged the minimal compatible remediation: Vite 5.4.21 → 6.4.4 plus `source-map-js@^1.2.2`; Vite 6 resolves esbuild 0.25.12. Local audit reports 0 vulnerabilities, the build passes, and the 12-screen visual suite is pixel-identical. Exact-head run `37424245809` and merge-SHA run `37425225414` both passed all six jobs. R20 is VERIFIED_CI. Vite 8 was not taken; any future Vite 7/8 move requires a separate compatibility review.
-
-Root production and full dependency audits are clear on inspected main SHA `33026b16b27657544ec152e6611b644e386b6639`, exact run `37715608774`. The prior main baseline became red when GHSA-6qxp-vccf-f47h began flagging the locked `@modelcontextprotocol/sdk@1.29.0`; PR #46 raised the floor to `^1.32.1` and restored both audits. Audit cleanliness remains time-bound to the advisory database at run time. R16 and R17 remain open; no release gate changed.
+R20 is **VERIFIED_CI** for the Vite 6.4.4 / source-map-js security remediation, supported by independent exact-head and post-merge matrix CI. No pending R20 claim remains; future dependency advisory drift requires a fresh reproduction.
 
 ## P2 — External release evidence
 
-The following remain human-gated or external:
+The 3.0.1 manual publication explicitly did NOT meet the 24-hour active soak / protected npm OIDC / SBOM-attestation gates. Those remain mandatory for the standard future-release process; do not retroactively label them passed. Podman acceptance and independent beta are also open.
 
-1. completed 24-hour soak on the eventual exact release SHA;
-2. branch protection confirmation/change;
-3. protected `npm-publish` environment;
-4. Danger Mode human sign-off;
-5. beta/design-partner evidence;
-6. explicit approval for tag, npm publish, and GitHub Release.
+## P2 — UX and footprint after stabilization
 
-Short soak smoke, sample-volume simulation, a green workflow definition, or a skipped step cannot satisfy these gates.
-
-## Feature frontier after stabilization
-
-Major product work resumes only after the release evidence frontier is explicit and no higher-priority containment or portability claim is false. Potential later work includes Mission Control and Fleet completeness, marketplace maturity, and distributed operation. New public surfaces require an approved proposal.
+- Test Mission Control/Fleet onboarding on clean machines and representative clients.
+- Review the published tarball's generated dashboard assets for cumulative, unused hashed bundles. Any cleanup must be proven against the pack/install/visual regression suite in a NEW patch release, not in 3.0.1.
+- Treat distributed coordination and marketplace as Labs until external gates are satisfied.
 
 ## Decision rule
 
-Select one goal per run using this order: red exact-main CI, reproducible safety risk, false supported-platform claim, measurable correctness/DX, release-decision documentation drift, then low-risk unblockers. Keep R16/R17 evidence and external release gates explicit; do not combine unrelated goals.
+One primary goal per iteration. Prioritize red exact-main CI, reproducible data/security risk, false platform claims, measured correctness/DX, then feature scope. Require Superpowers discovery, appropriate approval stage, TDD for behavior changes, exact-head CI before PR merge, post-merge main verification, and removal of completed *temporary* remote branches. Never automatically destroy sourceDirty isolation metadata or claim skipped tests as passed.

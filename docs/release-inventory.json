@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-07-20T16:15:46.717Z",
+  "capturedAt": "2026-10-09T03:25:08.342Z",
   "repository": "roronoazoroshao369/FolderForge",
   "package": {
     "name": "@musashishao/folderforge",
-    "sourceVersion": "2.5.0",
+    "sourceVersion": "3.0.1",
     "distTags": {
       "next": "2.0.0-rc.2",
-      "latest": "2.3.4"
+      "latest": "3.0.1"
     }
   },
   "remoteTags": [
@@ -22,9 +22,117 @@
       "object": "7803b0e0ed1d7f610d11f556d0c6f4c0122b94cc",
       "commit": "5728e3b2608b51cfefe809cc2da8c35112380356",
       "annotated": true
+    },
+    {
+      "tag": "v2.7.1",
+      "object": "66eb55bab14dbebcfbbe4269dbfdf5d00a5b4af2",
+      "commit": "33049b9b0f8b4c87570e59a2018f38441902f438",
+      "annotated": true
+    },
+    {
+      "tag": "v2.7.11",
+      "object": "b18763939288c5fb4c74559e38c705fcb93a1e09",
+      "commit": "b6f48be39a67c84e4219d70f18e444e2cca3adad",
+      "annotated": true
+    },
+    {
+      "tag": "v2.7.2",
+      "object": "7a3f5eaf6c65b25c431a8f46115a013fc16c333e",
+      "commit": "35894d62f8c96ba74719e6298f0461ad3ce3c32e",
+      "annotated": true
+    },
+    {
+      "tag": "v2.7.3",
+      "object": "9226460528b4946e3dd33b388497bfe87dd23751",
+      "commit": "03959a79507c2e889830ae4fd18e24138310c9b0",
+      "annotated": true
+    },
+    {
+      "tag": "v2.7.4",
+      "object": "bef02878dff3b88b38657b322ecd203d514e5371",
+      "commit": "721f83897682747b885aeacd6ecb608f36726c7c",
+      "annotated": true
+    },
+    {
+      "tag": "v2.7.5",
+      "object": "571ca78a4b6e490f10dd50ef377045f3007e7972",
+      "commit": "2524d735a9fbc41a7b45f883b08cfe2ecf1f9786",
+      "annotated": true
+    },
+    {
+      "tag": "v2.7.6",
+      "object": "9af088760320aeb2b2ced4974bfe17661abc1432",
+      "commit": "08890562a88b0957aac28984c4c2b043fa6a9494",
+      "annotated": true
+    },
+    {
+      "tag": "v2.7.7",
+      "object": "9d8e561e8dd7e76be0c65ad36d17cf00e1e0cd26",
+      "commit": "82b1b0fccf6f884b08914362bf985c8fc3780b35",
+      "annotated": true
+    },
+    {
+      "tag": "v2.8.0",
+      "object": "61840a19630f9f4f8859e393ab3cd8d37cff23a7",
+      "commit": "917e6026ba63c022f90ae6112eff9042c5f47b29",
+      "annotated": true
+    },
+    {
+      "tag": "v2.8.1",
+      "object": "d7c7ff8ee5307d5b786c321cb69368c1b1503006",
+      "commit": "aecd85f6a5235ac07a80a87c0dfab540bfb830d8",
+      "annotated": true
+    },
+    {
+      "tag": "v2.9.0",
+      "object": "ff7d972a6a3565ec2710cf84539067bac8837316",
+      "commit": "b0f720a225598e4fc314cbd86b6ea2d94ae7cae5",
+      "annotated": true
+    },
+    {
+      "tag": "v3.0.0",
+      "object": "0098f77e1fc6882a2fa09bf930dd8d73070b0c33",
+      "commit": "953e827a4095d52e0b9d2d001e86d13eb98fcd32",
+      "annotated": true
+    },
+    {
+      "tag": "v3.0.1",
+      "object": "889e845c6e0c08d11af8c2dce8a6b6eb90b99d16",
+      "commit": "7104f75f8784423ae2680a9ab80f8ac5a972eef4",
+      "annotated": true
     }
   ],
   "githubReleases": [
+    {
+      "tag": "v3.0.1",
+      "publishedAt": "2026-10-09T03:20:23Z",
+      "immutable": false,
+      "assets": []
+    },
+    {
+      "tag": "v2.7.4",
+      "publishedAt": "2026-07-28T03:34:23Z",
+      "immutable": false,
+      "assets": []
+    },
+    {
+      "tag": "v2.7.3",
+      "publishedAt": "2026-07-27T10:18:09Z",
+      "immutable": false,
+      "assets": []
+    },
+    {
+      "tag": "v2.7.2",
+      "publishedAt": "2026-07-27T09:10:30Z",
+      "immutable": false,
+      "assets": []
+    },
+    {
+      "tag": "v2.7.1",
+      "publishedAt": "2026-07-27T07:09:21Z",
+      "immutable": false,
+      "assets": []
+    },
     {
       "tag": "v2.0.0",
       "publishedAt": "2026-07-13T00:54:46Z",
@@ -381,6 +489,140 @@
       "githubRelease": null,
       "status": "registry-commit-aligned",
       "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.7.4",
+      "publishedAt": "2026-07-28T03:55:19.574Z",
+      "gitHead": "721f83897682747b885aeacd6ecb608f36726c7c",
+      "sourceVersion": "2.7.4",
+      "distIntegrity": "sha512-qLytNkOhZUE4OezWVnO49olZYrj19odGVD0444xol/k4EGfNwmzHPo6TK90B30Sz3XIvkJ07A16g9bWfDX+BwA==",
+      "distShasum": "ef5a1cb6da5b16d1c5b2760909dcaf8ecd30fa84",
+      "remoteTag": {
+        "object": "bef02878dff3b88b38657b322ecd203d514e5371",
+        "commit": "721f83897682747b885aeacd6ecb608f36726c7c",
+        "annotated": true
+      },
+      "githubRelease": {
+        "tag": "v2.7.4",
+        "publishedAt": "2026-07-28T03:34:23Z",
+        "immutable": false,
+        "assets": []
+      },
+      "status": "tag-and-release-aligned",
+      "reason": "npm gitHead, source version, remote tag, and GitHub Release align"
+    },
+    {
+      "version": "2.7.5",
+      "publishedAt": "2026-07-28T15:41:06.005Z",
+      "gitHead": "2524d735a9fbc41a7b45f883b08cfe2ecf1f9786",
+      "sourceVersion": "2.7.5",
+      "distIntegrity": "sha512-ckVBsS0xHEoG68Caij674iBHL/2hQ0COk9Apb0dmFqe4mlz+B8guBFEE0YXwH6dPGYxx3m8ldIwh4M5KhbXMCw==",
+      "distShasum": "b13142facdf532d0f81400c3d540bc69999cde75",
+      "remoteTag": {
+        "object": "571ca78a4b6e490f10dd50ef377045f3007e7972",
+        "commit": "2524d735a9fbc41a7b45f883b08cfe2ecf1f9786",
+        "annotated": true
+      },
+      "githubRelease": null,
+      "status": "tag-aligned-no-release",
+      "reason": "npm gitHead, source version, and remote tag align; no GitHub Release exists"
+    },
+    {
+      "version": "2.7.6",
+      "publishedAt": "2026-07-29T03:30:20.147Z",
+      "gitHead": "08890562a88b0957aac28984c4c2b043fa6a9494",
+      "sourceVersion": "2.7.6",
+      "distIntegrity": "sha512-H2QiEK5wMQMeqqVBVqQ1JpZ3lRBuRRMfVun2xhfnh1kL2GDLy2G9rkvP8JIuB4MsoyogSAHKmzgU7Ga9RUa/GQ==",
+      "distShasum": "43d3ecc31b4117c3ac5c98d7b59c005bb51d5a64",
+      "remoteTag": {
+        "object": "9af088760320aeb2b2ced4974bfe17661abc1432",
+        "commit": "08890562a88b0957aac28984c4c2b043fa6a9494",
+        "annotated": true
+      },
+      "githubRelease": null,
+      "status": "tag-aligned-no-release",
+      "reason": "npm gitHead, source version, and remote tag align; no GitHub Release exists"
+    },
+    {
+      "version": "2.7.9",
+      "publishedAt": "2026-08-06T08:34:00.556Z",
+      "gitHead": "4c8005e92677af37f84ccac5a427babecd7a801c",
+      "sourceVersion": "2.7.9",
+      "distIntegrity": "sha512-w+MmiIuQH01roe2m1bu0p+ZjvNUPtPPN3vHLX48LHOQ52AC4Q5j3Jus2wHqsZ3WW0G+OQ9eLsc4ysN5BWEs3ig==",
+      "distShasum": "4313ec917a45a7c3410f41bf79f2d747c78e98bd",
+      "remoteTag": null,
+      "githubRelease": null,
+      "status": "registry-commit-aligned",
+      "reason": "npm gitHead exists locally and source version matches; no public tag proves it"
+    },
+    {
+      "version": "2.7.11",
+      "publishedAt": "2026-08-29T00:58:02.101Z",
+      "gitHead": "b6f48be39a67c84e4219d70f18e444e2cca3adad",
+      "sourceVersion": "2.7.11",
+      "distIntegrity": "sha512-R1OYROyt8AK2INWU3ycDCaUWWn7VU/u38e8n0KWAoeYJlgK0nwkseaDTjCqRQSzvQq2zCd6h2B+/QPf2U3OLzg==",
+      "distShasum": "1e0e7cc67d597ca9e967c078e13262b546144ab7",
+      "remoteTag": {
+        "object": "b18763939288c5fb4c74559e38c705fcb93a1e09",
+        "commit": "b6f48be39a67c84e4219d70f18e444e2cca3adad",
+        "annotated": true
+      },
+      "githubRelease": null,
+      "status": "tag-aligned-no-release",
+      "reason": "npm gitHead, source version, and remote tag align; no GitHub Release exists"
+    },
+    {
+      "version": "2.8.0",
+      "publishedAt": "2026-09-05T01:30:33.473Z",
+      "gitHead": "917e6026ba63c022f90ae6112eff9042c5f47b29",
+      "sourceVersion": "2.8.0",
+      "distIntegrity": "sha512-31R+j1NWBIqcR8TQAWFPAqq71tecZkQZ9mVp2Qdeemygk0E3LxGrecPvFPAzyeu+QYytcVUG27iP7B/suW+stg==",
+      "distShasum": "ac4e8a02ffbd1205aa8f1939759a8148b8d93741",
+      "remoteTag": {
+        "object": "61840a19630f9f4f8859e393ab3cd8d37cff23a7",
+        "commit": "917e6026ba63c022f90ae6112eff9042c5f47b29",
+        "annotated": true
+      },
+      "githubRelease": null,
+      "status": "tag-aligned-no-release",
+      "reason": "npm gitHead, source version, and remote tag align; no GitHub Release exists"
+    },
+    {
+      "version": "2.9.0",
+      "publishedAt": "2026-09-17T16:18:42.271Z",
+      "gitHead": "b0f720a225598e4fc314cbd86b6ea2d94ae7cae5",
+      "sourceVersion": "2.9.0",
+      "distIntegrity": "sha512-rACpGc4RPMjcjnpnici+kF/qk3zqCAO5mhwqkKdKfxphYfGSx2kr+kj1dC/u6V0bDiUQtsx7pkNqeqwdC9jZBw==",
+      "distShasum": "45d13caddc7e26171ed909294e80b0a3fec98a30",
+      "remoteTag": {
+        "object": "ff7d972a6a3565ec2710cf84539067bac8837316",
+        "commit": "b0f720a225598e4fc314cbd86b6ea2d94ae7cae5",
+        "annotated": true
+      },
+      "githubRelease": null,
+      "status": "tag-aligned-no-release",
+      "reason": "npm gitHead, source version, and remote tag align; no GitHub Release exists"
+    },
+    {
+      "version": "3.0.1",
+      "publishedAt": "2026-10-09T03:14:58.190Z",
+      "gitHead": "7104f75f8784423ae2680a9ab80f8ac5a972eef4",
+      "sourceVersion": "3.0.1",
+      "distIntegrity": "sha512-1NpzWEXAnN84C2p11lR+k+D+viOmVA73pQlDm/VU/Wwk+RElMWo+pqD6bhD9UWHvUQA1s3oZ+WjkAZhaeWfoyw==",
+      "distShasum": "a601fc004470387bfa21caf8489697ec1298fa3b",
+      "remoteTag": {
+        "object": "889e845c6e0c08d11af8c2dce8a6b6eb90b99d16",
+        "commit": "7104f75f8784423ae2680a9ab80f8ac5a972eef4",
+        "annotated": true
+      },
+      "githubRelease": {
+        "tag": "v3.0.1",
+        "publishedAt": "2026-10-09T03:20:23Z",
+        "immutable": false,
+        "assets": []
+      },
+      "status": "tag-and-release-aligned",
+      "reason": "npm gitHead, source version, remote tag, and GitHub Release align"
     }
   ],
   "limitations": [
