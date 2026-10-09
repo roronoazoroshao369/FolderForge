@@ -158,6 +158,21 @@ describe("WorktreeManager", () => {
     expect(manager.list()[0]?.state).toBe("applied");
   });
 
+  it("reports incomplete recovery rather than recreate a vanished source repository", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root, {
+      beforeRollbackUntrackedRemove: (_entry, index) => {
+        if (index === 1) rmSync(root, { recursive: true, force: true });
+      },
+    });
+    const isolation = manager.create("lost-source-rollback");
+    writeFileSync(join(isolation.worktreeRoot, "a.txt"), "original applied a\n");
+    writeFileSync(join(isolation.worktreeRoot, "b.txt"), "original applied b\n");
+    manager.apply(isolation.id);
+    expect(() => manager.rollback(isolation.id)).toThrow(/ROLLBACK_RECOVERY_INCOMPLETE/);
+    expect(existsSync(root)).toBe(false);
+  });
+
   it("discard refuses a task branch ref replaced after worktree removal", () => {
     const root = repository();
     let replaced = false;

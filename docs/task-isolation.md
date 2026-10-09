@@ -165,7 +165,11 @@ bounded, hash-verified copies of the source's untracked bytes (maximum 10 MiB)
 in memory; if a later step fails, it attempts to restore those original bytes
 using exclusive file creation, even if the task worktree disappears. A competing
 external filesystem writer can still prevent a complete rollback; such a
-failure must never be represented as an atomic success. Any user edit,
+failure must never be represented as an atomic success. If the original
+source repository itself disappears or its HEAD identity changes during
+recovery, FolderForge reports `ROLLBACK_RECOVERY_INCOMPLETE` and does
+**not** recreate an untrusted source directory. The operator must investigate
+the partially completed outcome using independent backups. Any user edit,
 missing file, hash mismatch, extra path, or patch corruption causes a
 fail-closed refusal.
 

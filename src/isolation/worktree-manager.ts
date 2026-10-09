@@ -722,8 +722,16 @@ export class WorktreeManager {
         );
       }
     } catch (error) {
-      for (const entry of removed) {
-        const backup = sourceBackups.get(entry.path);
+      try {
+        // Never recreate a vanished repository or restore into a different
+        // checkout. External deletion cannot be made atomically recoverable.
+        if (!existsSync(isolation.sourceRoot) ||
+            !lstatSync(isolation.sourceRoot).isDirectory() ||
+            git(isolation.sourceRoot, ["rev-parse", "--verify", "HEAD"]).trim() !== isolation.sourceHead) {
+          throw new Error("Original source repository is unavailable or changed.");
+        }
+        for (const entry of removed) {
+          const backup = sourceBackups.get(entry.path);
         if (!backup) throw new Error("Rollback recovery bytes unavailable.");
         let target = this.validatedInside(
           resolve(isolation.sourceRoot, assertRelativePath(entry.path)),
@@ -731,8 +739,14 @@ export class WorktreeManager {
         );
         mkdirSync(dirname(target), { recursive: true });
         target = this.validatedInside(target, isolation.sourceRoot);
-        // Exclusive create: never overwrite a concurrent user's replacement.
-        writeFileSync(target, backup.bytes, { flag: "wx", mode: backup.mode });
+          // Exclusive create: never overwrite a concurrent user's replacement.
+          writeFileSync(target, backup.bytes, { flag: "wx", mode: backup.mode });
+        }
+      } catch (recoveryError) {
+        throw new Error(
+          "ROLLBACK_RECOVERY_INCOMPLETE: source files may be missing; manual recovery is required. " +
+          (recoveryError instanceof Error ? recoveryError.message : String(recoveryError)),
+        );
       }
       throw error;
     }
