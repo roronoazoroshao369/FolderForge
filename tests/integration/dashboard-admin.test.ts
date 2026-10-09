@@ -80,12 +80,14 @@ describe('dashboard admin authorization plane', () => {
       const body = await response.json() as { isolations: Array<{ id: string; observedHealth?: string }> };
       expect(body.isolations[0]).toMatchObject({ id: isolation.id, observedHealth: 'missing_worktree' });
     }
-    const response = await fetch(`${harness.baseUrl}/isolations/${encodeURIComponent(isolation.id)}/discard`, { method: 'POST' });
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      data: { code: 'ISOLATION_WORKTREE_MISSING' },
-    });
+    for (const prefix of ['/isolations', '/mission-control/isolations']) {
+      const response = await fetch(`${harness.baseUrl}${prefix}/${encodeURIComponent(isolation.id)}/discard`, { method: 'POST' });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        data: { code: 'ISOLATION_WORKTREE_MISSING' },
+      });
+    }
     expect(readFileSync(statePath)).toEqual(before);
     expect(execFileSync('git', ['rev-parse', `refs/heads/${isolation.branch}`], { cwd: harness.root, encoding: 'utf8' }).trim()).toBe(branchHead);
   });
