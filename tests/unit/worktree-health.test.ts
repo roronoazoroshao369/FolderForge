@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { WorktreeIsolation } from "../../src/isolation/worktree-manager.js";
 import { inspectWorktreeHealth } from "../../src/isolation/worktree-health.js";
+import { canonicalCandidatePath } from "../../src/core/path-identity.js";
 
 const roots: string[] = [];
 function gitState(root: string, worktreeRoot: string) {
@@ -54,12 +55,53 @@ describe("inspectWorktreeHealth", () => {
     expect(afterMetadataBytes).toEqual(beforeMetadataBytes);
   });
 
+  it("normalizes symlink-alias paths from the Git inventory before declaring a worktree missing", () => {
+    const root = repository();
+    const alias = join(root, "alias");
+    symlinkSync(root, alias, "dir");
+    const missing = join(root, "never-created");
+    const source = record(root, missing, "never-created");
+    const originalInventory = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" });
+    const aliasInventory = originalInventory.replaceAll("worktree " + realpathSync.native(root), "worktree " + alias);
+    expect(aliasInventory).not.toBe(originalInventory);
+
+    const result = inspectWorktreeHealth(source, {
+      run: (args, cwd) => args.includes("worktree")
+        ? aliasInventory
+        : execFileSync("git", args, { cwd, encoding: "utf8" }),
+    });
+
+    expect(result.observedHealth).toBe("missing_worktree");
+    expect(result.branchRef).toBe("absent");
+  });
+
+  it("normalizes the registered missing worktree path through a symlinked ancestor", () => {
+    const root = repository();
+    const alias = join(root, "alias");
+    symlinkSync(root, alias, "dir");
+    const missing = join(root, "registered-gone");
+    const source = record(root, missing, "task-gone");
+    const inventory = "worktree " + alias + "\nHEAD " + source.sourceHead + "\nbranch refs/heads/main\n\n" +
+      "worktree " + join(alias, "registered-gone") + "\nHEAD " + source.sourceHead + "\nbranch refs/heads/task-gone\n\n";
+
+    const result = inspectWorktreeHealth(source, {
+      run: (args, cwd) => args.includes("worktree")
+        ? inventory
+        : execFileSync("git", args, { cwd, encoding: "utf8" }),
+    });
+
+    expect(result.observedHealth).toBe("identity_mismatch");
+  });
+
   it("classifies a registered worktree with a missing path as an identity mismatch", () => {
     const root = repository();
     const worktreeRoot = join(root, "registered worktree");
     execFileSync("git", ["worktree", "add", "-b", "task-registered", worktreeRoot, "HEAD"], { cwd: root });
     const isolation = record(root, worktreeRoot, "task-registered");
-    expect(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" })).toContain(`worktree ${worktreeRoot}`);
+    const listed = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" });
+    const listedRoots = listed.split(/\r?\n/).filter(line => line.startsWith("worktree "))
+      .map(line => canonicalCandidatePath(line.slice("worktree ".length)));
+    expect(listedRoots).toContain(canonicalCandidatePath(worktreeRoot));
     rmSync(worktreeRoot, { recursive: true, force: true });
 
     const result = inspectWorktreeHealth(isolation);

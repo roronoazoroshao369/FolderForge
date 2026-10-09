@@ -1,6 +1,6 @@
 import { lstatSync, realpathSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { samePath } from "../core/path-identity.js";
+import { canonicalCandidatePath, samePath } from "../core/path-identity.js";
 import { spawnSync } from "node:child_process";
 import type { WorktreeIsolation } from "./worktree-manager.js";
 
@@ -88,6 +88,15 @@ function verifiedWorktreeInventory(gitProbe: GitHealthProbe, sourceRoot: string)
   return blocks;
 }
 
+function inventoryContainsPath(blocks: string[][], expectedPath: string): boolean {
+  const canonicalExpected = canonicalCandidatePath(expectedPath);
+  return blocks.some(lines => lines.some(line =>
+    line.startsWith("worktree ") &&
+    isAbsolute(line.slice("worktree ".length)) &&
+    samePath(canonicalCandidatePath(line.slice("worktree ".length)), canonicalExpected),
+  ));
+}
+
 export function inspectWorktreeHealth(
   record: WorktreeIsolation,
   gitProbe: GitHealthProbe = defaultProbe,
@@ -121,16 +130,16 @@ export function inspectWorktreeHealth(
       const blocks = verifiedWorktreeInventory(gitProbe, record.sourceRoot);
       const canonicalSource = realpathSync.native(record.sourceRoot);
       const commonPath = isAbsolute(sourceCommon) ? sourceCommon : resolve(record.sourceRoot, sourceCommon);
-      if (!samePath(resolve(record.sourceRoot, sourceTop), canonicalSource) ||
+      if (!samePath(realpathSync.native(resolve(record.sourceRoot, sourceTop)), canonicalSource) ||
           !sourceCommon || !samePath(realpathSync.native(commonPath), expectedCommonDirectory(record.sourceRoot))) {
         return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
       }
-      const sourceRegistered = blocks.some(lines => lines.includes(`worktree ${canonicalSource}`));
+      const sourceRegistered = inventoryContainsPath(blocks, canonicalSource);
       if (!sourceRegistered) {
         return { observedHealth: "unverifiable", branchRef: "unverifiable", observedAt, diagnosticCode: "ISOLATION_HEALTH_UNVERIFIABLE" };
       }
       branchRef = candidateBranchRef; // Only trust ref absence after verified source + complete Git inventory.
-      const registered = blocks.some(lines => lines.includes(`worktree ${resolve(record.worktreeRoot)}`));
+      const registered = inventoryContainsPath(blocks, record.worktreeRoot);
       if (registered) return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
       return { observedHealth: "missing_worktree", branchRef, observedAt, diagnosticCode: "ISOLATION_WORKTREE_MISSING" };
     } catch {
@@ -150,18 +159,20 @@ export function inspectWorktreeHealth(
     const expectedBranchRef = expectedBranch.slice("branch ".length);
     const registered = blocks.some(lines => {
       const branchLine = lines.find(line => line.startsWith("branch "));
-      return lines.some(line => line === `worktree ${canonicalRoot}`) &&
+      return lines.some(line => line.startsWith("worktree ") &&
+        isAbsolute(line.slice("worktree ".length)) &&
+        samePath(canonicalCandidatePath(line.slice("worktree ".length)), canonicalRoot)) &&
         (branchLine === expectedBranch || (branchLine === undefined && lines.includes("detached")));
     });
     const worktreeBranch = probe(gitProbe, ["-C", canonicalRoot, "symbolic-ref", "-q", "HEAD"], record.sourceRoot);
     const worktreeCommon = probe(gitProbe, ["-C", canonicalRoot, "rev-parse", "--git-common-dir"], record.sourceRoot);
     const resolvedCommon = isAbsolute(sourceCommon) ? sourceCommon : resolve(record.sourceRoot, sourceCommon);
     const resolvedWorktreeCommon = isAbsolute(worktreeCommon) ? worktreeCommon : resolve(canonicalRoot, worktreeCommon);
-    if (!registered || !samePath(worktreeTop, canonicalRoot) ||
+    if (!registered || !samePath(realpathSync.native(worktreeTop), canonicalRoot) ||
         worktreeBranch !== expectedBranchRef ||
         !samePath(realpathSync.native(resolvedCommon), realpathSync.native(resolvedWorktreeCommon)) ||
         !samePath(realpathSync.native(resolvedCommon), expectedCommonDirectory(record.sourceRoot)) ||
-        !samePath(resolve(record.sourceRoot, sourceTop), realpathSync.native(record.sourceRoot))) {
+        !samePath(realpathSync.native(resolve(record.sourceRoot, sourceTop)), realpathSync.native(record.sourceRoot))) {
       return { observedHealth: "identity_mismatch", branchRef, observedAt, diagnosticCode: "ISOLATION_IDENTITY_MISMATCH" };
     }
     branchRef = candidateBranchRef;
