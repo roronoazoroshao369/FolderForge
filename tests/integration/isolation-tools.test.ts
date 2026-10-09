@@ -60,6 +60,35 @@ describe('isolation tools', () => {
     expect(readFileSync(join(root, 'file.txt'), 'utf8')).toBe('before\n');
   });
 
+  it('isolation_list exposes health without write', async () => {
+    const { root, container, registry } = setup();
+    const created = await registry.callAgent('isolation_create', { taskId: 'observed-missing' });
+    expect(created.ok).toBe(true);
+    const isolation = (created.data as { isolation: { id: string; worktreeRoot: string } }).isolation;
+    const statePath = join(root, '.git', 'folderforge', 'isolations.json');
+    const stateBefore = readFileSync(statePath, 'utf8');
+    git(root, 'worktree', 'remove', '--force', isolation.worktreeRoot);
+
+    const result = await registry.callAgent('isolation_list', {});
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        isolations: [{
+          id: isolation.id,
+          state: 'active',
+          observedHealth: 'missing_worktree',
+          branchRef: 'present',
+        }],
+      },
+    });
+    expect((result.data as { isolations: Array<{ observedAt: string }> }).isolations[0]?.observedAt).toMatch(/^\d{4}-/);
+    expect(container.isolation.list()[0]?.state).toBe('active');
+    expect(readFileSync(statePath, 'utf8')).toBe(stateBefore);
+    const restarted = new Container(defaultConfig(root));
+    expect(restarted.isolation.list()[0]?.state).toBe('active');
+    expect(readFileSync(statePath, 'utf8')).toBe(stateBefore);
+  });
+
   it('creates and reviews through the agent plane, but applies only through admin authority', async () => {
     const { root, registry } = setup();
     const created = await registry.callAgent('isolation_create', { taskId: 'tool-task' });

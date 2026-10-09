@@ -18,6 +18,10 @@ import {
   isPathWithin,
   samePath,
 } from "../core/path-identity.js";
+import {
+  inspectWorktreeHealth,
+  type IsolationHealthObservation,
+} from "./worktree-health.js";
 
 export type IsolationState =
   "active" | "applying" | "applied" | "rolled_back" | "discarded";
@@ -56,6 +60,9 @@ export interface WorkingTreeStatus {
   untracked: string[];
   conflicts: string[];
 }
+
+export interface ObservedIsolation
+  extends WorktreeIsolation, IsolationHealthObservation {}
 
 export interface WorktreeStatus {
   isolation: WorktreeIsolation;
@@ -367,6 +374,18 @@ export class WorktreeManager {
     return [...this.isolations.values()]
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map(cloneIsolation);
+  }
+
+  inspect(id: string): IsolationHealthObservation {
+    const isolation = this.requireExisting(id);
+    return inspectWorktreeHealth(isolation);
+  }
+
+  listObserved(): ObservedIsolation[] {
+    return this.list().map((isolation) => ({
+      ...isolation,
+      ...this.inspect(isolation.id),
+    }));
   }
 
   get(id: string): WorktreeIsolation | undefined {

@@ -13,7 +13,7 @@ export function isolationTools(): ToolDefinition[] {
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       handler: async (_args, ctx) => ({
         ok: true,
-        data: { ...ctx.container.isolation.describe(), isolations: ctx.container.isolation.list() },
+        data: { ...ctx.container.isolation.describe(), isolations: ctx.container.isolation.listObserved() },
       }),
     }),
     defineTool({

@@ -75,6 +75,33 @@ describe("WorktreeManager", () => {
     });
   });
 
+  it("listObserved preserves persisted lifecycle and marks missing worktree", () => {
+    const root = repository();
+    const manager = new WorktreeManager([root], root);
+    const isolation = manager.create("observed-missing");
+    const statePath = join(root, ".git", "folderforge", "isolations.json");
+    const stateBefore = readFileSync(statePath, "utf8");
+    const legacyBefore = JSON.stringify(manager.list());
+
+    git(root, "worktree", "remove", "--force", isolation.worktreeRoot);
+
+    expect(manager.list()[0]?.state).toBe("active");
+    expect(JSON.stringify(manager.list())).toBe(legacyBefore);
+    expect(manager.listObserved()[0]).toMatchObject({
+      observedHealth: "missing_worktree",
+      branchRef: "present",
+    });
+    expect(manager.inspect(isolation.id)).toMatchObject({
+      observedHealth: "missing_worktree",
+      branchRef: "present",
+    });
+    expect(readFileSync(statePath, "utf8")).toBe(stateBefore);
+
+    const restarted = new WorktreeManager([root], root);
+    expect(restarted.listObserved()[0]?.observedHealth).toBe("missing_worktree");
+    expect(readFileSync(statePath, "utf8")).toBe(stateBefore);
+  });
+
   it("starts from a linked Git worktree without loading the primary repository state", () => {
     const root = repository();
     const linkedRoot = mkdtempSync(
