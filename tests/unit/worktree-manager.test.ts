@@ -14,6 +14,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WorktreeManager } from "../../src/isolation/worktree-manager.js";
+import { inspectWorktreeHealth } from "../../src/isolation/worktree-health.js";
 
 const roots: string[] = [];
 
