@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  closeSync, constants, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync, openSync,
+  closeSync, constants, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync,
   readFileSync, renameSync, writeSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -97,6 +97,18 @@ export class TrustedHostStore {
     }
   }
 
+  getOrCreateInstallationId(): string {
+    const file = join(this.root, 'installation.json');
+    if (!existsSync(file)) {
+      putPrivateFile(file, JSON.stringify({ installationId: randomUUID() }), this.uid, true);
+    }
+    const record = readPrivateJson<{ installationId: string }>(file, this.uid);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.installationId)) {
+      throw new Error('INVALID_OPERATOR_INSTALLATION_ID');
+    }
+    return record.installationId;
+  }
+
   private requestFile(requestId: string): string {
     if (!REQUEST_RE.test(requestId)) throw new Error('INVALID_CONSENT_REQUEST_ID');
     return join(this.root, 'pending', `${requestId}.json`);
@@ -134,6 +146,34 @@ export class TrustedHostStore {
         value.consumedAt !== undefined || value.expiresAt <= this.now() ||
         value.scopeHash !== scopeDigest(value.tuple, value.identity)) return null;
     return value;
+  }
+
+  readIntentRecord(requestId: string): TrustedHostIntent | null {
+    const path = this.requestFile(requestId);
+    if (!existsSync(path)) return null;
+    const record = readPrivateJson<TrustedHostIntent>(path, this.uid);
+    if (record.schemaVersion !== 1 || record.requestId !== requestId ||
+        record.scopeHash !== scopeDigest(record.tuple, record.identity)) {
+      throw new Error('INVALID_CONSENT_INTENT');
+    }
+    return record;
+  }
+
+  findPendingByInstance(instanceId: string): TrustedHostIntent | null {
+    for (const name of readdirSync(join(this.root, 'pending')).sort()) {
+      if (!/^req_[A-Za-z0-9_-]{3,72}\.json$/.test(name)) {
+        throw new Error('INVALID_OPERATOR_FILE');
+      }
+      const request = this.readPending(name.slice(0, -5));
+      if (request?.instanceId === instanceId) return request;
+    }
+    return null;
+  }
+
+  cancelPending(requestId: string): void {
+    const pending = this.readPending(requestId);
+    if (!pending) throw new Error('CONSENT_REQUEST_UNAVAILABLE');
+    putPrivateFile(this.requestFile(requestId), JSON.stringify({ ...pending, consumedAt: this.now() }), this.uid, false);
   }
 
   consumeLocalApproval(requestId: string, expectedDigest: string): TrustedHostGrant {

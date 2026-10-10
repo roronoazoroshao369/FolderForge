@@ -35,6 +35,13 @@ afterEach(() => {
 });
 
 describe('operator-only scoped grant store', () => {
+  it('persists an installation identity for the same local operator directory', () => {
+    const { store, operatorRoot } = harness();
+    const first = store.getOrCreateInstallationId();
+    expect(first).toMatch(/^[a-f0-9-]{36}$/);
+    const reopened = new TrustedHostStore({ operatorRoot, currentUid: process.getuid?.() ?? 0, now: () => now });
+    expect(reopened.getOrCreateInstallationId()).toBe(first);
+  });
   it('creates owner-private state and a one-shot exact-scope grant', () => {
     const { store, operatorRoot } = harness();
     store.createPending(intent('req_aaa'));
