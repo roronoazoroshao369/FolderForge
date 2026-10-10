@@ -201,6 +201,7 @@ export function defaultConfig(projectRoot: string): FolderForgeConfig {
     server: {
       name: 'folderforge',
       transport: 'stdio',
+      mcpProtocol: { mode: 'legacy' },
       http: { host: '127.0.0.1', port: 7331, sessionTtlMs: 30 * 60_000 },
       dashboard: { enabled: true, host: '127.0.0.1', port: 7332 },
     },
@@ -396,6 +397,9 @@ export function validateConfig(cfg: FolderForgeConfig): void {
     if (typeof policyFile !== 'string' || policyFile.trim().length === 0) {
       errors.push(`policy.files[${index}] must be a non-empty project-relative path`);
     }
+  }
+  if (!['legacy', 'dual'].includes(cfg.server.mcpProtocol?.mode ?? 'legacy')) {
+    errors.push('server.mcpProtocol.mode must be legacy or dual');
   }
   if (!['stdio', 'http'].includes(cfg.server.transport)) {
     errors.push(`server.transport must be "stdio" or "http" (got "${cfg.server.transport}")`);
