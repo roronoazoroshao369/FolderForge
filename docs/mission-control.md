@@ -159,15 +159,12 @@ Fleet > Provision and Fleet > Configure now expose two terminal execution profil
 - `trusted-host` — the MCP server executes shell commands with its host OS
   user's permissions in danger mode, without a Docker/Podman boundary.
 
-**Host-operator authorization is mandatory.** The parent FolderForge process
-must be started with `terminal.sandbox.mode: process` and
-`terminal.sandbox.requireInDanger: false` in a local host-owned configuration.
-The web UI cannot grant this permission without that prior startup opt-in.
-The host choice becomes the default for **new Fleet MCP instances**; existing
-instances must select the profile in Fleet > Configure. Updates take effect on
-start/restart. The instance's authentication mode must not be `none` for
-trusted-host execution. Profile changes preserve the per-instance 0600
-credential file and are recorded through the normal provisioner audit path.
+**Host-operator authorization is mandatory.** Two paths are distinct:
+
+- **macOS per-instance zero-YAML consent (requires qualification):** in Fleet > Configure select `full`, `danger` and `trusted-host`, then choose **Save changes**. An authenticated Dashboard creates an immutable pending intent, but cannot grant host execution. On the Mac running the FolderForge parent, the OS-account owner runs the exact displayed command, e.g. `folderforge operator trusted-host approve req_<request-id>`, then types `APPROVE flt_<instance-id>` into an interactive terminal. The Dashboard polls for the matching grant and applies the exact three-setting tuple through a journaled transaction. Do **not** hand-edit Fleet YAML. A Dashboard Bearer token is required even on localhost; a `?token=` query parameter alone is insufficient. Saved settings on a running child are **not yet the active process profile**; stop/start only when safe.
+- **Legacy explicit startup opt-in:** the host owner can still use parent `terminal.sandbox.mode: process` and `terminal.sandbox.requireInDanger: false`; this backward-compatible global setting is not silently changed by the new UI.
+
+The Fleet instance must have authenticated MCP access (`authMode` cannot be `none`). Revoking a scoped grant through `folderforge operator trusted-host revoke req_<request-id>` prevents **future** elevated starts; an already-running child needs supervised/manual termination verification. The capability's scope hash is never exposed in a Dashboard URL or printed as a bearer secret. Same-UID malicious processes and physical-presence assurance are **outside** this feature's security guarantee; hosted macOS CI primitive tests do not replace real macOS acceptance or APFS crash-durability qualification. Generated 0600 credentials, audit, hard-denies and OS file permissions remain enforced.
 
 This option does **not** remove the command deny list, OS file permissions,
 workspace authorization for native tools, audit, or rate limits. It also does

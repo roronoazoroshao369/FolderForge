@@ -124,6 +124,7 @@ export class Container {
       // Only a host-owned startup configuration may authorize Fleet host execution.
       allowTrustedHostExecution: config.terminal.sandbox?.mode === 'process' &&
         config.terminal.sandbox.requireInDanger === false,
+      resolveTrustedHostConsent: () => this.trustedHostConsentService(),
       spawn: (command, cwd, env) => this.processes.start(command, cwd, config.terminal.shell, env),
       stopSession: (sessionId) => this.processes.stop(sessionId),
       readSession: (sessionId) => this.processes.read(sessionId).output,

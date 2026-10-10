@@ -345,6 +345,17 @@ export function provisionTools(): ToolDefinition[] {
           ) {
             throw new Error('Nothing to update: pass autoRestart, toolsPreset, policyMode, terminalExecution, and/or allowCriticalInDanger.');
           }
+          // Legacy provision_update applies each field separately. Never allow a
+          // combined terminal/profile request to persist partial elevation if
+          // its final trusted-host transition would fail authorization.
+          if (args.terminalExecution === 'trusted-host' && (
+            typeof args.autoRestart === 'boolean' ||
+            typeof args.toolsPreset === 'string' ||
+            typeof args.policyMode === 'string' ||
+            typeof args.allowCriticalInDanger === 'boolean'
+          )) {
+            throw new Error('COMBINED_TERMINAL_UPDATE_REQUIRES_PROFILE_TRANSACTION');
+          }
           if (typeof args.autoRestart === 'boolean') ctx.container.fleet.setAutoRestart(id, args.autoRestart);
           if (typeof args.toolsPreset === 'string') ctx.container.fleet.setToolsPreset(id, args.toolsPreset);
           if (typeof args.policyMode === 'string') ctx.container.fleet.setPolicyMode(id, args.policyMode);

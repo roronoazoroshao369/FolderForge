@@ -21,14 +21,17 @@ export function setToken(token: string): void {
 
 export async function api<T = unknown>(
   path: string,
-  options?: { method?: string; body?: unknown },
+  options?: { method?: string; body?: unknown; sensitive?: boolean },
 ): Promise<T> {
   const url = new URL(path, location.origin);
   const token = getToken();
-  if (token) url.searchParams.set('token', token);
+  if (token && !options?.sensitive) url.searchParams.set('token', token);
+  const headers: Record<string, string> = {};
+  if (options?.body !== undefined) headers['content-type'] = 'application/json';
+  if (token && options?.sensitive) headers.authorization = `Bearer ${token}`;
   const response = await fetch(url.toString(), {
     method: options?.method ?? 'GET',
-    headers: options?.body !== undefined ? { 'content-type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
   const text = await response.text();

@@ -62,6 +62,15 @@ describe('separate on-host operator CLI', () => {
     expect(store.validateGrant(identity, tuple)).toBe(false);
   });
 
+  it('revokes a grant using the original local request ID without revealing scope digest', async () => {
+    const { store, request } = harness();
+    store.consumeLocalApproval(request.requestId, request.scopeHash);
+    const result = await runTrustedHostOperatorCli(['revoke', request.requestId], io('REVOKE flt_approved'), store);
+    expect(result.exitCode).toBe(0);
+    expect(store.validateGrant(identity, tuple)).toBe(false);
+    expect(result.output).not.toContain(request.scopeHash);
+  });
+
   it('revokes an existing capability via interactive confirmation', async () => {
     const { store, request } = harness();
     store.consumeLocalApproval(request.requestId, request.scopeHash);

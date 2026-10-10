@@ -36,6 +36,9 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
+import { FleetProfileTransaction } from './fleet-profile-transaction.js';
+import type { TrustedHostConsentService } from '../operator/trusted-host-consent.js';
+import type { FleetProfileTuple } from '../operator/trusted-host-scope.js';
 import { fileURLToPath } from 'node:url';
 import { processCommandLine, terminatePidTree } from '../core/process-tree.js';
 
@@ -167,6 +170,8 @@ export interface FleetManagerOptions {
   now?: () => number;
   /** Host-owned permit, set only by the control-plane startup configuration. */
   allowTrustedHostExecution?: boolean;
+  /** Reload the scoped operator grant at start, including after parent restart. */
+  resolveTrustedHostConsent?: () => TrustedHostConsentService | null;
 }
 
 export const FLEET_TOOLS_PRESETS = ['vibe', 'vibe-lite', 'readonly', 'full', 'godot', 'adaptive'] as const;
@@ -413,6 +418,10 @@ export class FleetManager {
   private readonly now: () => number;
   private instances: FleetInstance[] = [];
   private readonly allowTrustedHostExecution: boolean;
+  private readonly profileTransaction: FleetProfileTransaction;
+  private activeProfileAuthorization: ((id: string, tuple: FleetProfileTuple, digest: string) => void) | undefined;
+  private trustedHostConsent: TrustedHostConsentService | undefined;
+  private readonly consentResolver: (() => TrustedHostConsentService | null) | undefined;
 
   constructor(projectRoot: string, options: FleetManagerOptions = {}) {
     const stateDir = resolve(projectRoot, '.folderforge');
@@ -434,15 +443,84 @@ export class FleetManager {
     this.reapGraceMs = options.reapGraceMs ?? 1_500;
     this.now = options.now ?? (() => Date.now());
     this.allowTrustedHostExecution = options.allowTrustedHostExecution === true;
+    this.consentResolver = options.resolveTrustedHostConsent;
+    this.profileTransaction = new FleetProfileTransaction({
+      root: projectRoot,
+      authorize: (id, tuple, digest) => {
+        if (!this.activeProfileAuthorization) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+        this.activeProfileAuthorization(id, tuple, digest);
+      },
+    });
+    this.profileTransaction.recoverBeforeReadOrStart();
     this.load();
   }
 
   list(): FleetInstance[] {
+    this.recoverPendingProfile();
     return this.instances.map(cloneInstance);
   }
 
   get(id: string): FleetInstance {
     return cloneInstance(this.mutable(id));
+  }
+
+  /** An opt-in service is never inherited from the Dashboard request or parent defaults. */
+  bindTrustedHostConsent(service: TrustedHostConsentService): void {
+    this.trustedHostConsent = service;
+  }
+
+  effectiveExecutionStatus(id: string): {
+    persistedProfile: FleetTerminalExecution;
+    processState: FleetInstanceState;
+    runtimeVerified: boolean;
+  } {
+    const record = this.mutable(id);
+    return {
+      persistedProfile: record.terminalExecution ?? 'sandbox-required',
+      processState: record.state,
+      // A persisted tuple or in-memory running flag is not evidence of a healthy child.
+      runtimeVerified: false,
+    };
+  }
+
+  /** Ensure generated config cannot grant privileges that authoritative Fleet state denies. */
+  private assertSavedProfile(record: FleetInstance): void {
+    const file = this.configPathFor(record.id);
+    const config = readFileSync(file, 'utf8');
+    const marker = '# Fleet-managed terminal execution profile';
+    const block = config.slice(config.indexOf(marker));
+    const expected = record.terminalExecution === 'trusted-host' ? 'false' : 'true';
+    if (!config.includes(marker) || !/^ {4}mode: process$/m.test(block) ||
+        !new RegExp('^    requireInDanger: ' + expected + '$', 'm').test(block)) {
+      throw new Error('FLEET_PROFILE_MISMATCH');
+    }
+  }
+
+  /** Coherent, synchronous all-or-nothing application; the startup grant is checked separately. */
+  updateProfileAtomically(id: string, tuple: FleetProfileTuple, consent: TrustedHostConsentService): FleetInstance {
+    const record = this.mutable(id);
+    if (record.state === 'running' || record.state === 'starting' || record.state === 'stopping' ||
+        record.openAiTunnel?.state === 'running' || record.openAiTunnel?.state === 'starting') {
+      throw new Error('FLEET_INSTANCE_ACTIVE');
+    }
+    const identity = consent.authorizationDigest(id, tuple);
+    this.activeProfileAuthorization = (actualId, actualTuple, digest) => {
+      if (actualId !== id || digest !== identity) throw new Error('CONSENT_SCOPE_MISMATCH');
+      consent.assertAuthorizedForDigest(actualId, actualTuple, digest);
+    };
+    try {
+      const updated = this.profileTransaction.commit(id, tuple, identity);
+      Object.assign(record, updated);
+      return cloneInstance(record);
+    } finally {
+      this.activeProfileAuthorization = undefined;
+    }
+  }
+
+  private recoverPendingProfile(): void {
+    if (!existsSync(resolve(dirname(this.statePath), 'fleet-profile.journal'))) return;
+    this.profileTransaction.recoverBeforeReadOrStart();
+    this.load();
   }
 
   create(input: {
@@ -459,6 +537,7 @@ export class FleetManager {
     oauth?: Partial<FleetOAuthConfig>;
     actor?: string;
   }): { instance: FleetInstance; token: string; apiKey?: string } {
+    this.recoverPendingProfile();
     const projectPath = resolve(input.projectPath);
     if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
       throw new Error(`Not a project folder: ${projectPath}`);
@@ -547,8 +626,18 @@ export class FleetManager {
       throw new Error(`Instance ${id} is already ${record.state}.`);
     }
     this.assertSpawnReady();
-    if (record.terminalExecution === 'trusted-host' && !this.allowTrustedHostExecution) {
-      throw new Error('Trusted host execution is disabled by the control-plane startup configuration.');
+    this.assertSavedProfile(record);
+    if (record.terminalExecution === 'trusted-host') {
+      if (record.authMode === 'none') throw new Error('TRUSTED_HOST_AUTH_REQUIRED');
+      if (!this.allowTrustedHostExecution) {
+        const consent = this.trustedHostConsent ?? this.consentResolver?.();
+        if (!consent) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+        consent.assertAuthorized(record.id, {
+          toolsPreset: record.toolsPreset,
+          policyMode: record.policyMode,
+          terminalExecution: 'trusted-host',
+        });
+      }
     }
     // Reconnect recovery: a pid left over from a previous plane life is either
     // a fingerprint-verified orphan to reap or a foreign process to refuse.
@@ -1165,6 +1254,7 @@ export class FleetManager {
   }
 
   private mutable(id: string): FleetInstance {
+    this.recoverPendingProfile();
     const record = this.instances.find((instance) => instance.id === id);
     if (!record) throw new Error(`Unknown fleet instance: ${id}`);
     return record;

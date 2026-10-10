@@ -163,6 +163,27 @@ export class TrustedHostConsentService {
     }
   }
 
+  authorizationDigest(instanceId: string, tuple: FleetProfileTuple): string {
+    return scopeDigest(tuple, this.identityFor(instanceId));
+  }
+
+  /** Apply gate: the approved digest must also bind an unchanged pending-intent CAS revision. */
+  assertAuthorizedForDigest(instanceId: string, tuple: FleetProfileTuple, digest: string): void {
+    const identity = this.identityFor(instanceId);
+    if (scopeDigest(tuple, identity) !== digest) throw new Error('CONSENT_SCOPE_MISMATCH');
+    const grant = this.deps.store.readGrantByScope(digest);
+    if (!grant) throw new Error('TRUSTED_HOST_CONSENT_REQUIRED');
+    this.assertAuthorizedForIntent(instanceId, tuple, grant.requestId);
+  }
+
+  /** A network caller may request application only AFTER separate local approval. */
+  applyApprovedProfile<T>(instanceId: string, requestId: string, commit: (tuple: FleetProfileTuple) => T): T {
+    const intent = this.deps.store.readIntentRecord(requestId);
+    if (!intent || intent.instanceId !== instanceId) throw new Error('CONSENT_SCOPE_MISMATCH');
+    this.assertAuthorizedForIntent(instanceId, intent.tuple, requestId);
+    return commit(intent.tuple);
+  }
+
   revokeFromLocal(instanceId: string): void {
     this.deps.recordAudit('trusted_host_grant_revoked');
     this.deps.store.revoke(this.identityFor(instanceId));

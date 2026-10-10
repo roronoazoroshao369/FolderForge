@@ -47,7 +47,11 @@ export async function runTrustedHostOperatorCli(
       store.consumeLocalApproval(pending.requestId, pending.scopeHash);
       return { exitCode: 0, output: `${details}\nLocal consent recorded for ${pending.instanceId}.\n` };
     }
-    const grant = store.readGrantByScope(id);
+    // Accept the original request ID so operators can revoke without ever
+    // exposing the capability's stable scope digest in a Dashboard URL.
+    const scope = id.startsWith('req_') ? store.readIntentRecord(id)?.scopeHash : id;
+    if (!scope) throw new Error('CONSENT_GRANT_UNAVAILABLE');
+    const grant = store.readGrantByScope(scope);
     if (!grant) throw new Error('CONSENT_GRANT_UNAVAILABLE');
     if (io.osUid !== grant.identity.serviceUid) throw new Error('WRONG_OPERATOR_UID');
     io.print(`Revoke trusted host grant for ${grant.instanceId} (${grant.identity.workspaceRealpath})`);
