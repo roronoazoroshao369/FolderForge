@@ -159,6 +159,34 @@ describe('G59 opt-in modern HTTP', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('mcp-session-id')).toBeTruthy();
   });
+  it('rejects a modern-body request carrying a live legacy session before any write dispatch', async () => {
+    const x = await fixture();
+    const init = await fetch(x.base, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-token',
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+        'mcp-protocol-version': '2025-11-25',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'initialize',
+        params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'legacy', version: '1' } },
+      }),
+    });
+    expect(init.status).toBe(200);
+    const id = init.headers.get('mcp-session-id');
+    expect(id).toBeTruthy();
+
+    // Conflicting modern _meta with a legacy version header and live legacy
+    // session must NOT reach the old SDK's mutating tools/call handler.
+    const attempted = await x.call('tools/call',
+      { name: 'file_write', arguments: { path: '/danger' } },
+      { 'mcp-session-id': id!, 'mcp-protocol-version': '2025-11-25' },
+    );
+    expect(attempted.status).toBe(400);
+    expect(x.writes()).toBe(0);
+  });
   it('denies cross-origin requests before dispatch', async () => {
     const x = await fixture();
     const bad = await x.call('tools/list', {}, { origin: 'https://evil.example' });
