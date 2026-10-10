@@ -1,7 +1,7 @@
-import { randomBytes, createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync, constants, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync, openSync,
-  readFileSync, renameSync, unlinkSync, writeSync,
+  readFileSync, renameSync, writeSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { scopeDigest, type ConsentIdentity, type FleetProfileTuple } from './trusted-host-scope.js';
@@ -171,6 +171,16 @@ export class TrustedHostStore {
     const stored = readPrivateJson<{ generation: number }>(path, this.uid);
     if (!Number.isSafeInteger(stored.generation) || stored.generation < 0) throw new Error('INVALID_REVOCATION_RECORD');
     return stored.generation;
+  }
+
+  readGrantByScope(scopeHash: string): TrustedHostGrant | null {
+    const path = this.grantFile(scopeHash);
+    if (!existsSync(path)) return null;
+    const grant = readPrivateJson<TrustedHostGrant>(path, this.uid);
+    if (grant.schemaVersion !== 1 || grant.scopeHash !== scopeHash ||
+        scopeDigest(grant.tuple, grant.identity) !== scopeHash ||
+        this.currentRevocationGeneration(grant.identity) !== grant.identity.revocationGeneration) return null;
+    return grant;
   }
 
   revoke(identity: ConsentIdentity): void {

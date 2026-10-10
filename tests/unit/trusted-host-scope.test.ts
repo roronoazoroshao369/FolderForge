@@ -1,7 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { scopeDigest, type ConsentIdentity, type FleetProfileTuple } from '../../src/operator/trusted-host-scope.js';
 
 const tuple: FleetProfileTuple = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };

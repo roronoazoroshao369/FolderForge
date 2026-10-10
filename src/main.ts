@@ -40,6 +40,7 @@ import { executeControlCli } from "./control/cli.js";
 import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
 import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
+import { executeHostOperatorCli } from "./operator/trusted-host-cli.js";
 import { ensureRuntimeNodeOnPath } from "./runtime/node-path.js";
 import { reapOrphanedSandboxContainers } from "./sandbox/launcher.js";
 
@@ -447,6 +448,12 @@ async function main(): Promise<void> {
           }),
     });
     if (json || !streamed) process.stdout.write(result.output);
+    process.exitCode = result.exitCode;
+    return;
+  }
+  if (argv[0] === "operator" && argv[1] === "trusted-host") {
+    const result = await executeHostOperatorCli(argv.slice(2));
+    process.stdout.write(result.output);
     process.exitCode = result.exitCode;
     return;
   }
