@@ -83,6 +83,26 @@ describe('G59 stdio first-request era selection', () => {
     expect(h.legacyCalls()).toBe(0);
   });
 
+  it('G59-SEC-02: legacy initialize with invalid params cannot lock the stream', async () => {
+    const h = harness();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', id: 31, method: 'initialize', params: { protocolVersion: '2025-11-25' },
+    }) + '\n');
+    const rejected = await h.next();
+    expect(rejected.id).toBe(31);
+    expect(rejected.error).toBeTruthy();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', id: 32, method: 'server/discover',
+      params: { _meta: {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': { name: 'valid-client', version: '1' },
+        'io.modelcontextprotocol/clientCapabilities': {},
+      } },
+    }) + '\n');
+    await h.started;
+    expect((await h.next()).result.supportedVersions).toContain('2026-07-28');
+  });
+
   it('G59-SEC-02: discovery missing JSON-RPC id does not pin stdio to modern', async () => {
     const h = harness();
     h.input.write(JSON.stringify({

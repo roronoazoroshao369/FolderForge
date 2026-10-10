@@ -17,6 +17,7 @@ export async function startStdioTransport(server: Server): Promise<StdioServerTr
 
 import { Transform, type Readable, type Writable } from 'node:stream';
 import { classifyMcpEra, modernMetadata } from '../protocol/era-router.js';
+import { InitializeRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { StdioServerTransport as LegacyStdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StdioServerTransport as ModernStdioServerTransport, serveStdio } from '@modelcontextprotocol/server/stdio';
 import type { Server as ModernServer } from '@modelcontextprotocol/server';
@@ -83,8 +84,10 @@ export async function startDualStdioTransport(options: {
         });
         const validRequestId = 'id' in packet &&
           (typeof packet.id === 'number' || typeof packet.id === 'string');
+        const validLegacyInitialize = packet.method === 'initialize' &&
+          InitializeRequestSchema.safeParse(packet).success;
         const validOpening = validRequestId && !('error' in decision) &&
-          (decision.era === 'modern' || packet.method === 'initialize');
+          (decision.era === 'modern' || validLegacyInitialize);
         if (!validOpening) {
           writeError(packet.id, -32600, 'Expected valid MCP opening request');
           continue;
