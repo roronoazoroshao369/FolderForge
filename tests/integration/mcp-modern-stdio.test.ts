@@ -83,6 +83,27 @@ describe('G59 stdio first-request era selection', () => {
     expect(h.legacyCalls()).toBe(0);
   });
 
+  it('G59-SEC-02: modern discovery with invalid clientInfo does not pin the stream', async () => {
+    const h = harness();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', id: 43, method: 'server/discover',
+      params: { _meta: {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': [],
+        'io.modelcontextprotocol/clientCapabilities': {},
+      } },
+    }) + '\n');
+    const refused = await h.next();
+    expect(refused.id).toBe(43);
+    expect(refused.error).toBeTruthy();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', id: 44, method: 'initialize',
+      params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'legacy', version: '1' } },
+    }) + '\n');
+    await h.started;
+    expect((await h.next()).result.serverInfo.name).toBe('legacy');
+  });
+
   it('G59-SEC-02: legacy initialize with invalid params cannot lock the stream', async () => {
     const h = harness();
     h.input.write(JSON.stringify({

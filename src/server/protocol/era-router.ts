@@ -38,7 +38,12 @@ export function classifyMcpEra(input: {
   if (version !== MODERN_MCP_VERSION || input.mode !== 'dual') return { error: 'unsupported_version' };
   const info = meta?.['io.modelcontextprotocol/clientInfo'];
   const caps = meta?.['io.modelcontextprotocol/clientCapabilities'];
-  if (!info || typeof info !== 'object' || !caps || typeof caps !== 'object') {
+  if (!info || typeof info !== 'object' || Array.isArray(info) ||
+      typeof (info as Record<string, unknown>).name !== 'string' ||
+      !(info as Record<string, unknown>).name ||
+      typeof (info as Record<string, unknown>).version !== 'string' ||
+      !(info as Record<string, unknown>).version ||
+      !caps || typeof caps !== 'object' || Array.isArray(caps)) {
     return { error: 'malformed_request' };
   }
   return { era: 'modern', protocolVersion: MODERN_MCP_VERSION };
