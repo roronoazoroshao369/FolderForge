@@ -59,6 +59,13 @@ describe('sensitive Fleet profile-intents API', () => {
     expect(h.store.findPendingByInstance(h.instance.id)).toBeNull();
   });
 
+  it('rejects a request ID that does not exist for the Fleet instance', async () => {
+    const h = await harness();
+    const headers = { origin: h.base, authorization: 'Bearer dev-host-token' };
+    const invalid = await fetch(`${h.base}${h.path}/req_missing`, { headers });
+    expect(invalid.status).toBe(409);
+  });
+
   it('creates one pending intent with bearer admin and never grants host execution over HTTP', async () => {
     const h = await harness();
     const headers = { origin: h.base, authorization: 'Bearer dev-host-token' };

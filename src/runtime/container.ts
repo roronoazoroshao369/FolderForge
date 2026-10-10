@@ -10,7 +10,8 @@ import { AuditLog } from '../audit/audit-log.js';
 import { WorkspaceManager } from '../workspace/workspace-manager.js';
 import { ProcessManager } from '../managers/process-manager.js';
 import { FleetManager } from '../provisioner/fleet-manager.js';
-import { resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
+import { operatorStateOutsideProjects } from '../operator/trusted-host-scope.js';
 import { defaultHostConsentRoot } from '../operator/trusted-host-cli.js';
 import { TrustedHostStore } from '../operator/trusted-host-store.js';
 import { TrustedHostConsentService } from '../operator/trusted-host-consent.js';
@@ -211,11 +212,9 @@ export class Container {
       this.config.workspace.defaultProject,
       ...this.config.workspace.allowedDirectories,
     ];
-    // Deny if agent-governed workspace path includes operator state.
-    if (projectRoots.some((root) => {
-      const canonical = resolve(root);
-      return operatorRoot === canonical || operatorRoot.startsWith(canonical + sep);
-    })) {
+    // Canonicalize both sides: symlinked project aliases must not expose
+    // host-only operator state even when their lexical paths are disjoint.
+    if (!operatorStateOutsideProjects(operatorRoot, projectRoots)) {
       this.hostConsentService = null;
       return null;
     }

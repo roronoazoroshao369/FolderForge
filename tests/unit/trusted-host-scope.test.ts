@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { scopeDigest, type ConsentIdentity, type FleetProfileTuple } from '../../src/operator/trusted-host-scope.js';
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { scopeDigest, operatorStateOutsideProjects, type ConsentIdentity, type FleetProfileTuple } from '../../src/operator/trusted-host-scope.js';
 
 const tuple: FleetProfileTuple = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };
 const identity: ConsentIdentity = {
@@ -8,6 +11,20 @@ const identity: ConsentIdentity = {
 };
 
 describe('scope-bound trusted host grants', () => {
+  it('denies symlinked agent roots that contain operator state, even with unrelated lexical path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ff-operator-symlink-'));
+    try {
+      const parent = join(dir, 'real');
+      const state = join(parent, 'Library', 'FolderForge');
+      mkdirSync(state, { recursive: true });
+      const alias = join(dir, 'workspace-link');
+      symlinkSync(parent, alias);
+      expect(operatorStateOutsideProjects(state, [alias])).toBe(false);
+      expect(operatorStateOutsideProjects(state, [join(dir, 'other')])).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('uses stable scope identity, not routine instance revision or mutable object order', () => {
     const reordered: FleetProfileTuple = { terminalExecution: 'trusted-host', policyMode: 'danger', toolsPreset: 'full' };
     expect(scopeDigest(tuple, identity)).toBe(scopeDigest(reordered, { ...identity }));

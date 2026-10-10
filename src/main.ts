@@ -41,6 +41,7 @@ import { defaultOriginDeps, executeOriginCli } from "./control/origin.js";
 import { defaultTunnelDeps, executeTunnelCli } from "./control/tunnel.js";
 import { executeShareCli } from "./share/cli.js";
 import { executeHostOperatorCli } from "./operator/trusted-host-cli.js";
+import { startTrustedHostRevocationMonitor } from "./operator/trusted-host-monitor.js";
 import { ensureRuntimeNodeOnPath } from "./runtime/node-path.js";
 import { reapOrphanedSandboxContainers } from "./sandbox/launcher.js";
 
@@ -621,6 +622,13 @@ async function main(): Promise<void> {
   }
 
   const container = new Container(config);
+  // A separate local CLI may revoke a grant while a child remains running.
+  // Reconcile against durable host-only state independently of Dashboard UI.
+  const stopHostRevocationMonitor = process.platform === 'darwin'
+    ? startTrustedHostRevocationMonitor(container.fleet, (id) => container.audit.record({
+        type: 'dashboard_action', summary: `trusted_host_revocation_check ${id}`,
+      }))
+    : () => {};
   const registry = buildRegistry(container);
   const responsesStore = new ResponsesStore();
   const persistedResponsesGateway = loadResponsesGatewayConfig(
@@ -928,6 +936,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info({ signal }, "Shutting down FolderForge");
+    stopHostRevocationMonitor();
     await Promise.allSettled([
       stopManagedProcessTrees(container, 1_500),
       server.close(),

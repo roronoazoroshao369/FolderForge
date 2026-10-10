@@ -52,6 +52,28 @@ describe('crash-consistent Fleet profile transaction', () => {
     },
   );
 
+  it('reclaims a demonstrably dead writer lock before recovering PREPARED journal', () => {
+    const h = fixture('yaml-renamed');
+    expect(() => h.tx.commit(h.instance.id, tuple, 'allowed-digest')).toThrow('FAULT_AT_yaml-renamed');
+    const lock = join(h.root, '.folderforge', 'fleet-profile.lock');
+    writeFileSync(lock, '2147483646', { mode: 0o600 });
+    const restarted = new FleetProfileTransaction({ root: h.root, authorize: () => {} });
+    restarted.recoverBeforeReadOrStart();
+    expect(readFileSync(h.yamlPath, 'utf8')).toBe(h.before.yaml);
+    expect(readFileSync(h.statePath, 'utf8')).toBe(h.before.json);
+    expect(() => lstatSync(lock)).toThrow();
+  });
+
+  it('never reclaims a lock owned by an OS process that is still alive', () => {
+    const h = fixture('prepared');
+    expect(() => h.tx.commit(h.instance.id, tuple, 'allowed-digest')).toThrow('FAULT_AT_prepared');
+    const lock = join(h.root, '.folderforge', 'fleet-profile.lock');
+    writeFileSync(lock, String(process.pid), { mode: 0o600 });
+    const competing = new FleetProfileTransaction({ root: h.root, authorize: () => {} });
+    expect(() => competing.recoverBeforeReadOrStart()).toThrow('FLEET_PROFILE_BUSY');
+    expect(readFileSync(lock, 'utf8')).toBe(String(process.pid));
+  });
+
   it('recovers committed new values after crash before final cleanup', () => {
     const h = fixture('committed');
     expect(() => h.tx.commit(h.instance.id, tuple, 'allowed-digest')).toThrow('FAULT_AT_committed');

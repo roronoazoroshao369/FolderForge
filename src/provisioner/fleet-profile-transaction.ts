@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  closeSync, constants, existsSync, fsyncSync, fstatSync, mkdirSync,
+  closeSync, constants, existsSync, fsyncSync, fstatSync, lstatSync, mkdirSync,
   openSync, readFileSync, renameSync, unlinkSync, writeSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -102,13 +102,55 @@ export class FleetProfileTransaction {
     this.onPhase = options.onPhase;
   }
 
+  /** Recover a lock only if the sole recorded OS process no longer exists.
+   * A distinct O_EXCL recovery guard fences competing rescuers. An ambiguous
+   * PID, ownership, inode or guard state fails closed; never steal a live lock.
+   */
+  private reclaimDeadOwnerLock(): void {
+    const guard = `${this.lockFile}.reclaim`;
+    let recoveryFd: number;
+    try {
+      recoveryFd = openSync(guard, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    } catch { throw new Error('FLEET_PROFILE_BUSY'); }
+    try {
+      let before;
+      try { before = lstatSync(this.lockFile); } catch { return; }
+      if (!before.isFile() || before.nlink !== 1 || (before.mode & 0o077) !== 0 ||
+          (typeof process.getuid === 'function' && before.uid !== process.getuid())) {
+        throw new Error('LOCK_RECOVERY_REQUIRED');
+      }
+      const pid = Number(safeRead(this.lockFile).trim());
+      if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('LOCK_RECOVERY_REQUIRED');
+      let dead = false;
+      try { process.kill(pid, 0); } catch (error) {
+        dead = (error as NodeJS.ErrnoException).code === 'ESRCH';
+      }
+      if (!dead) throw new Error('FLEET_PROFILE_BUSY');
+      const after = lstatSync(this.lockFile);
+      if (before.ino !== after.ino || before.dev !== after.dev) throw new Error('LOCK_RECOVERY_REQUIRED');
+      const stale = `${this.lockFile}.abandoned.${randomUUID()}`;
+      renameSync(this.lockFile, stale);
+      syncDir(this.folder);
+      unlinkSync(stale);
+      syncDir(this.folder);
+    } finally {
+      closeSync(recoveryFd);
+      unlinkSync(guard);
+      syncDir(this.folder);
+    }
+  }
+
   private withLock<T>(fn: () => T): T {
     mkdirSync(this.folder, { recursive: true, mode: 0o700 });
     let fd: number;
+    const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
     try {
-      fd = openSync(this.lockFile, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    } catch {
-      throw new Error('FLEET_PROFILE_BUSY');
+      fd = openSync(this.lockFile, flags, 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw new Error('FLEET_PROFILE_BUSY');
+      this.reclaimDeadOwnerLock();
+      try { fd = openSync(this.lockFile, flags, 0o600); }
+      catch { throw new Error('FLEET_PROFILE_BUSY'); }
     }
     try {
       writeSync(fd, String(process.pid));

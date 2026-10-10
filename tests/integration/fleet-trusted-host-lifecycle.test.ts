@@ -9,7 +9,7 @@ import type { FleetProfileTuple } from '../../src/operator/trusted-host-scope.js
 
 const tuple: FleetProfileTuple = { toolsPreset: 'full', policyMode: 'danger', terminalExecution: 'trusted-host' };
 const roots: string[] = [];
-function fixture(resolveAtStart = false) {
+function fixture(resolveAtStart = false, alive?: { current: boolean }) {
   const lazyService: { current?: TrustedHostConsentService } = {};
   const root = mkdtempSync(join(tmpdir(), 'ff-trusted-lifecycle-'));
   roots.push(root);
@@ -20,7 +20,7 @@ function fixture(resolveAtStart = false) {
     mainJs: process.execPath, // existing file; avoids a build dependency in this focused test
     spawn: (command) => { spawned.push(command); return { sessionId: 'proc_1', pid: 99999 }; },
     stopSession: () => {},
-    isAlive: () => false,
+    isAlive: () => alive?.current ?? false,
     ...(resolveAtStart ? { resolveTrustedHostConsent: () => lazyService.current ?? null } : {}),
   });
   const { instance } = fleet.create({ projectPath: project, authMode: 'api-key' });
@@ -56,6 +56,50 @@ describe('Fleet trusted-host execution boundary', () => {
     h.fleet.start(h.instance.id);
     expect(h.spawned).toHaveLength(1);
     expect(h.spawned[0]).toContain('--config');
+  });
+
+  it('supervises a revoked running child and never reports stopped while PID survives', () => {
+    const h = fixture(true);
+    h.approveApply();
+    h.fleet.start(h.instance.id);
+    h.auth.revokeFromLocal(h.instance.id);
+    const affected = h.fleet.reconcileRevokedTrustedHosts();
+    expect(affected).toContain(h.instance.id);
+    const record = h.fleet.get(h.instance.id);
+    expect(record.state).not.toBe('running');
+    expect(record.state).toBe('stopped'); // injected PID is verified dead by fixture
+    expect(() => h.fleet.start(h.instance.id)).toThrow('TRUSTED_HOST_CONSENT_REQUIRED');
+  });
+
+  it('holds a revoked live PID in an uncertain state until termination is proven', () => {
+    const alive = { current: true };
+    const h = fixture(true, alive);
+    h.approveApply();
+    h.fleet.start(h.instance.id);
+    h.auth.revokeFromLocal(h.instance.id);
+    h.fleet.reconcileRevokedTrustedHosts();
+    const pending = h.fleet.get(h.instance.id);
+    expect(pending.state).toBe('stopping');
+    expect(pending.lastError).toBe('REVOKED_EXECUTION_UNCERTAIN');
+    expect(pending.pid).toBe(99999);
+    alive.current = false;
+    h.fleet.reconcileRevokedTrustedHosts();
+    const stopped = h.fleet.get(h.instance.id);
+    expect(stopped.state).toBe('stopped');
+    expect(stopped.pid).toBeUndefined();
+  });
+
+  it('never normalizes a revoked uncertain child to stopped after parent restart', () => {
+    const alive = { current: true };
+    const h = fixture(true, alive);
+    h.approveApply();
+    h.fleet.start(h.instance.id);
+    h.auth.revokeFromLocal(h.instance.id);
+    h.fleet.reconcileRevokedTrustedHosts();
+    const restarted = new FleetManager(h.root, { isAlive: () => alive.current });
+    const snapshot = restarted.get(h.instance.id);
+    expect(snapshot.state).not.toBe('stopped');
+    expect(snapshot.lastError).toMatch(/REVOKED_EXECUTION_UNCERTAIN/);
   });
 
   it('denies any new trusted-host start after local grant revocation', () => {

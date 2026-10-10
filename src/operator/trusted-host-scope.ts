@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute, normalize, sep } from 'node:path';
+import { canonicalCandidatePath, isPathWithin } from '../core/path-identity.js';
 
 export interface FleetProfileTuple {
   toolsPreset: string;
@@ -14,6 +15,19 @@ export interface ConsentIdentity {
   workspaceRealpath: string;
   authMode: 'token' | 'api-key' | 'oauth' | 'none';
   revocationGeneration: number;
+}
+
+/** A symlinked allowed project must not expose the host-only operator store. */
+export function operatorStateOutsideProjects(operatorRoot: string, projectRoots: string[]): boolean {
+  try {
+    const protectedRoot = canonicalCandidatePath(operatorRoot);
+    return projectRoots.every((root) => {
+      const canonical = canonicalCandidatePath(root);
+      return !isPathWithin(canonical, protectedRoot) && !isPathWithin(protectedRoot, canonical);
+    });
+  } catch {
+    return false; // Ambiguous filesystem identity fails closed.
+  }
 }
 
 /** The digest excludes volatile Fleet revision; the pending intent CAS tracks that independently. */

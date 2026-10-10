@@ -388,12 +388,14 @@ async function defaultEndpointProbe(port: number): Promise<boolean> {
 }
 
 /** Default liveness check for a spawned pid. */
-function defaultPidAlive(pid: number): boolean {
+export function defaultPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    // Only ESRCH proves the PID is absent. EPERM (and any unexpected OS error)
+    // must retain an uncertain/alive status, never a false verified stop.
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
   }
 }
 
@@ -481,6 +483,53 @@ export class FleetManager {
       // A persisted tuple or in-memory running flag is not evidence of a healthy child.
       runtimeVerified: false,
     };
+  }
+
+  /** Detect revoked on-host grants and supervise previously running children. */
+  reconcileRevokedTrustedHosts(): string[] {
+    if (this.allowTrustedHostExecution) return []; // explicit legacy startup grant, not a scoped operator grant
+    const candidates = this.instances.filter((item) =>
+      item.terminalExecution === 'trusted-host' &&
+      (item.state === 'running' || item.state === 'starting' || item.state === 'stopping'),
+    );
+    if (candidates.length === 0) return [];
+    const consent = this.trustedHostConsent ?? this.consentResolver?.();
+    const affected: string[] = [];
+    for (const record of candidates) {
+      let authorized = false;
+      try {
+        consent?.assertAuthorized(record.id, {
+          toolsPreset: record.toolsPreset,
+          policyMode: record.policyMode,
+          terminalExecution: 'trusted-host',
+        });
+        authorized = consent !== undefined && consent !== null;
+      } catch { /* A revoked/invalid grant must fail closed. */ }
+      if (authorized && record.state !== 'stopping') continue;
+      if (record.state !== 'stopping') {
+        record.state = 'stopping';
+        record.lastError = 'TRUSTED_HOST_REVOKED_STOP_PENDING';
+        this.persist(); // Durable stop intent before signaling a child.
+        if (record.sessionId && this.stopFn) {
+          try { this.stopFn(record.sessionId); } catch { /* Verify the PID below. */ }
+        }
+      }
+      affected.push(record.id);
+      if ((record.pid !== undefined && this.isAliveFn(record.pid)) ||
+          (record.pid === undefined && record.sessionId !== undefined)) {
+        record.lastError = 'REVOKED_EXECUTION_UNCERTAIN';
+        this.persist();
+        continue;
+      }
+      record.state = 'stopped';
+      record.lastError = 'TRUSTED_HOST_REVOKED_VERIFIED_STOP';
+      delete record.pid;
+      delete record.sessionId;
+      delete record.leaseId;
+      this.touch(record);
+      this.persist();
+    }
+    return affected;
   }
 
   /** Ensure generated config cannot grant privileges that authoritative Fleet state denies. */
@@ -1370,10 +1419,13 @@ export class FleetManager {
     }
     this.instances = parsed.instances.map((instance) => {
       const wasActive = instance.state === 'running' || instance.state === 'starting';
+      const revokedUncertain = instance.terminalExecution === 'trusted-host' &&
+        instance.state === 'stopping' && instance.lastError === 'REVOKED_EXECUTION_UNCERTAIN';
       const normalized: FleetInstance = {
         ...instance,
         authMode: instance.authMode ?? 'token',
-        state: normalizeRestartState(instance.state),
+        // Never report a pre-crash revocation as stopped until PID absence is proven.
+        state: revokedUncertain ? 'failed' : normalizeRestartState(instance.state),
       };
       if (instance.oauth) normalized.oauth = cloneOauth(instance.oauth)!;
       // Accept legacy state but ensure JSON persistence omits the retired field.
@@ -1383,7 +1435,21 @@ export class FleetManager {
       if (wasActive) {
         normalized.lastError = 'Control plane restarted while instance state was active.';
       }
-      this.reconcileInstancePid(normalized, wasActive);
+      if (revokedUncertain) {
+        const pid = normalized.pid;
+        if (pid !== undefined && !this.isAliveFn(pid)) {
+          normalized.state = 'stopped';
+          delete normalized.pid;
+          delete normalized.leaseId;
+          normalized.lastError = 'TRUSTED_HOST_REVOKED_VERIFIED_STOP';
+        } else {
+          // Parent restart loses the session handle. Preserve an explicit
+          // uncertain status, not a false stopped claim or blind PID kill.
+          normalized.lastError = 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART';
+        }
+      } else {
+        this.reconcileInstancePid(normalized, wasActive);
+      }
       if (instance.openAiTunnel) {
         const tunnelWasActive =
           instance.openAiTunnel.state === 'running' ||

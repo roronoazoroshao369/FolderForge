@@ -118,6 +118,7 @@ export class TrustedHostConsentService {
     const requested = requestId
       ? this.deps.store.readIntentRecord(requestId)
       : this.deps.store.findPendingByInstance(instanceId);
+    if (requestId && !requested) throw new Error('CONSENT_REQUEST_UNAVAILABLE');
     if (requested && requested.instanceId !== instanceId) throw new Error('CONSENT_SCOPE_MISMATCH');
     if (requested && this.deps.store.validateGrant(identity, requested.tuple)) {
       return { status: 'approved', instanceId, requestId: requested.requestId };
