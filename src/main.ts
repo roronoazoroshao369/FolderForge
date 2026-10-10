@@ -866,6 +866,11 @@ async function main(): Promise<void> {
     });
   }
 
+  // The modern per-request SDK factory must not inherit global legacy
+  // workspace_route mutations after boot. Freeze a conservative read-only
+  // candidate surface once, then authorize per principal on every request.
+  const modernAllowedToolNames = new Set(registry.listAgentActive().map(tool => tool.name));
+
   if (config.server.transport === "http") {
     const httpHost = config.server.http.host;
     const forceAuth = Boolean(config.server.http.requireAuth);
@@ -892,6 +897,7 @@ async function main(): Promise<void> {
         version: VERSION,
         principal: withExecutionContext(principal, container.projectRoot()),
         container,
+        allowedToolNames: modernAllowedToolNames,
       }),
 
       host: httpHost,
@@ -930,6 +936,7 @@ async function main(): Promise<void> {
           version: VERSION,
           principal: withExecutionContext(STDIO_AGENT_PRINCIPAL, container.projectRoot()),
           container,
+          allowedToolNames: modernAllowedToolNames,
         }),
       });
     } else {

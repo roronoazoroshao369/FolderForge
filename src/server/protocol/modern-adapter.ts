@@ -13,7 +13,7 @@ import { toCallToolResult } from '../mcp-server.js';
  */
 export function createModernMcpServer(
   registry: ToolRegistry,
-  info: { name: string; version: string; principal: ToolPrincipal; container?: Container },
+  info: { name: string; version: string; principal: ToolPrincipal; container?: Container; allowedToolNames?: ReadonlySet<string> },
 ): Server {
   const { principal } = info;
   const server = new Server(
@@ -32,9 +32,13 @@ export function createModernMcpServer(
     return required.every(scope => scope && (principal.scopes ?? []).includes(scope));
   }
 
-  const visibleTools = () => registry.listAgentActive().filter(tool =>
-    tool.audience === 'agent' && !tool.mutates && hasScope(false)
-  );
+  // workspace_route changes a shared, process-wide activeSet despite its legacy
+  // mutates:false hint. Modern read-only calls cannot invoke that global write.
+  const visibleTools = () => (info.allowedToolNames
+    ? registry.listAll().filter(tool => info.allowedToolNames!.has(tool.name))
+    : registry.listAgentActive()
+  ).filter(tool => tool.audience === 'agent' && !tool.mutates &&
+    tool.name !== 'workspace_route' && hasScope(false));
 
   server.setRequestHandler('tools/list', async () => ({
     tools: visibleTools().map(tool => ({
@@ -73,11 +77,20 @@ export function createModernMcpServer(
     };
   });
 
+  // OAuth principals share a runtime, but process/artifact/workspace/git
+  // metadata are not owner-indexed. Until an owner-scoped resource index
+  // exists, expose only catalog entries with proven principal-aware readers.
+  const canReadResource = (uri: string): boolean =>
+    hasScope(false) && (principal.authMode !== 'oauth' ||
+      uri === 'folderforge://tasks' || uri === 'folderforge://workflows');
+
   server.setRequestHandler('resources/list', async () => ({
-    resources: hasScope(false) ? (resources?.list() ?? []) : [],
+    resources: hasScope(false)
+      ? (resources?.list() ?? []).filter(item => canReadResource(item.uri))
+      : [],
   }));
   server.setRequestHandler('resources/read', async request => {
-    if (!resources || !hasScope(false)) throw new Error('Resource access is unavailable');
+    if (!resources || !canReadResource(request.params.uri)) throw new Error('Resource access is unavailable');
     return resources.read(request.params.uri);
   });
   server.setRequestHandler('prompts/list', async () => ({
