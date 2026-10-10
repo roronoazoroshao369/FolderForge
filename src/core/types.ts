@@ -110,6 +110,7 @@ export interface ToolPrincipal {
 }
 
 export interface ServerConfig {
+  mcpProtocol?: { mode: "legacy" | "dual" };
   name: string;
   transport: "stdio" | "http";
   http: {

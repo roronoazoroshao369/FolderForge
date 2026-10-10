@@ -2,6 +2,10 @@
 
 _Updated 2026-10-09 from independent public npm/GitHub observations. Exact release-source SHA `7104f75f8784423ae2680a9ab80f8ac5a972eef4` has CI `37751407631` SUCCESS 6/6 jobs. This closeout document must not self-certify its own PR or eventual merge._
 
+## G59 review-stage continuation (2026-10-10; not a closeout)
+
+The live repository moved to Organization `roronoazoroshao/FolderForge`; `main` remained `150552fd16c7ae9bbbcc0c9e5b69ac10a0ab83b0` when G59 implementation began. Design draft PR #71 and plan draft PR #72 are approved **in conversation** for a Native product implementation, but not yet merged. The product branch is isolated and **must remain unmerged** pending final exact-head CI and review. Review [G59 compatibility and rollout evidence](mcp-protocol-compatibility.md) before any new action. Do not infer that `3.0.1` is certified or old `sourceDirty` isolation bytes are recovered. This paragraph does not self-certify the G59 PR or its eventual merge.
+
 ## Current snapshot
 
 - Release-source CI: `37751407631` SUCCESS 6/6 matrix jobs, subject to documented platform skips.

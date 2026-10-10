@@ -12,7 +12,8 @@ import {
   resolveActiveTools,
 } from "./tools/index.js";
 import { createMcpServer } from "./server/mcp-server.js";
-import { startStdioTransport } from "./server/transports/stdio.js";
+import { createModernMcpServer } from "./server/protocol/modern-adapter.js";
+import { startStdioTransport, startDualStdioTransport } from "./server/transports/stdio.js";
 import { startHttpTransport } from "./server/transports/http.js";
 import { startDashboard, isLoopbackHost } from "./dashboard/server.js";
 import { ResponsesStore } from "./openai/responses-store.js";
@@ -865,6 +866,11 @@ async function main(): Promise<void> {
     });
   }
 
+  // The modern per-request SDK factory must not inherit global legacy
+  // workspace_route mutations after boot. Freeze a conservative read-only
+  // candidate surface once, then authorize per principal on every request.
+  const modernAllowedToolNames = new Set(registry.listAgentActive().map(tool => tool.name));
+
   if (config.server.transport === "http") {
     const httpHost = config.server.http.host;
     const forceAuth = Boolean(config.server.http.requireAuth);
@@ -885,6 +891,15 @@ async function main(): Promise<void> {
       );
     }
     await startHttpTransport(makeServer, {
+      protocolMode: config.server.mcpProtocol?.mode ?? 'legacy',
+      modernServerFactory: principal => createModernMcpServer(registry, {
+        name: config.server.name,
+        version: VERSION,
+        principal: withExecutionContext(principal, container.projectRoot()),
+        container,
+        allowedToolNames: modernAllowedToolNames,
+      }),
+
       host: httpHost,
       port: config.server.http.port,
       authMode: effectiveMode,
@@ -913,7 +928,20 @@ async function main(): Promise<void> {
       responsesHandler,
     });
   } else {
-    await startStdioTransport(server);
+    if (config.server.mcpProtocol?.mode === 'dual') {
+      await startDualStdioTransport({
+        makeLegacy: makeServer,
+        makeModern: () => createModernMcpServer(registry, {
+          name: config.server.name,
+          version: VERSION,
+          principal: withExecutionContext(STDIO_AGENT_PRINCIPAL, container.projectRoot()),
+          container,
+          allowedToolNames: modernAllowedToolNames,
+        }),
+      });
+    } else {
+      await startStdioTransport(server);
+    }
   }
 
   let shuttingDown = false;

@@ -2,6 +2,10 @@
 
 _Last release/source verification: 2026-10-09. Release-source `7104f75f8784423ae2680a9ab80f8ac5a972eef4`, CI `37751407631` PASS 6/6 matrix jobs. New documentation commits need independent exact-head and post-merge CI._
 
+## P0 — G59 dual-era MCP product candidate (review-only, 2026-10-10)
+
+G59 architectural spec and implementation plan have separate draft review PRs [#71](https://github.com/roronoazoroshao/FolderForge/pull/71) and [#72](https://github.com/roronoazoroshao/FolderForge/pull/72). The user approved both written artifacts for **Native TDD implementation**; this does not authorize product merge or public release. A separate product branch proposes legacy-preserving MCP `2025-11-25` and opt-in modern `2026-07-28` core inbound interoperability using official SDK v2, with modern mutations denied. See [compatibility matrix and truthful evidence](mcp-protocol-compatibility.md). G59 remains **OPEN** until final-head CI, independent auth/replay review, authorized merges, and post-merge evidence.
+
 ## P0 — G58 product verified; documentation closeout
 
 Product PR [#60](https://github.com/roronoazoroshao369/FolderForge/pull/60) was merged on 2026-10-09. Product exact head `a0ff768b6087abe1822a1a41d1926edce37e3f3c` passed PR CI `37955610544` and push CI `37955602053` (6/6 each); merge commit `948feb34614bb66bb1bfb8170f6f7c2cbed3284b`. Post-merge exact-main CI `37956471711` SUCCESS 6/6 on `948feb34614bb66bb1bfb8170f6f7c2cbed3284b`. This establishes the G58 **product** closeout. This documentation PR and its resulting main commit also require fresh, independent exact-head and post-merge CI.

@@ -1,6 +1,10 @@
 import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { Server as ModernSdkServer, createMcpHandler } from '@modelcontextprotocol/server';
+import { classifyMcpEra, modernMetadata } from '../protocol/era-router.js';
+import { validateModernHttpEnvelope } from '../protocol/http-headers.js';
+import type { ProtocolMode } from '../protocol/request-context.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { logger } from '../../core/logger.js';
@@ -24,6 +28,8 @@ export interface HttpTransportOptions {
   port: number;
   /** Path that carries the MCP JSON-RPC stream. Defaults to `/mcp`. */
   path?: string;
+  protocolMode?: ProtocolMode;
+  modernServerFactory?: (principal: ToolPrincipal) => ModernSdkServer;
   /** Explicit auth mode. Omit to preserve legacy inference. */
   authMode?: HttpAuthMode;
   /** OAuth resource-server configuration when `authMode=oauth`. */
@@ -132,6 +138,31 @@ export function resolveCorsOrigin(
   if (allowed.includes('*')) return requestOrigin ?? '*';
   if (requestOrigin && allowed.includes(requestOrigin)) return requestOrigin;
   return null;
+}
+
+/**
+ * Origin/Host validation for the opt-in modern MCP route.
+ * A matching, attacker-controlled Origin + Host is not sufficient:
+ * the Host must resolve to the configured bind identity, or the
+ * administrator must have explicitly allowlisted the origin.
+ */
+export function isAllowedMcpOrigin(
+  originHeader: string | undefined,
+  hostHeader: string | undefined,
+  bindHost: string,
+  allowedOrigins: string[] = [],
+): boolean {
+  if (!originHeader) return true;
+  try {
+    const origin = new URL(originHeader);
+    if (!['http:', 'https:'].includes(origin.protocol)) return false;
+    if (allowedOrigins.includes(origin.origin)) return true;
+    if (!hostHeader || origin.host !== hostHeader) return false;
+    const host = new URL('http://' + hostHeader).hostname.replace(/^\[|\]$/g, '');
+    return host === bindHost || (isLoopbackHost(bindHost) && host === 'localhost');
+  } catch {
+    return false;
+  }
 }
 
 const DEFAULT_SESSION_TTL_MS = 30 * 60_000;
@@ -353,6 +384,51 @@ export async function startHttpTransport(
     }
   };
 
+  const handleModernMcp = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    principal: ToolPrincipal,
+    body: unknown,
+  ): Promise<void> => {
+    if (!opts.modernServerFactory) {
+      writeJson(res, 500, { error: 'Modern MCP adapter is not configured' });
+      return;
+    }
+    const validation = validateModernHttpEnvelope(body, req.headers);
+    if (!validation.ok) {
+      writeJson(res, validation.status, {
+        jsonrpc: '2.0',
+        id: typeof (body as { id?: unknown })?.id === 'number' ? (body as { id: number }).id : null,
+        error: { code: validation.code, message: validation.error },
+      });
+      return;
+    }
+    const modernHandler = createMcpHandler(
+      () => opts.modernServerFactory!(principal), { legacy: 'reject' },
+    );
+    const abort = new AbortController();
+    res.on('close', () => abort.abort());
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(req.headers)) {
+      if (typeof value === 'string') headers.set(name, value);
+    }
+    const webReq = new Request('http://folderforge.invalid' + (req.url ?? '/mcp'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: abort.signal,
+    });
+    const webRes = await modernHandler.fetch(webReq, { parsedBody: body });
+    res.writeHead(webRes.status, Object.fromEntries(webRes.headers.entries()));
+    if (webRes.body) {
+      for await (const chunk of webRes.body) {
+        if (abort.signal.aborted) break;
+        res.write(chunk);
+      }
+    }
+    if (!res.writableEnded) res.end();
+  };
+
   const handleMcp = async (
     req: IncomingMessage,
     res: ServerResponse,
@@ -369,9 +445,58 @@ export async function startHttpTransport(
         });
         return;
       }
+
+      // A legacy session MUST NOT bypass the 2026-era mutation guard by
+      // carrying a valid Mcp-Session-Id. Resolve the era before dispatching
+      // anything to the legacy SDK, including claims hidden in body _meta.
+      let legacySessionBody: unknown;
+      if (opts.protocolMode === 'dual') {
+        const version = req.headers['mcp-protocol-version'];
+        const legacyVersion = version === undefined ||
+          (typeof version === 'string' &&
+            ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'].includes(version));
+        const hasModernHeaders = !legacyVersion ||
+          req.headers['mcp-method'] !== undefined ||
+          req.headers['mcp-name'] !== undefined ||
+          Object.keys(req.headers).some(name => name.startsWith('mcp-param-'));
+        const rejectMixedEra = (): void => writeJson(res, 400, {
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32602, message: 'Modern protocol claims are forbidden in a legacy MCP session' },
+        });
+        if (hasModernHeaders) {
+          rejectMixedEra();
+          return;
+        }
+        if (req.method === 'POST') {
+          try {
+            legacySessionBody = await readJsonBody(req);
+          } catch (error) {
+            writeJson(res, 400, {
+              jsonrpc: '2.0',
+              id: null,
+              error: { code: -32700, message: error instanceof SyntaxError ? 'Invalid JSON request body' : String(error) },
+            });
+            return;
+          }
+          const messages = Array.isArray(legacySessionBody) ? legacySessionBody : [legacySessionBody];
+          const claimsModern = messages.some(message => {
+            if (!message || typeof message !== 'object' || Array.isArray(message)) return false;
+            const packet = message as Record<string, unknown>;
+            const meta = modernMetadata(packet.params);
+            return packet.method === 'server/discover' ||
+              (meta !== null && Object.keys(meta).some(key => key.startsWith('io.modelcontextprotocol/')));
+          });
+          if (claimsModern) {
+            rejectMixedEra();
+            return;
+          }
+        }
+      }
+
       session.activeRequests += 1;
       try {
-        await session.transport.handleRequest(req, res);
+        await session.transport.handleRequest(req, res, legacySessionBody);
       } finally {
         session.activeRequests = Math.max(0, session.activeRequests - 1);
         session.lastUsedAt = Date.now();
@@ -397,6 +522,33 @@ export async function startHttpTransport(
         },
       });
       return;
+    }
+
+    if (opts.protocolMode === 'dual') {
+      const rpc = parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)
+        ? parsedBody as Record<string, unknown> : {};
+      const decision = classifyMcpEra({
+        mode: 'dual',
+        transport: 'http',
+        method: rpc.method,
+        params: rpc.params,
+        headers: req.headers,
+      });
+      if ('error' in decision) {
+        const code = decision.error === 'unsupported_version' ? -32022 : -32602;
+        writeJson(res, 400, {
+          jsonrpc: '2.0',
+          id: rpc.id ?? null,
+          error: { code, message: decision.error,
+            ...(code === -32022 ? { data: { supported: ['2026-07-28'], requested: req.headers['mcp-protocol-version'] } } : {}),
+          },
+        });
+        return;
+      }
+      if (decision.era === 'modern') {
+        await handleModernMcp(req, res, principal, parsedBody);
+        return;
+      }
     }
 
     if (!isInitializeRequest(parsedBody)) {
@@ -429,6 +581,7 @@ export async function startHttpTransport(
           'authorization',
           'content-type',
           'mcp-session-id',
+          ...(opts.protocolMode === 'dual' ? ['mcp-protocol-version', 'mcp-method', 'mcp-name'] : []),
           'x-api-key',
           ...(gatewayGuard ? [gatewayGuard.header] : []),
         ].join(', ')
@@ -440,6 +593,13 @@ export async function startHttpTransport(
     const route = async (): Promise<void> => {
       const requestUrl = new URL(req.url ?? '/', 'http://folderforge.invalid');
       const pathname = requestUrl.pathname;
+      // Only MCP traffic participates in dual-era origin validation. Other
+      // routes retain their existing gateway, CORS, and auth behavior.
+      if (opts.protocolMode === 'dual' && pathname === mcpPath &&
+          !isAllowedMcpOrigin(req.headers.origin, req.headers.host, opts.host, opts.corsOrigins)) {
+        writeJson(res, 403, { error: 'invalid_origin' });
+        return;
+      }
       applyCors(req, res);
       res.setHeader('x-folderforge-instance-id', instanceId);
       res.setHeader('x-folderforge-started-at', startedAt);
