@@ -180,10 +180,22 @@ describe('G59 opt-in modern HTTP', () => {
 
     // Conflicting modern _meta with a legacy version header and live legacy
     // session must NOT reach the old SDK's mutating tools/call handler.
-    const attempted = await x.call('tools/call',
-      { name: 'file_write', arguments: { path: '/danger' } },
-      { 'mcp-session-id': id!, 'mcp-protocol-version': '2025-11-25' },
-    );
+    const attempted = await fetch(x.base, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-token',
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+        'mcp-session-id': id!,
+        'mcp-protocol-version': '2025-11-25',
+        'mcp-method': 'tools/call',
+        'mcp-name': 'file_write',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 99, method: 'tools/call',
+        params: { name: 'file_write', arguments: { path: '/danger' }, _meta: metadata },
+      }),
+    });
     expect(attempted.status).toBe(400);
     expect(x.writes()).toBe(0);
   });
