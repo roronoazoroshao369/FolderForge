@@ -66,6 +66,10 @@ jobs:
       - name: Sandbox smoke runtime selection (routing-only, not containment evidence)
         run: npx vitest run tests/unit/smoke-sandbox.test.ts
 
+      - name: macOS operator-state directory fsync feasibility (not power-loss evidence)
+        if: matrix.os == 'macos-latest' && matrix.node == 22
+        run: node scripts/feasibility-macos-directory-durability.mjs
+
       - name: Fleet reconnect recovery (orphan reaping, lease fencing)
         run: npx vitest run tests/unit/provisioner.test.ts
 

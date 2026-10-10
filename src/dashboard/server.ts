@@ -811,6 +811,83 @@ async function handle(
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
 
+  // Elevated Fleet intent requests require an explicit bearer admin credential
+  // even on loopback. The legacy dashboard permits URL tokens for ordinary UI
+  // actions; that credential path must never create a host-execution intent.
+  const profileRoute = /^\/fleet\/(flt_[0-9a-f]{8})\/profile-intents(?:\/(req_[A-Za-z0-9_-]{3,72})(?:\/(apply))?)?$/.exec(path);
+  if (profileRoute) {
+    const authorization = req.headers.authorization;
+    const presented = typeof authorization === 'string' && authorization.startsWith('Bearer ')
+      ? authorization.slice(7).trim() : '';
+    if (!opts.token || !presented || !timingSafeEqualStr(presented, opts.token)) {
+      return sendJson(res, 401, { error: 'HOST_OPERATOR_AUTH_REQUIRED' });
+    }
+    const host = req.headers.host;
+    const origin = req.headers.origin;
+    let validOrigin = false;
+    try {
+      if (typeof origin === 'string' && typeof host === 'string') {
+        const parsed = new URL(origin);
+        validOrigin = (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+          parsed.host.toLowerCase() === host.toLowerCase();
+      }
+    } catch { /* Missing/malformed origin fails closed. */ }
+    const fetchSite = req.headers['sec-fetch-site'];
+    if (!validOrigin || (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none')) {
+      return sendJson(res, 403, { error: 'HOST_OPERATOR_ORIGIN_DENIED' });
+    }
+    const service = container.trustedHostConsentService();
+    if (!service) return sendJson(res, 503, { error: 'LOCAL_CONFIRMATION_UNAVAILABLE' });
+    const instanceId = profileRoute[1]!;
+    const requestId = profileRoute[2];
+    const isApply = profileRoute[3] === 'apply';
+    const operator = { id: adminPrincipalFromCredential(presented).id, role: 'admin' };
+    try {
+      if (method === 'POST' && !requestId) {
+        if (!(req.headers['content-type'] ?? '').toString().startsWith('application/json')) {
+          return sendJson(res, 415, { error: 'INVALID_CONTENT_TYPE' });
+        }
+        const body = await readJsonBody(req);
+        if (!body || Object.keys(body).length !== 3 ||
+            typeof body.toolsPreset !== 'string' || typeof body.policyMode !== 'string' ||
+            body.terminalExecution !== 'trusted-host') {
+          return sendJson(res, 400, { error: 'INVALID_FLEET_PROFILE' });
+        }
+        const result = service.requestProfile(instanceId, {
+          toolsPreset: body.toolsPreset, policyMode: body.policyMode,
+          terminalExecution: 'trusted-host',
+        }, operator);
+        return sendJson(res, result.status === 'pending' ? 202 : 200, result);
+      }
+      if (method === 'POST' && requestId && isApply) {
+        const applied = service.applyApprovedProfile(instanceId, requestId, (tuple) =>
+          container.fleet.updateProfileAtomically(instanceId, tuple, service));
+        return sendJson(res, 200, {
+          status: 'persisted',
+          instance: publicFleetInstance(applied),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
+      if (method === 'GET' && requestId && !isApply) return sendJson(res, 200, service.status(instanceId, requestId));
+      if (method === 'DELETE' && requestId) {
+        service.cancelPending(instanceId, requestId, operator);
+        return sendJson(res, 200, { status: 'cancelled' });
+      }
+      if (method === 'GET' && !requestId) {
+        return sendJson(res, 200, {
+          authority: 'local-operator-only',
+          ...service.status(instanceId),
+          runtime: container.fleet.effectiveExecutionStatus(instanceId),
+        });
+      }
+    } catch (error) {
+      return sendJson(res, 409, {
+        error: error instanceof Error ? error.message : 'HOST_CONSENT_FAILED',
+      });
+    }
+    return sendJson(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+  }
+
   if (method === "GET" && path === "/app") {
     // The canonical mount has a trailing slash so the SPA's relative assets
     // resolve under /app/. Preserve the query string (?token= flows through).

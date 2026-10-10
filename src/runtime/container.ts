@@ -10,6 +10,11 @@ import { AuditLog } from '../audit/audit-log.js';
 import { WorkspaceManager } from '../workspace/workspace-manager.js';
 import { ProcessManager } from '../managers/process-manager.js';
 import { FleetManager } from '../provisioner/fleet-manager.js';
+import { resolve } from 'node:path';
+import { operatorStateOutsideProjects } from '../operator/trusted-host-scope.js';
+import { defaultHostConsentRoot } from '../operator/trusted-host-cli.js';
+import { TrustedHostStore } from '../operator/trusted-host-store.js';
+import { TrustedHostConsentService } from '../operator/trusted-host-consent.js';
 import { TunnelManager } from '../tunnels/tunnel-manager.js';
 import { loadCloudflareConfig } from '../cloudflare/config-store.js';
 import { makeCloudflareClient } from '../cloudflare/api-client.js';
@@ -47,6 +52,7 @@ export class Container {
   readonly workspace: WorkspaceManager;
   readonly processes: ProcessManager;
   readonly fleet: FleetManager;
+  private hostConsentService: TrustedHostConsentService | null | undefined;
   readonly tunnels: TunnelManager;
   readonly adapters: ChildMcpRegistry;
   readonly db: DbManager;
@@ -119,6 +125,7 @@ export class Container {
       // Only a host-owned startup configuration may authorize Fleet host execution.
       allowTrustedHostExecution: config.terminal.sandbox?.mode === 'process' &&
         config.terminal.sandbox.requireInDanger === false,
+      resolveTrustedHostConsent: () => this.trustedHostConsentService(),
       spawn: (command, cwd, env) => this.processes.start(command, cwd, config.terminal.shell, env),
       stopSession: (sessionId) => this.processes.stop(sessionId),
       readSession: (sessionId) => this.processes.read(sessionId).output,
@@ -191,6 +198,47 @@ export class Container {
         );
       }
     }
+  }
+
+  /** Lazy, macOS-only on-host consent service; no operator files are touched by ordinary startup. */
+  trustedHostConsentService(): TrustedHostConsentService | null {
+    if (this.hostConsentService !== undefined) return this.hostConsentService;
+    if (process.platform !== 'darwin' || typeof process.getuid !== 'function') {
+      this.hostConsentService = null;
+      return null;
+    }
+    const operatorRoot = resolve(defaultHostConsentRoot());
+    const projectRoots = [
+      this.config.workspace.defaultProject,
+      ...this.config.workspace.allowedDirectories,
+    ];
+    // Canonicalize both sides: symlinked project aliases must not expose
+    // host-only operator state even when their lexical paths are disjoint.
+    if (!operatorStateOutsideProjects(operatorRoot, projectRoots)) {
+      this.hostConsentService = null;
+      return null;
+    }
+    try {
+      const uid = process.getuid();
+      const store = new TrustedHostStore({ operatorRoot, currentUid: uid, now: Date.now });
+      this.hostConsentService = new TrustedHostConsentService({
+        fleet: this.fleet,
+        store,
+        installationId: store.getOrCreateInstallationId(),
+        serviceUid: uid,
+        now: Date.now,
+        isWriteFrozen: () => this.missionControl.isWriteFreezeActive(),
+        recordAudit: (event) => this.audit.record({
+          type: 'dashboard_action', summary: event,
+          detail: { source: 'trusted_host_operator_consent' },
+        }),
+      });
+    } catch (error) {
+      // A failed grant initialization must never elevate, and must not crash other features.
+      logger.warn({ error: String(error) }, 'Trusted-host local confirmation unavailable');
+      this.hostConsentService = null;
+    }
+    return this.hostConsentService;
   }
 
   projectRoot(): string {

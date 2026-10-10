@@ -50,6 +50,7 @@ that already runs on Windows stops running.
 | Documentation and version checks | run | run |
 | Real container-runtime isolation (Docker, digest-pinned image) | NOT_RUN | NOT_RUN |
 | Sandbox smoke runtime selection (routing-only, not containment evidence) | run | run |
+| macOS operator-state directory fsync feasibility (not power-loss evidence) | NOT_RUN | NOT_RUN |
 | Fleet reconnect recovery (orphan reaping, lease fencing) | run | run |
 | Audit durability failure injection | NOT_RUN | NOT_RUN |
 | Preserve audit durability evidence | NOT_RUN | NOT_RUN |
