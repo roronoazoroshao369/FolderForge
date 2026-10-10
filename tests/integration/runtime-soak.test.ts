@@ -30,7 +30,8 @@ async function waitForSample(path: string, timeoutMs = 10_000): Promise<void> {
   throw new Error(`Timed out waiting for a sample in ${path}`);
 }
 
-describe.sequential('runtime soak runner', () => {
+// Both Vitest 4 and 5 run tests within a suite sequentially by default.
+describe('runtime soak runner', () => {
   let root: string;
 
   beforeEach(() => {

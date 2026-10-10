@@ -6,7 +6,6 @@ import {
   relative,
   resolve,
   sep,
-  type PlatformPath,
 } from 'node:path';
 
 /** Lexical absolute path used for user-facing display and diagnostics. */
@@ -67,7 +66,8 @@ export function legacyPersistedPath(input: string): string {
   }
 }
 
-export type PathSemantics = Pick<PlatformPath, 'relative' | 'isAbsolute' | 'sep'>;
+// Use the exported path functions rather than @types/node's removed PlatformPath alias.
+export type PathSemantics = Pick<typeof import('node:path'), 'relative' | 'isAbsolute' | 'sep'>;
 
 const hostPath: PathSemantics = { relative, isAbsolute, sep };
 
