@@ -2,7 +2,7 @@ import { createServer, type Server as HttpServer, type IncomingMessage, type Ser
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { Server as ModernSdkServer, createMcpHandler } from '@modelcontextprotocol/server';
-import { classifyMcpEra } from '../protocol/era-router.js';
+import { classifyMcpEra, modernMetadata } from '../protocol/era-router.js';
 import { validateModernHttpEnvelope } from '../protocol/http-headers.js';
 import type { ProtocolMode } from '../protocol/request-context.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -445,9 +445,58 @@ export async function startHttpTransport(
         });
         return;
       }
+
+      // A legacy session MUST NOT bypass the 2026-era mutation guard by
+      // carrying a valid Mcp-Session-Id. Resolve the era before dispatching
+      // anything to the legacy SDK, including claims hidden in body _meta.
+      let legacySessionBody: unknown;
+      if (opts.protocolMode === 'dual') {
+        const version = req.headers['mcp-protocol-version'];
+        const legacyVersion = version === undefined ||
+          (typeof version === 'string' &&
+            ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'].includes(version));
+        const hasModernHeaders = !legacyVersion ||
+          req.headers['mcp-method'] !== undefined ||
+          req.headers['mcp-name'] !== undefined ||
+          Object.keys(req.headers).some(name => name.startsWith('mcp-param-'));
+        const rejectMixedEra = (): void => writeJson(res, 400, {
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32602, message: 'Modern protocol claims are forbidden in a legacy MCP session' },
+        });
+        if (hasModernHeaders) {
+          rejectMixedEra();
+          return;
+        }
+        if (req.method === 'POST') {
+          try {
+            legacySessionBody = await readJsonBody(req);
+          } catch (error) {
+            writeJson(res, 400, {
+              jsonrpc: '2.0',
+              id: null,
+              error: { code: -32700, message: error instanceof SyntaxError ? 'Invalid JSON request body' : String(error) },
+            });
+            return;
+          }
+          const messages = Array.isArray(legacySessionBody) ? legacySessionBody : [legacySessionBody];
+          const claimsModern = messages.some(message => {
+            if (!message || typeof message !== 'object' || Array.isArray(message)) return false;
+            const packet = message as Record<string, unknown>;
+            const meta = modernMetadata(packet.params);
+            return packet.method === 'server/discover' ||
+              (meta !== null && Object.keys(meta).some(key => key.startsWith('io.modelcontextprotocol/')));
+          });
+          if (claimsModern) {
+            rejectMixedEra();
+            return;
+          }
+        }
+      }
+
       session.activeRequests += 1;
       try {
-        await session.transport.handleRequest(req, res);
+        await session.transport.handleRequest(req, res, legacySessionBody);
       } finally {
         session.activeRequests = Math.max(0, session.activeRequests - 1);
         session.lastUsedAt = Date.now();
