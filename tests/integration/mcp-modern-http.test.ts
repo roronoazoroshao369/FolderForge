@@ -99,6 +99,27 @@ describe('G59 opt-in modern HTTP', () => {
       await client.close();
     }
   });
+  it('G59 notification: modern HTTP accepts id-less notification without JSON-RPC response', async () => {
+    const x = await fixture();
+    const result = await fetch(x.base, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-token',
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+        'mcp-protocol-version': '2026-07-28',
+        'mcp-method': 'notifications/initialized',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0', method: 'notifications/initialized',
+        params: { _meta: metadata },
+      }),
+    });
+    expect(result.status).toBe(202);
+    expect(x.reads()).toBe(0);
+    expect(x.writes()).toBe(0);
+  });
+
   it('handles server/discover and tools/list on the official stateless binding', async () => {
     const x = await fixture();
     const discovered = await x.call('server/discover');

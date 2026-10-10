@@ -83,6 +83,26 @@ describe('G59 stdio first-request era selection', () => {
     expect(h.legacyCalls()).toBe(0);
   });
 
+  it('G59-SEC-02: discovery missing JSON-RPC id does not pin stdio to modern', async () => {
+    const h = harness();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', method: 'server/discover',
+      params: { _meta: {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': { name: 'client', version: '1' },
+        'io.modelcontextprotocol/clientCapabilities': {},
+      } },
+    }) + '\n');
+    const denied = await h.next();
+    expect(denied.error).toBeTruthy();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', id: 55, method: 'initialize',
+      params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'legacy', version: '1' } },
+    }) + '\n');
+    await h.started;
+    expect((await h.next()).result.serverInfo.name).toBe('legacy');
+  });
+
   it('G59-SEC-02: invalid initial input must not permanently select an era', async () => {
     const h = harness();
     h.input.write('not a JSON RPC message\n');

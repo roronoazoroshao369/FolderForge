@@ -81,7 +81,9 @@ export async function startDualStdioTransport(options: {
         const decision = classifyMcpEra({
           mode: 'dual', transport: 'stdio', method: packet.method, params: packet.params,
         });
-        const validOpening = !('error' in decision) &&
+        const validRequestId = 'id' in packet &&
+          (typeof packet.id === 'number' || typeof packet.id === 'string');
+        const validOpening = validRequestId && !('error' in decision) &&
           (decision.era === 'modern' || packet.method === 'initialize');
         if (!validOpening) {
           writeError(packet.id, -32600, 'Expected valid MCP opening request');

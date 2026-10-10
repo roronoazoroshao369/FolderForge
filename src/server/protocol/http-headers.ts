@@ -33,7 +33,9 @@ const bad = (error: string): ModernHttpValidation => ({ ok: false, status: 400, 
 export function validateModernHttpEnvelope(body: unknown, headers: IncomingHttpHeaders): ModernHttpValidation {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return bad('Malformed JSON-RPC body');
   const msg = body as Record<string, unknown>;
-  if (msg.jsonrpc !== '2.0' || typeof msg.method !== 'string' || !('id' in msg)) return bad('Invalid JSON-RPC request');
+  const isNotification = typeof msg.method === 'string' && msg.method.startsWith('notifications/') && !('id' in msg);
+  if (msg.jsonrpc !== '2.0' || typeof msg.method !== 'string' ||
+      (!('id' in msg) && !isNotification)) return bad('Invalid JSON-RPC request');
   const params = msg.params && typeof msg.params === 'object' && !Array.isArray(msg.params)
     ? msg.params as Record<string, unknown> : {};
   const meta = params._meta && typeof params._meta === 'object' && !Array.isArray(params._meta)
