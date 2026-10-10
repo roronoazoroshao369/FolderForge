@@ -83,6 +83,27 @@ describe('G59 stdio first-request era selection', () => {
     expect(h.legacyCalls()).toBe(0);
   });
 
+  it('G59-SEC-02: a notification with a forged request id cannot pin the modern era', async () => {
+    const h = harness();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', id: 123, method: 'notifications/initialized',
+      params: { _meta: {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientInfo': { name: 'forged', version: '1' },
+        'io.modelcontextprotocol/clientCapabilities': {},
+      } },
+    }) + '\n');
+    const rejected = await h.next();
+    expect(rejected.id).toBe(123);
+    expect(rejected.error).toBeTruthy();
+    h.input.write(JSON.stringify({
+      jsonrpc: '2.0', id: 124, method: 'initialize',
+      params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'legacy', version: '1' } },
+    }) + '\n');
+    await h.started;
+    expect((await h.next()).result.serverInfo.name).toBe('legacy');
+  });
+
   it('G59-SEC-02: modern discovery with invalid clientInfo does not pin the stream', async () => {
     const h = harness();
     h.input.write(JSON.stringify({

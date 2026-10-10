@@ -86,7 +86,11 @@ export async function startDualStdioTransport(options: {
           (typeof packet.id === 'number' || typeof packet.id === 'string');
         const validLegacyInitialize = packet.method === 'initialize' &&
           InitializeRequestSchema.safeParse(packet).success;
-        const validOpening = validRequestId && !('error' in decision) &&
+        // Notifications are not JSON-RPC requests, even if a hostile sender
+        // attaches a forged id. Never let one select the process-wide era.
+        const isNotification = packet.method.startsWith('notifications/');
+        const validOpening = validRequestId && !isNotification &&
+          !('error' in decision) &&
           (decision.era === 'modern' || validLegacyInitialize);
         if (!validOpening) {
           writeError(packet.id, -32600, 'Expected valid MCP opening request');
