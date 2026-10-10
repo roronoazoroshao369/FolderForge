@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { WorkflowManager } from '../../src/workflows/workflow-manager.js';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { Container } from '../../src/runtime/container.js';
 import { createModernMcpServer } from '../../src/server/protocol/modern-adapter.js';
@@ -147,4 +151,42 @@ it('G59-SEC-01: modern catalog stays fixed when another principal changes legacy
   expect(await query('principal-A')).toEqual(['read_a']);
   legacyActive = new Set(['read_b', 'workspace_route']);
   expect(await query('principal-B')).toEqual(['read_a']);
+});
+
+
+it('G59-SEC-04: real OAuth workflow resources isolate owners, projects and OAuth clients', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'g59-mcp-workflow-owners-'));
+  try {
+    const workflows = new WorkflowManager(root);
+    const owner = (id: string, oauthClientId: string) => ({
+      id, role: 'agent' as const, authMode: 'oauth' as const, oauthClientId,
+      projectId: 'project:fixture',
+      scopes: ['folderforge:read'], readScope: 'folderforge:read', writeScope: 'folderforge:write',
+    });
+    const alice = owner('oauth:alice', 'client:one');
+    const bob = owner('oauth:bob', 'client:one');
+    const otherClient = owner('oauth:alice', 'client:other');
+    const definition = (name: string) => ({
+      name,
+      roles: { reader: { allowedTools: ['file_read'] } },
+      steps: [{ id: 'step1', role: 'reader', tool: 'file_read', args: { path: 'README.md' } }],
+    });
+    const aliceRun = workflows.create(definition('ALICE-PRIVATE-MARKER'), alice);
+    const bobRun = workflows.create(definition('BOB-PRIVATE-MARKER'), bob);
+    const container = {
+      workflows, mcpTasks: { snapshot: (p: {id:string}) => [{ owner: p.id }] },
+      policy: { secret: { redactValue: (value: unknown) => value } },
+    } as unknown as Container;
+    const read = async (principal: ReturnType<typeof owner>) => {
+      const response = await call('resources/read', principal, container, { uri: 'folderforge://workflows' });
+      expect(response.status).toBe(200);
+      expect(response.data.error).toBeUndefined();
+      return JSON.parse(response.data.result.contents[0].text) as Array<{id: string; name: string}>;
+    };
+    expect((await read(alice)).map(run => run.id)).toEqual([aliceRun.id]);
+    expect((await read(bob)).map(run => run.id)).toEqual([bobRun.id]);
+    expect(await read(otherClient)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
