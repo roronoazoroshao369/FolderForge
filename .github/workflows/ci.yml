@@ -77,7 +77,7 @@ jobs:
 
       - name: Preserve audit durability evidence
         if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: audit-durability-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
@@ -90,7 +90,7 @@ jobs:
 
       - name: Preserve evidence integrity results
         if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: evidence-integrity-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
@@ -139,7 +139,7 @@ jobs:
 
       - name: Preserve child MCP compatibility evidence
         if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: child-mcp-compatibility-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
@@ -152,7 +152,7 @@ jobs:
 
       - name: Preserve third-party child MCP evidence
         if: always() && matrix.node == 22
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: child-mcp-third-party-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
@@ -173,7 +173,7 @@ jobs:
 
       - name: Preserve runtime soak smoke evidence
         if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: runtime-soak-smoke-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
@@ -188,7 +188,7 @@ jobs:
 
       - name: Preserve soak volume evidence
         if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: runtime-soak-volume-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
@@ -209,7 +209,7 @@ jobs:
 
       - name: Preserve governance benchmark evidence
         if: always() && matrix.os == 'ubuntu-latest' && matrix.node == 22
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: governance-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn

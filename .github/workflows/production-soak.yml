@@ -78,7 +78,7 @@ jobs:
           node scripts/runtime-soak.mjs --output-dir "${SOAK_OUTPUT_DIR}" --verify
 
       - name: Preserve segment 1 evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: production-soak-segment-1-${{ needs.prepare.outputs.commit }}
           path: ${{ env.SOAK_OUTPUT_DIR }}
@@ -129,7 +129,7 @@ jobs:
           node scripts/runtime-soak.mjs --output-dir "${SOAK_OUTPUT_DIR}" --verify
 
       - name: Preserve segment 2 evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: production-soak-segment-2-${{ needs.prepare.outputs.commit }}
           path: ${{ env.SOAK_OUTPUT_DIR }}
@@ -180,7 +180,7 @@ jobs:
           node scripts/runtime-soak.mjs --output-dir "${SOAK_OUTPUT_DIR}" --verify
 
       - name: Preserve segment 3 evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: production-soak-segment-3-${{ needs.prepare.outputs.commit }}
           path: ${{ env.SOAK_OUTPUT_DIR }}
@@ -231,7 +231,7 @@ jobs:
           node scripts/runtime-soak.mjs --output-dir "${SOAK_OUTPUT_DIR}" --verify
 
       - name: Preserve segment 4 evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: production-soak-segment-4-${{ needs.prepare.outputs.commit }}
           path: ${{ env.SOAK_OUTPUT_DIR }}
@@ -289,7 +289,7 @@ jobs:
             --receipt "${SOAK_OUTPUT_DIR}/production-soak-receipt.json"
 
       - name: Preserve final production soak evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: production-soak-${{ needs.prepare.outputs.commit }}
           path: ${{ env.SOAK_OUTPUT_DIR }}
