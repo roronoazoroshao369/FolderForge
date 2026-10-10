@@ -198,6 +198,39 @@ describe('G59 opt-in modern HTTP', () => {
     });
     expect(attempted.status).toBe(400);
     expect(x.writes()).toBe(0);
+
+    // A client can suppress modern-only HTTP headers while placing a modern
+    // per-request protocol claim in the JSON-RPC envelope: still refuse.
+    const hiddenEnvelope = await fetch(x.base, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-token',
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+        'mcp-session-id': id!,
+        'mcp-protocol-version': '2025-11-25',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 100, method: 'tools/call',
+        params: { name: 'file_write', arguments: { path: '/danger' }, _meta: metadata },
+      }),
+    });
+    expect(hiddenEnvelope.status).toBe(400);
+    expect(x.writes()).toBe(0);
+
+    // Legitimate legacy follow-up on that SAME stateful session must survive.
+    const legacyFollowup = await fetch(x.base, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer test-token',
+        accept: 'application/json, text/event-stream',
+        'content-type': 'application/json',
+        'mcp-session-id': id!,
+        'mcp-protocol-version': '2025-11-25',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 101, method: 'tools/list', params: {} }),
+    });
+    expect(legacyFollowup.status).toBe(200);
   });
   it('denies cross-origin requests before dispatch', async () => {
     const x = await fixture();
