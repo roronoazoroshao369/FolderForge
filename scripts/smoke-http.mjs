@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { makeHttpSmokeApiKey } from './smoke-http-auth.mjs';
 import { createServer } from 'node:net';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,7 @@ import { defaultShell, quoteShellArg } from '../dist/core/shell.js';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const project = mkdtempSync(join(tmpdir(), 'folderforge-http-smoke-'));
-const authValue = randomBytes(32).toString('base64url');
+const authValue = makeHttpSmokeApiKey();
 let child;
 let logs = '';
 
