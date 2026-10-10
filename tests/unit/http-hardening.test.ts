@@ -6,6 +6,7 @@ import {
   extractApiKey,
   matchesAnyCredential,
   resolveCorsOrigin,
+  isAllowedMcpOrigin,
 } from '../../src/server/transports/http.js';
 import {
   adminPrincipalFromCredential,
@@ -49,6 +50,13 @@ describe('http transport hardening helpers', () => {
     expect(matchesAnyCredential('wrong-key', accepted)).toBe(false);
     expect(matchesAnyCredential(undefined, accepted)).toBe(false);
     expect(matchesAnyCredential('primary-token', [])).toBe(false);
+  });
+
+  it('refuses a forged Host matching an attacker Origin on a loopback server', () => {
+    expect(isAllowedMcpOrigin('https://evil.example', 'evil.example', '127.0.0.1')).toBe(false);
+    expect(isAllowedMcpOrigin('http://127.0.0.1:7331', '127.0.0.1:7331', '127.0.0.1')).toBe(true);
+    expect(isAllowedMcpOrigin(undefined, '127.0.0.1:7331', '127.0.0.1')).toBe(true);
+    expect(isAllowedMcpOrigin('not-a-url', '127.0.0.1:7331', '127.0.0.1')).toBe(false);
   });
 
   it('resolves CORS origins against the allowlist', () => {

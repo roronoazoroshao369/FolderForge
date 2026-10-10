@@ -12,7 +12,8 @@ import {
   resolveActiveTools,
 } from "./tools/index.js";
 import { createMcpServer } from "./server/mcp-server.js";
-import { startStdioTransport } from "./server/transports/stdio.js";
+import { createModernMcpServer } from "./server/protocol/modern-adapter.js";
+import { startStdioTransport, startDualStdioTransport } from "./server/transports/stdio.js";
 import { startHttpTransport } from "./server/transports/http.js";
 import { startDashboard, isLoopbackHost } from "./dashboard/server.js";
 import { ResponsesStore } from "./openai/responses-store.js";
@@ -885,6 +886,14 @@ async function main(): Promise<void> {
       );
     }
     await startHttpTransport(makeServer, {
+      protocolMode: config.server.mcpProtocol?.mode ?? 'legacy',
+      modernServerFactory: principal => createModernMcpServer(registry, {
+        name: config.server.name,
+        version: VERSION,
+        principal: withExecutionContext(principal, container.projectRoot()),
+        container,
+      }),
+
       host: httpHost,
       port: config.server.http.port,
       authMode: effectiveMode,
@@ -913,7 +922,19 @@ async function main(): Promise<void> {
       responsesHandler,
     });
   } else {
-    await startStdioTransport(server);
+    if (config.server.mcpProtocol?.mode === 'dual') {
+      await startDualStdioTransport({
+        makeLegacy: makeServer,
+        makeModern: () => createModernMcpServer(registry, {
+          name: config.server.name,
+          version: VERSION,
+          principal: withExecutionContext(STDIO_AGENT_PRINCIPAL, container.projectRoot()),
+          container,
+        }),
+      });
+    } else {
+      await startStdioTransport(server);
+    }
   }
 
   let shuttingDown = false;

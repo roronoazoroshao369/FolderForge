@@ -24,8 +24,11 @@ export function classifyMcpEra(input: {
   const meta = modernMetadata(input.params);
   const version = meta?.['io.modelcontextprotocol/protocolVersion'];
   const headerVersion = input.headers?.['mcp-protocol-version'];
+  const knownLegacyHttpHeader = typeof headerVersion === 'string' &&
+    ['2025-11-25', '2025-06-18', '2025-03-26'].includes(headerVersion);
   const modernShape = version !== undefined || input.method === 'server/discover'
-    || headerVersion !== undefined || input.headers?.['mcp-method'] !== undefined;
+    || (headerVersion !== undefined && !knownLegacyHttpHeader)
+    || input.headers?.['mcp-method'] !== undefined;
   if (!modernShape) {
     if (input.lockedEra === 'modern') return { error: 'mixed_era' };
     return { era: 'legacy', protocolVersion: '2025-11-25' };

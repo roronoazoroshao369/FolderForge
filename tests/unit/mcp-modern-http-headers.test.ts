@@ -25,6 +25,9 @@ describe('2026 HTTP mirrored-header validation', () => {
     expect(validateModernHttpEnvelope({ ...request, params: { ...request.params, name } }, { ...headers, 'mcp-name': encoded })).toMatchObject({ ok: true });
     expect(validateModernHttpEnvelope({ ...request, params: { ...request.params, name } }, { ...headers, 'mcp-name': name })).toMatchObject({ ok: false, code: -32020 });
   });
+  it('rejects unsupported unconfigured custom parameter header forwarding', () => {
+    expect(validateModernHttpEnvelope(request, { ...headers, 'mcp-param-Tenant': 'foreign-tenant' })).toMatchObject({ ok: false, code: -32020 });
+  });
   it('enforces required version and method header agreements', () => {
     expect(validateModernHttpEnvelope(request, { ...headers, 'mcp-protocol-version': '2025-11-25' })).toMatchObject({ ok: false, status: 400, code: -32020 });
     expect(validateModernHttpEnvelope(request, { ...headers, 'mcp-method': 'tools/list' })).toMatchObject({ ok: false, status: 400, code: -32020 });

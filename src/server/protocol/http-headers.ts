@@ -1,5 +1,5 @@
 import type { IncomingHttpHeaders } from 'node:http';
-import { MODERN_MCP_VERSION, type ModernRequestContext } from './request-context.js';
+import { MODERN_MCP_VERSION } from './request-context.js';
 
 export type ModernHttpValidation =
   | { ok: true; method: string; name?: string; protocolVersion: typeof MODERN_MCP_VERSION }
@@ -46,6 +46,12 @@ export function validateModernHttpEnvelope(body: unknown, headers: IncomingHttpH
     if (!method || method !== msg.method) return bad('Mcp-Method differs from body');
     const name = msg.method === 'resources/read' ? params.uri
       : ['tools/call', 'prompts/get'].includes(msg.method) ? params.name : undefined;
+    // No G59 tool schemas advertise the optional x-mcp-header extension.
+    // Until we can validate against an annotated schema, reject supplied
+    // Mcp-Param-* values rather than ignoring a potentially routed claim.
+    if (Object.keys(headers).some(key => key.toLowerCase().startsWith('mcp-param-'))) {
+      return bad('Unsupported Mcp-Param header');
+    }
     const mirroredName = header(headers, 'mcp-name');
     if (name !== undefined) {
       if (typeof name !== 'string' || !mirroredName || decodeMirroredHeader(mirroredName) !== name) return bad('Mcp-Name differs from body');
