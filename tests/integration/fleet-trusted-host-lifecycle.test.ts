@@ -102,6 +102,25 @@ describe('Fleet trusted-host execution boundary', () => {
     expect(snapshot.lastError).toMatch(/REVOKED_EXECUTION_UNCERTAIN/);
   });
 
+  it('continues reconciliation after restart for a revoked child with a live unknown PID', () => {
+    const alive = { current: true };
+    const h = fixture(true, alive);
+    h.approveApply();
+    h.fleet.start(h.instance.id);
+    h.auth.revokeFromLocal(h.instance.id);
+    h.fleet.reconcileRevokedTrustedHosts();
+
+    const restarted = new FleetManager(h.root, { isAlive: () => alive.current });
+    expect(restarted.get(h.instance.id).lastError).toBe('REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART');
+
+    alive.current = false;
+    expect(restarted.reconcileRevokedTrustedHosts()).toContain(h.instance.id);
+    const recovered = restarted.get(h.instance.id);
+    expect(recovered.state).toBe('stopped');
+    expect(recovered.pid).toBeUndefined();
+    expect(recovered.lastError).toBe('TRUSTED_HOST_REVOKED_VERIFIED_STOP');
+  });
+
   it('denies any new trusted-host start after local grant revocation', () => {
     const h = fixture();
     h.approveApply();

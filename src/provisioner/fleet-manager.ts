@@ -490,7 +490,8 @@ export class FleetManager {
     if (this.allowTrustedHostExecution) return []; // explicit legacy startup grant, not a scoped operator grant
     const candidates = this.instances.filter((item) =>
       item.terminalExecution === 'trusted-host' &&
-      (item.state === 'running' || item.state === 'starting' || item.state === 'stopping'),
+      (item.state === 'running' || item.state === 'starting' || item.state === 'stopping' ||
+        (item.state === 'failed' && item.lastError === 'REVOKED_EXECUTION_UNCERTAIN_AFTER_RESTART')),
     );
     if (candidates.length === 0) return [];
     const consent = this.trustedHostConsent ?? this.consentResolver?.();
