@@ -46,6 +46,7 @@ async function fixture() {
       host: '127.0.0.1',
       port: 0,
       token: 'test-token',
+      corsOrigins: ['https://trusted.example'],
       protocolMode: 'dual',
       modernServerFactory: principal => createModernMcpServer(registry, {
         name: 'test', version: '1.0', principal,
@@ -231,6 +232,29 @@ describe('G59 opt-in modern HTTP', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 101, method: 'tools/list', params: {} }),
     });
     expect(legacyFollowup.status).toBe(200);
+  });
+  it('G59-SEC-03: dual origin guard applies to MCP, not health or other APIs', async () => {
+    const x = await fixture();
+    const headers = { origin: 'https://evil.example' };
+    const health = await fetch(new URL('/healthz', x.base), { headers });
+    expect(health.status).toBe(200);
+    const other = await fetch(new URL('/v1/unknown', x.base), { headers });
+    expect(other.status).toBe(404);
+    const mcp = await x.call('tools/list', {}, headers);
+    expect(mcp.status).toBe(403);
+  });
+  it('G59-SEC-03: permitted modern MCP browser preflight lists required headers', async () => {
+    const x = await fixture();
+    const res = await fetch(x.base, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://trusted.example', 'access-control-request-method': 'POST',
+        'access-control-request-headers': 'mcp-protocol-version,mcp-method,mcp-name' },
+    });
+    expect(res.status).toBe(204);
+    const allowed = res.headers.get('access-control-allow-headers') ?? '';
+    expect(allowed).toContain('mcp-protocol-version');
+    expect(allowed).toContain('mcp-method');
+    expect(allowed).toContain('mcp-name');
   });
   it('denies cross-origin requests before dispatch', async () => {
     const x = await fixture();

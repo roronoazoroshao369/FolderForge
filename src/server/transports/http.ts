@@ -581,6 +581,7 @@ export async function startHttpTransport(
           'authorization',
           'content-type',
           'mcp-session-id',
+          ...(opts.protocolMode === 'dual' ? ['mcp-protocol-version', 'mcp-method', 'mcp-name'] : []),
           'x-api-key',
           ...(gatewayGuard ? [gatewayGuard.header] : []),
         ].join(', ')
@@ -590,13 +591,15 @@ export async function startHttpTransport(
 
   const http = createServer((req, res) => {
     const route = async (): Promise<void> => {
-      if (opts.protocolMode === 'dual' &&
+      const requestUrl = new URL(req.url ?? '/', 'http://folderforge.invalid');
+      const pathname = requestUrl.pathname;
+      // Only MCP traffic participates in dual-era origin validation. Other
+      // routes retain their existing gateway, CORS, and auth behavior.
+      if (opts.protocolMode === 'dual' && pathname === mcpPath &&
           !isAllowedMcpOrigin(req.headers.origin, req.headers.host, opts.host, opts.corsOrigins)) {
         writeJson(res, 403, { error: 'invalid_origin' });
         return;
       }
-      const requestUrl = new URL(req.url ?? '/', 'http://folderforge.invalid');
-      const pathname = requestUrl.pathname;
       applyCors(req, res);
       res.setHeader('x-folderforge-instance-id', instanceId);
       res.setHeader('x-folderforge-started-at', startedAt);
